@@ -1,0 +1,63 @@
+{
+  "xsxx": {"XH": "fictional-student-orbit"},
+  "kbList": [
+    {
+      "kcmc": "虚构课程：彗星导航",
+      "jxb_id": "synthetic-orbit-navigation",
+      "cdmc": "虚构教室：星港一号",
+      "xm": "虚构教师：星尘",
+      "xqj": "2",
+      "jcs": "2-3",
+      "zcd": "2-4周，7-9周（单）"
+    },
+    {
+      "kcmc": "虚构课程：彗星导航",
+      "jxb_id": "synthetic-orbit-navigation",
+      "cdmc": "虚构教室：星港一号",
+      "xm": "虚构教师：星尘",
+      "xqj": "2",
+      "jcs": "2-3",
+      "zcd": "10-11周"
+    },
+    {
+      "kcmc": "虚构课程：彗星导航",
+      "jxb_id": "synthetic-orbit-navigation",
+      "cdmc": "虚构教室：星港二号",
+      "xm": "虚构教师：星尘",
+      "xqj": "4",
+      "jcs": "10",
+      "zcd": "2-6周（双）"
+    },
+    {
+      "kcmc": "虚构课程：月面造景",
+      "jxb_id": "synthetic-lunar-landscaping",
+      "cdmc": "虚构教室：月壤工坊",
+      "xm": "虚构教师：月砂",
+      "xqj": "3",
+      "jcs": "第1节、4-5节",
+      "zcd": "2-6周（双）"
+    },
+    {
+      "kcmc": "虚构课程：月面造景",
+      "jxb_id": "synthetic-lunar-landscaping",
+      "cdmc": "虚构教室：月壤工坊",
+      "xm": "虚构教师：月砂",
+      "xqj": "7",
+      "jcs": "11",
+      "zcd": "第5周"
+    },
+    {
+      "kcmc": "虚构课程：星云制图",
+      "jxb_id": "synthetic-nebula-cartography",
+      "cdmc": "虚构教室：星图工坊",
+      "xm": "虚构教师：云帆",
+      "xqj": "7",
+      "jcs": "7-8",
+      "zcd": "第5周"
+    }
+  ],
+  "sjkList": [
+    {"kcmc": "虚构实践：陨石采样", "jxb_id": "synthetic-meteorite-practice"},
+    {"kcmc": "虚构网课：行星博物馆", "jxb_id": "synthetic-planetary-online"}
+  ]
+}

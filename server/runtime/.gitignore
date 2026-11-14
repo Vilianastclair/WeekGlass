@@ -1,0 +1,5 @@
+__pycache__/
+.pytest_cache/
+.venv/
+*.log
+/node-v*-linux-x64.tar.gz

@@ -1,0 +1,6 @@
+name: weekglass_domain
+description: Pure domain model and calendar rules for Viliana's WeekGlass.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.13.7

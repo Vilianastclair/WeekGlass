@@ -1,0 +1,65 @@
+name: weekglass
+description: A calm, local-first weekly time planner.
+publish_to: none
+version: 0.20.12+36
+
+environment:
+  sdk: ^3.13.7
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+  intl: ^0.20.2
+  crypto: ^3.0.8
+  cryptography: ^2.9.0
+  archive: ^4.6.0
+  flutter_secure_storage: ^11.2.0
+  url_launcher: ^6.3.3
+  webview_windows: ^0.4.0
+  webview_flutter: ^4.14.1
+  path: ^1.9.1
+  path_provider: ^2.1.6
+  shared_preferences: ^2.5.6
+  sqflite: ^2.4.5
+  sqflite_common: ^2.5.14
+  sqflite_common_ffi: ^2.4.5
+  flutter_timezone: ^5.1.1
+  uuid: ^4.6.0
+  window_manager: ^0.5.2
+  file_picker: ^13.3.2
+  pdf: ^3.13.1
+  rrule: ^0.2.18
+  timezone: ^0.11.2
+  weekglass_domain:
+    path: ../../packages/domain
+  weekglass_data:
+    path: ../../packages/data
+  weekglass_design_system:
+    path: ../../packages/design_system
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^6.0.0
+  shared_preferences_platform_interface: ^2.4.2
+
+hooks:
+  user_defines:
+    sqlite3:
+      source: system
+      name_windows: winsqlite3
+      name: sqlite3
+
+flutter:
+  uses-material-design: true
+  assets:
+    - assets/brand/
+    - assets/fonts/OFL.txt
+
+  fonts:
+    - family: WeekGlassSans
+      fonts:
+        - asset: assets/fonts/NotoSansSC-Variable.ttf
+  # The bundled variable CJK font uses its original SIL Open Font License.

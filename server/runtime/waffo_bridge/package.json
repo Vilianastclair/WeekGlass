@@ -1,0 +1,9 @@
+{
+  "name": "weekglass-waffo-bridge",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=20.0.0" },
+  "scripts": { "test": "node --test bridge.test.mjs" },
+  "dependencies": { "@waffo/pancake-ts": "0.28.0" }
+}

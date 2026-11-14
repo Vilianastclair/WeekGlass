@@ -1,0 +1,14 @@
+name: weekglass_design_system
+description: Visual language and reusable UI tokens for Viliana's WeekGlass.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.13.7
+  flutter: ">=3.30.0"
+dependencies:
+  flutter:
+    sdk: flutter
+flutter:
+  shaders:
+    - shaders/liquid_glass.frag
+    - shaders/liquid_glass_mobile.frag

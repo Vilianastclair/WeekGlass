@@ -1,0 +1,12 @@
+name: weekglass_data
+description: Local-first persistence adapters for Viliana's WeekGlass.
+publish_to: none
+version: 0.1.0
+environment:
+  sdk: ^3.13.7
+dependencies:
+  uuid: ^4.6.0
+  path: ^1.9.1
+  sqflite_common: ^2.5.14
+  weekglass_domain:
+    path: ../domain

@@ -1,0 +1,168 @@
+"""Explicit additive migrations; old application images can still read the schema."""
+
+
+def migrate_auth(conn):
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext('weekglass_schema'))")
+    conn.execute('''CREATE TABLE IF NOT EXISTS schema_migrations (
+      migration_id text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())''')
+    name = '20261106_account_recovery_v1'
+    if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
+        return
+    conn.execute('ALTER TABLE auth_accounts ADD COLUMN IF NOT EXISTS recovery_hash text')
+    conn.execute('''ALTER TABLE auth_grants ADD COLUMN IF NOT EXISTS account_id uuid
+      REFERENCES accounts(account_id) ON DELETE CASCADE''')
+    conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
+
+
+def migrate_billing(conn):
+    # db.init_schema holds the schema advisory lock and owns the transaction.
+    conn.execute('''CREATE TABLE IF NOT EXISTS schema_migrations (
+      migration_id text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())''')
+    name = '20261113_billing_ledger_v1'
+    if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
+        return
+    conn.execute('''
+      CREATE TABLE billing_agreements (
+        agreement_id uuid PRIMARY KEY,
+        account_id uuid REFERENCES accounts(account_id) ON DELETE SET NULL,
+        provider text NOT NULL, merchant_id text NOT NULL, app_id text NOT NULL,
+        provider_agreement_id text,
+        plan_id text NOT NULL, terms_version text NOT NULL, template_id text NOT NULL,
+        amount_minor integer NOT NULL CHECK (amount_minor > 0),
+        currency text NOT NULL CHECK (currency = 'CNY'),
+        period_seconds integer NOT NULL CHECK (period_seconds = 2592000),
+        status text NOT NULL CHECK (status IN ('pending','active','canceling','canceled','expired')),
+        consented_at timestamptz NOT NULL, signed_at timestamptz, expires_at timestamptz,
+        stopped_at timestamptz, channel_ended_at timestamptz,
+        UNIQUE (provider, provider_agreement_id)
+      );
+      CREATE INDEX billing_agreements_account ON billing_agreements(account_id, consented_at DESC);
+      CREATE UNIQUE INDEX billing_one_open_agreement ON billing_agreements(account_id)
+        WHERE status IN ('pending','active','canceling');
+
+      -- One shared slot per account/coverage boundary, regardless of purchase mode.
+      CREATE TABLE billing_renewals (
+        renewal_id uuid PRIMARY KEY,
+        account_id uuid REFERENCES accounts(account_id) ON DELETE SET NULL,
+        cycle_end timestamptz,
+        agreement_id uuid REFERENCES billing_agreements(agreement_id),
+        status text NOT NULL CHECK (status IN ('ready','reserved','settled','skipped')),
+        due_at timestamptz, window_end_at timestamptz,
+        notice_delivered_at timestamptz, notice_reference text,
+        channel_ready_at timestamptz,
+        UNIQUE (account_id, cycle_end),
+        CHECK (due_at IS NULL OR (window_end_at IS NOT NULL AND cycle_end IS NOT NULL
+          AND due_at < window_end_at AND window_end_at <= cycle_end))
+      );
+      CREATE INDEX billing_renewals_due ON billing_renewals(due_at) WHERE status='ready';
+
+      CREATE TABLE billing_orders (
+        checkout_id uuid PRIMARY KEY, -- also the stable merchant order number (UUID hex on the wire)
+        account_id uuid REFERENCES accounts(account_id) ON DELETE SET NULL,
+        renewal_id uuid NOT NULL REFERENCES billing_renewals(renewal_id),
+        agreement_id uuid REFERENCES billing_agreements(agreement_id),
+        source text NOT NULL CHECK (source IN ('checkout','renewal')),
+        purchase_mode text NOT NULL CHECK (purchase_mode IN ('single','auto_renew')),
+        provider text NOT NULL, merchant_id text NOT NULL, app_id text NOT NULL,
+        provider_payment_id text,
+        plan_id text NOT NULL, terms_version text NOT NULL,
+        amount_minor integer NOT NULL CHECK (amount_minor > 0),
+        currency text NOT NULL CHECK (currency = 'CNY'),
+        period_seconds integer NOT NULL CHECK (period_seconds = 2592000),
+        status text NOT NULL CHECK (status IN ('pending','submitting','processing','paid',
+          'closed','failed','refund_pending','refunded')),
+        created_at timestamptz NOT NULL, paid_at timestamptz,
+        refund_required boolean NOT NULL DEFAULT false,
+        UNIQUE (provider, provider_payment_id),
+        CHECK ((agreement_id IS NOT NULL) = (purchase_mode = 'auto_renew')),
+        CHECK ((provider_payment_id IS NOT NULL) = (paid_at IS NOT NULL))
+      );
+      ALTER TABLE billing_renewals ADD COLUMN order_id uuid REFERENCES billing_orders(checkout_id);
+      ALTER TABLE billing_renewals ADD CHECK ((order_id IS NOT NULL) = (status IN ('reserved','settled')));
+      CREATE INDEX billing_orders_account ON billing_orders(account_id,created_at DESC);
+      CREATE INDEX billing_orders_agreement ON billing_orders(agreement_id) WHERE agreement_id IS NOT NULL;
+      CREATE UNIQUE INDEX billing_one_unresolved_order ON billing_orders(account_id)
+        WHERE status IN ('pending','submitting','processing');
+
+      -- A coalesced checkout can have multiple keys, each with its own original intent.
+      CREATE TABLE billing_checkout_keys (
+        account_id uuid NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
+        idempotency_key uuid NOT NULL,
+        checkout_id uuid NOT NULL REFERENCES billing_orders(checkout_id),
+        requested_terms_version text,
+        PRIMARY KEY (account_id,idempotency_key)
+      );
+      CREATE TABLE billing_checkout_handoffs (
+        ticket_hash text PRIMARY KEY,
+        checkout_id uuid NOT NULL REFERENCES billing_orders(checkout_id),
+        expires_at timestamptz NOT NULL,
+        consumed_at timestamptz
+      );
+      CREATE INDEX billing_handoff_order ON billing_checkout_handoffs(checkout_id);
+
+      CREATE TABLE billing_events (
+        provider text NOT NULL, merchant_id text NOT NULL, app_id text NOT NULL,
+        event_id text NOT NULL, related_id uuid NOT NULL,
+        event_data jsonb NOT NULL,
+        status text NOT NULL CHECK (status IN ('deferred','applied','rejected')),
+        received_at timestamptz NOT NULL, processed_at timestamptz,
+        PRIMARY KEY (provider,merchant_id,app_id,event_id)
+      );
+      CREATE INDEX billing_deferred_events ON billing_events(related_id,received_at)
+        WHERE status='deferred';
+      CREATE TABLE billing_refunds (
+        provider text NOT NULL, merchant_id text NOT NULL, app_id text NOT NULL,
+        merchant_refund_id text NOT NULL, provider_refund_id text NOT NULL,
+        checkout_id uuid NOT NULL REFERENCES billing_orders(checkout_id),
+        amount_minor integer NOT NULL CHECK (amount_minor > 0),
+        status text NOT NULL CHECK (status IN ('pending','succeeded','failed')),
+        PRIMARY KEY (provider,merchant_id,app_id,merchant_refund_id),
+        UNIQUE (provider,provider_refund_id)
+      );
+      CREATE INDEX billing_refunds_order ON billing_refunds(checkout_id);
+      CREATE TABLE billing_periods (
+        checkout_id uuid PRIMARY KEY REFERENCES billing_orders(checkout_id),
+        account_id uuid REFERENCES accounts(account_id) ON DELETE SET NULL,
+        start_at timestamptz NOT NULL, end_at timestamptz NOT NULL, revoked_at timestamptz,
+        CHECK (end_at-start_at = interval '720 hours')
+      );
+      CREATE INDEX billing_periods_account ON billing_periods(account_id,end_at);
+    ''')
+    conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
+
+
+def migrate_provider_checkout(conn):
+    name = '20261113_billing_checkout_session_v1'
+    if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
+        return
+    conn.execute('''ALTER TABLE billing_orders
+      ADD COLUMN provider_checkout_url text,
+      ADD COLUMN provider_checkout_expires_at timestamptz''')
+    conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
+
+
+def migrate_provider_reconcile(conn):
+    name = '20261114_billing_reconciliation_v1'
+    if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
+        return
+    conn.execute('''ALTER TABLE billing_orders ADD COLUMN provider_next_check_at timestamptz;
+      CREATE INDEX billing_provider_check_due ON billing_orders(provider,merchant_id,app_id,provider_next_check_at)
+        WHERE status IN ('submitting','processing')''')
+    conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
+
+
+def migrate_billing_plan_periods(conn):
+    name = '20261114_billing_plan_periods_v1'
+    if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
+        return
+    conn.execute('''
+      ALTER TABLE billing_orders ADD COLUMN provider_product_id text,
+        DROP CONSTRAINT billing_orders_period_seconds_check,
+        ADD CONSTRAINT billing_orders_supported_period CHECK (
+          period_seconds = 2592000 OR (period_seconds = 31536000 AND provider = 'waffo_pancake'
+            AND source = 'checkout' AND purchase_mode = 'single' AND provider_product_id IS NOT NULL));
+      ALTER TABLE billing_periods DROP CONSTRAINT billing_periods_check,
+        ADD CONSTRAINT billing_periods_supported_length CHECK (
+          end_at-start_at IN (interval '720 hours', interval '8760 hours'));
+    ''')
+    conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))

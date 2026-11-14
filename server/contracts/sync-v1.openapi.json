@@ -1,0 +1,4644 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "WeekGlass Sync API v1",
+    "version": "1.0.0-draft",
+    "description": "Implemented WeekGlass-only authentication, account lifecycle and calendar synchronization. Hosted subscriptions and free self-hosting share the protocol. Payment integration is not enabled."
+  },
+  "servers": [
+    {
+      "url": "https://{host}:{port}",
+      "description": "Deployment origin is configured, not a live endpoint. Never redirect Authorization across origins.",
+      "variables": {
+        "host": {
+          "default": "sync.example.invalid"
+        },
+        "port": {
+          "default": "8443"
+        }
+      }
+    }
+  ],
+  "security": [
+    {
+      "BearerAuth": []
+    }
+  ],
+  "tags": [
+    {
+      "name": "Discovery"
+    },
+    {
+      "name": "Authentication"
+    },
+    {
+      "name": "Devices"
+    },
+    {
+      "name": "Synchronization"
+    },
+    {
+      "name": "Subscription"
+    },
+    {
+      "name": "Export"
+    }
+  ],
+  "paths": {
+    "/v1/server-info": {
+      "get": {
+        "summary": "Discover server identity, mode and protocol",
+        "operationId": "getServerInfo",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ServerInfo"
+                }
+              }
+            }
+          }
+        },
+        "security": [],
+        "tags": [
+          "Discovery"
+        ]
+      }
+    },
+    "/v1/auth/authorize": {
+      "get": {
+        "summary": "Browser login/consent followed by one-use authorization code",
+        "operationId": "authorize",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "First-party HTML login/consent UI. Required implementation, not a substitute for an identity provider configuration. Secure cookies and CSRF protections."
+          },
+          "302": {
+            "description": "Redirect to exact validated loopback callback with code and original state; error redirects only to already validated URI."
+          },
+          "400": {
+            "description": "Invalid authorization request.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "response_type",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "code"
+              ]
+            },
+            "description": ""
+          },
+          {
+            "name": "client_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "weekglass-native"
+              ]
+            },
+            "description": ""
+          },
+          {
+            "name": "redirect_uri",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uri"
+            },
+            "description": "Exact approved loopback URI http://127.0.0.1:<ephemeral-port>/oauth/callback; browser only; no arbitrary URI or remote redirect."
+          },
+          {
+            "name": "code_challenge",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 43,
+              "maxLength": 43
+            },
+            "description": ""
+          },
+          {
+            "name": "code_challenge_method",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "S256"
+              ]
+            },
+            "description": ""
+          },
+          {
+            "name": "state",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 32,
+              "maxLength": 512
+            },
+            "description": ""
+          },
+          {
+            "name": "device_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": ""
+          }
+        ],
+        "security": [],
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/v1/auth/token": {
+      "post": {
+        "summary": "Redeem PKCE code or rotate refresh token",
+        "operationId": "token",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "invalid_grant; reused refresh token revokes token family; lost responses may require sign-in again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/x-www-form-urlencoded": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          }
+        },
+        "security": [],
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/v1/auth/revoke": {
+      "post": {
+        "summary": "Revoke this refresh family and device access",
+        "operationId": "revokeToken",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Revoked or already invalid. No existence disclosure."
+          },
+          "400": {
+            "description": "Malformed JSON/form or invalid request shape; no writes.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RevokeRequest"
+              }
+            }
+          }
+        },
+        "security": [],
+        "tags": [
+          "Authentication"
+        ]
+      }
+    },
+    "/v1/me/entitlements": {
+      "get": {
+        "summary": "Read server-authoritative cloud permissions",
+        "operationId": "getEntitlements",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Entitlements"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Subscription"
+        ]
+      }
+    },
+    "/v1/devices": {
+      "get": {
+        "summary": "List this account devices",
+        "operationId": "listDevices",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeviceList"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Devices"
+        ]
+      }
+    },
+    "/v1/devices/{device_id}": {
+      "patch": {
+        "summary": "Set this device display metadata",
+        "operationId": "updateDevice",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Device"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in authenticated account.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed JSON/form or invalid request shape; no writes.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeviceInput"
+              }
+            }
+          }
+        },
+        "tags": [
+          "Devices"
+        ]
+      },
+      "delete": {
+        "summary": "Revoke a device without erasing its local data",
+        "operationId": "revokeDevice",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Revoked idempotently."
+          },
+          "404": {
+            "description": "Not found in authenticated account.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "device_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "tags": [
+          "Devices"
+        ]
+      }
+    },
+    "/v1/sync/snapshots": {
+      "post": {
+        "summary": "Create a bounded immutable initial/resync snapshot",
+        "operationId": "createSnapshot",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotPage"
+                },
+                "example": {
+                  "snapshot_id": "11111111-1111-4111-8111-111111111111",
+                  "dataset_id": "33333333-3333-4333-8333-333333333333",
+                  "sync_epoch": "44444444-4444-4444-8444-444444444444",
+                  "boundary_cursor": "example-opaque-cursor-account-42",
+                  "expires_at": "2026-11-05T00:15:01Z",
+                  "records": [
+                    {
+                      "revision": "42",
+                      "deleted_at_utc": null,
+                      "event": {
+                        "id": "whu-example-course-occurrence-01",
+                        "title": "高等数学",
+                        "notes": "地点：2区A207\n教师：徐卓仕",
+                        "color_key": "mist_blue",
+                        "is_all_day": false,
+                        "start_utc": "2026-11-05T00:00:00Z",
+                        "end_utc": "2026-11-05T01:35:00Z",
+                        "all_day_start": null,
+                        "all_day_end_exclusive": null,
+                        "time_zone_id": "Asia/Shanghai",
+                        "recurrence_rule": null,
+                        "series_id": "whu-example-series-01",
+                        "import_source": "whu:example-account:2026-2027:autumn",
+                        "import_fingerprint": "example-pseudonymous-course-fingerprint",
+                        "created_at_utc": "2026-11-01T01:00:00Z",
+                        "updated_at_utc": "2026-11-05T00:00:00Z",
+                        "version": 2,
+                        "deleted_at_utc": null
+                      },
+                      "id": "whu-example-course-occurrence-01"
+                    }
+                  ],
+                  "next_page_token": null
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resync/epoch mismatch; do not drop local changes.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed JSON/form or invalid request shape; no writes.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Synchronization"
+        ]
+      }
+    },
+    "/v1/sync/snapshots/{snapshot_id}": {
+      "get": {
+        "summary": "Read the next immutable snapshot page",
+        "operationId": "readSnapshot",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotPage"
+                },
+                "example": {
+                  "snapshot_id": "11111111-1111-4111-8111-111111111111",
+                  "dataset_id": "33333333-3333-4333-8333-333333333333",
+                  "sync_epoch": "44444444-4444-4444-8444-444444444444",
+                  "boundary_cursor": "example-opaque-cursor-account-42",
+                  "expires_at": "2026-11-05T00:15:01Z",
+                  "records": [
+                    {
+                      "revision": "42",
+                      "deleted_at_utc": null,
+                      "event": {
+                        "id": "whu-example-course-occurrence-01",
+                        "title": "高等数学",
+                        "notes": "地点：2区A207\n教师：徐卓仕",
+                        "color_key": "mist_blue",
+                        "is_all_day": false,
+                        "start_utc": "2026-11-05T00:00:00Z",
+                        "end_utc": "2026-11-05T01:35:00Z",
+                        "all_day_start": null,
+                        "all_day_end_exclusive": null,
+                        "time_zone_id": "Asia/Shanghai",
+                        "recurrence_rule": null,
+                        "series_id": "whu-example-series-01",
+                        "import_source": "whu:example-account:2026-2027:autumn",
+                        "import_fingerprint": "example-pseudonymous-course-fingerprint",
+                        "created_at_utc": "2026-11-01T01:00:00Z",
+                        "updated_at_utc": "2026-11-05T00:00:00Z",
+                        "version": 2,
+                        "deleted_at_utc": null
+                      },
+                      "id": "whu-example-course-occurrence-01"
+                    }
+                  ],
+                  "next_page_token": null
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not found in authenticated account.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "snapshot_expired; discard staged pages, preserve outbox and start again.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "snapshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          {
+            "name": "page_token",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 1024
+            },
+            "description": ""
+          }
+        ],
+        "tags": [
+          "Synchronization"
+        ]
+      }
+    },
+    "/v1/sync/changes": {
+      "get": {
+        "summary": "Read atomic changes after committed local cursor",
+        "operationId": "getChanges",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangePage"
+                },
+                "example": {
+                  "changes": [
+                    {
+                      "batch_id": "55555555-5555-4555-8555-555555555555",
+                      "origin_device_id": "22222222-2222-4222-8222-222222222222",
+                      "committed_at": "2026-11-05T00:00:01Z",
+                      "cursor": "example-opaque-cursor-account-42",
+                      "records": [
+                        {
+                          "revision": "42",
+                          "deleted_at_utc": null,
+                          "event": {
+                            "id": "whu-example-course-occurrence-01",
+                            "title": "高等数学",
+                            "notes": "地点：2区A207\n教师：徐卓仕",
+                            "color_key": "mist_blue",
+                            "is_all_day": false,
+                            "start_utc": "2026-11-05T00:00:00Z",
+                            "end_utc": "2026-11-05T01:35:00Z",
+                            "all_day_start": null,
+                            "all_day_end_exclusive": null,
+                            "time_zone_id": "Asia/Shanghai",
+                            "recurrence_rule": null,
+                            "series_id": "whu-example-series-01",
+                            "import_source": "whu:example-account:2026-2027:autumn",
+                            "import_fingerprint": "example-pseudonymous-course-fingerprint",
+                            "created_at_utc": "2026-11-01T01:00:00Z",
+                            "updated_at_utc": "2026-11-05T00:00:00Z",
+                            "version": 2,
+                            "deleted_at_utc": null
+                          },
+                          "id": "whu-example-course-occurrence-01"
+                        }
+                      ]
+                    }
+                  ],
+                  "next_cursor": "example-opaque-cursor-account-42",
+                  "has_more": false,
+                  "server_time": "2026-11-05T00:00:02Z"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "cursor_scope_mismatch or epoch_mismatch; rebind/resync explicitly.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "cursor_expired/resync_required; snapshot required, preserve outbox/conflicts.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/Cursor"
+            },
+            "description": ""
+          },
+          {
+            "name": "limit_batches",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "maximum": 10,
+              "default": 1
+            },
+            "description": ""
+          },
+          {
+            "name": "wait_seconds",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 25,
+              "default": 0
+            },
+            "description": "Optional bounded long poll; no busy empty polling."
+          }
+        ],
+        "tags": [
+          "Synchronization"
+        ]
+      }
+    },
+    "/v1/sync/batches": {
+      "post": {
+        "summary": "Commit one atomic idempotent logical change",
+        "operationId": "pushBatch",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "subscription_required / subscription_expired / device_revoked; preserve local outbox.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Committed or identical retry receipt. Authenticated identical committed retries remain readable during the read/export retention window even after subscription expiry or quota exhaustion.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                },
+                "example": {
+                  "batch_id": "55555555-5555-4555-8555-555555555555",
+                  "request_sha256": "94ea661eb90305e345726fdc466d0246baaeb82e0b96ed1902347f4aab173e7a",
+                  "commit_cursor": "example-opaque-cursor-account-42",
+                  "committed_at": "2026-11-05T00:00:01Z",
+                  "results": [
+                    {
+                      "mutation_id": "66666666-6666-4666-8666-666666666666",
+                      "event_id": "whu-example-course-occurrence-01",
+                      "revision": "42"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "revision_conflict with conflicts, idempotency_key_reused, mutation_reused, or epoch_mismatch. Whole batch unchanged.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                },
+                "example": {
+                  "type": "https://sync.example.invalid/problems/revision-conflict",
+                  "title": "日程已被另一台设备修改",
+                  "status": 409,
+                  "code": "revision_conflict",
+                  "request_id": "example-request-42",
+                  "conflicts": [
+                    {
+                      "mutation_id": "66666666-6666-4666-8666-666666666666",
+                      "event_id": "whu-example-course-occurrence-01",
+                      "reason": "revision_mismatch",
+                      "current": {
+                        "revision": "42",
+                        "deleted_at_utc": null,
+                        "event": {
+                          "id": "whu-example-course-occurrence-01",
+                          "title": "高等数学",
+                          "notes": "地点：2区A207\n教师：徐卓仕",
+                          "color_key": "mist_blue",
+                          "is_all_day": false,
+                          "start_utc": "2026-11-05T00:00:00Z",
+                          "end_utc": "2026-11-05T01:35:00Z",
+                          "all_day_start": null,
+                          "all_day_end_exclusive": null,
+                          "time_zone_id": "Asia/Shanghai",
+                          "recurrence_rule": null,
+                          "series_id": "whu-example-series-01",
+                          "import_source": "whu:example-account:2026-2027:autumn",
+                          "import_fingerprint": "example-pseudonymous-course-fingerprint",
+                          "created_at_utc": "2026-11-01T01:00:00Z",
+                          "updated_at_utc": "2026-11-05T00:00:00Z",
+                          "version": 2,
+                          "deleted_at_utc": null
+                        },
+                        "id": "whu-example-course-occurrence-01"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "batch_too_large or body_too_large (100 mutations / 2097152 decoded UTF-8 bytes); rejected before transaction. Nothing committed. Do not silently split or change an already-sent batch.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "invalid_event / invalid_interval / invalid_zone / duplicate_entity. Nothing committed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "507": {
+            "description": "account_storage_quota; nothing committed.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed JSON/form or invalid request shape; no writes.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/BatchRequest"
+              },
+              "example": {
+                "batch_id": "55555555-5555-4555-8555-555555555555",
+                "device_id": "22222222-2222-4222-8222-222222222222",
+                "dataset_id": "33333333-3333-4333-8333-333333333333",
+                "sync_epoch": "44444444-4444-4444-8444-444444444444",
+                "mutations": [
+                  {
+                    "mutation_id": "66666666-6666-4666-8666-666666666666",
+                    "event_id": "whu-example-course-occurrence-01",
+                    "base_revision": "41",
+                    "operation": "put",
+                    "event": {
+                      "id": "whu-example-course-occurrence-01",
+                      "title": "高等数学",
+                      "notes": "地点：2区A207\n教师：徐卓仕",
+                      "color_key": "mist_blue",
+                      "is_all_day": false,
+                      "start_utc": "2026-11-05T00:00:00Z",
+                      "end_utc": "2026-11-05T01:35:00Z",
+                      "all_day_start": null,
+                      "all_day_end_exclusive": null,
+                      "time_zone_id": "Asia/Shanghai",
+                      "recurrence_rule": null,
+                      "series_id": "whu-example-series-01",
+                      "import_source": "whu:example-account:2026-2027:autumn",
+                      "import_fingerprint": "example-pseudonymous-course-fingerprint",
+                      "created_at_utc": "2026-11-01T01:00:00Z",
+                      "updated_at_utc": "2026-11-05T00:00:00Z",
+                      "version": 2,
+                      "deleted_at_utc": null
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        },
+        "tags": [
+          "Synchronization"
+        ]
+      }
+    },
+    "/v1/sync/batches/{batch_id}": {
+      "get": {
+        "summary": "Query an immutable receipt after an uncertain network result",
+        "operationId": "getBatchReceipt",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Receipt"
+                },
+                "example": {
+                  "batch_id": "55555555-5555-4555-8555-555555555555",
+                  "request_sha256": "94ea661eb90305e345726fdc466d0246baaeb82e0b96ed1902347f4aab173e7a",
+                  "commit_cursor": "example-opaque-cursor-account-42",
+                  "committed_at": "2026-11-05T00:00:01Z",
+                  "results": [
+                    {
+                      "mutation_id": "66666666-6666-4666-8666-666666666666",
+                      "event_id": "whu-example-course-occurrence-01",
+                      "revision": "42"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No committed receipt in this account/device. Retrying identical batch is safe; never infer a future in-flight request cannot commit.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "tags": [
+          "Synchronization"
+        ]
+      }
+    },
+    "/v1/sync/ack": {
+      "post": {
+        "summary": "Record locally committed pull progress",
+        "operationId": "acknowledgeChanges",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "204": {
+            "description": "Acknowledged monotonically for this device; old acknowledgements are harmless."
+          },
+          "409": {
+            "description": "Invalid cursor scope/epoch or device does not match authenticated device.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed JSON/form or invalid request shape; no writes.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Ack"
+              }
+            }
+          }
+        },
+        "tags": [
+          "Synchronization"
+        ]
+      }
+    },
+    "/v1/exports/calendar": {
+      "get": {
+        "summary": "Export this calendar even when hosted subscription expired",
+        "operationId": "exportCalendar",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Temporary unavailable; retry safe reads or the same immutable batch only.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Export"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "Dataset already removed under an explicitly notified retention policy; not an expiry-triggered silent deletion.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "tags": [
+          "Export"
+        ]
+      }
+    },
+    "/v1/billing/checkout-sessions": {
+      "post": {
+        "summary": "Create hosted-only checkout for a configured plan",
+        "operationId": "createCheckout",
+        "responses": {
+          "401": {
+            "description": "Unauthenticated/expired/revoked device; refresh once or sign in. No data mutation.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Account or capability denied.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "billing_not_configured; no checkout created or charge attempted.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            },
+            "headers": {
+              "Retry-After": {
+                "description": "Delay in seconds before retry. Token refresh lost-response recovery requires sign-in, not blind replay.",
+                "schema": {
+                  "type": "integer",
+                  "minimum": 0
+                }
+              }
+            }
+          },
+          "201": {
+            "description": "Created or reused the same account-scoped checkout order.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckoutSession"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing unavailable in self-hosted mode or unknown plan.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Malformed JSON/form or invalid request shape; no writes.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Same key and different intent; stale quote; auto-renew unavailable or agreement still open; another order unresolved; or one future paid period already reserved.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid checkout intent or Idempotency-Key.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Checkout"
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "Idempotency-Key",
+            "in": "header",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "tags": [
+          "Subscription"
+        ]
+      }
+    },
+    "/v1/billing/plans": {
+      "get": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "List hosted purchase options",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingPlans"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "An account bearer session is required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing unavailable in self-hosted mode or the order does not belong to this account.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database unavailable.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/subscription": {
+      "get": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Read subscription and renewal status",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingSubscription"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "An account bearer session is required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing unavailable in self-hosted mode or the order does not belong to this account.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database unavailable.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/subscription/cancel": {
+      "post": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Stop new automatic debits; retain paid access and any unresolved in-flight order",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingSubscription"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "An account bearer session is required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing unavailable in self-hosted mode or the order does not belong to this account.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database unavailable.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/orders": {
+      "get": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "List the current account’s recent orders",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingOrders"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "An account bearer session is required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing unavailable in self-hosted mode or the order does not belong to this account.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database unavailable.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/billing/orders/{checkout_id}": {
+      "get": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Read an order owned by the current account",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingOrder"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "An account bearer session is required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing unavailable in self-hosted mode or the order does not belong to this account.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database unavailable.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid checkout UUID.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "checkout_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/billing/orders/{checkout_id}/close": {
+      "post": {
+        "tags": [
+          "Billing"
+        ],
+        "summary": "Close a proven-unsubmitted order without contacting a payment provider",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BillingOrder"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "An account bearer session is required.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Billing unavailable in self-hosted mode or the order does not belong to this account.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "Database unavailable.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Order is already being processed, paid, or under refund review.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Invalid checkout UUID.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "parameters": [
+          {
+            "name": "checkout_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ]
+      }
+    },
+    "/v1/me/account": {
+      "get": {
+        "operationId": "getAccount",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "getAccount",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountProfile"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "operationId": "deleteAccount",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "deleteAccount",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DeleteAccountRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/password": {
+      "post": {
+        "operationId": "changePassword",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "changePassword",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/recovery-key": {
+      "post": {
+        "operationId": "rotateRecoveryKey",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "rotateRecoveryKey",
+        "responses": {
+          "200": {
+            "description": "Success",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RecoveryKeyResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmPasswordRequest"
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/me/sessions/revoke-others": {
+      "post": {
+        "operationId": "revokeOtherSessions",
+        "tags": [
+          "Authentication"
+        ],
+        "summary": "revokeOtherSessions",
+        "responses": {
+          "204": {
+            "description": "Success"
+          },
+          "400": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Rejected without granting access",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmPasswordRequest"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "BearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "description": "Opaque short-lived token bound to server/account/dataset/device, over HTTPS. Native clients keep tokens in OS-protected storage, never WebView JS or logs."
+      }
+    },
+    "schemas": {
+      "EventId": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128,
+        "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]*$",
+        "description": "Preserves existing UUID and whu-<hash> event/series IDs; not restricted to UUID."
+      },
+      "Revision": {
+        "type": "string",
+        "pattern": "^[1-9][0-9]*$",
+        "description": "Server account commit number as decimal string. Distinct from CalendarEvent.version; never use a floating-point number."
+      },
+      "Cursor": {
+        "type": "string",
+        "minLength": 16,
+        "maxLength": 1024,
+        "description": "Opaque authenticated token bound to server_id, account_id, dataset_id, sync_epoch and committed sequence. Do not parse or fabricate."
+      },
+      "Problem": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "type": {
+            "type": "string",
+            "format": "uri"
+          },
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer",
+            "minimum": 400,
+            "maximum": 599
+          },
+          "code": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "retry_after_seconds": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "conflicts": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Conflict"
+            },
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "code",
+          "request_id"
+        ],
+        "description": "Errors contain no secrets. Conflict responses have at most 100 current records and at most 20971520 UTF-8 serialized bytes; stream JSON without ASCII-escaping all Unicode and bound concurrent large responses."
+      },
+      "Limits": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "batch_mutations": {
+            "type": "integer",
+            "const": 100
+          },
+          "batch_uncompressed_bytes": {
+            "type": "integer",
+            "const": 2097152
+          },
+          "change_page_batches": {
+            "type": "integer",
+            "const": 10
+          },
+          "snapshot_page_records": {
+            "type": "integer",
+            "const": 500
+          },
+          "snapshot_ttl_seconds": {
+            "type": "integer",
+            "const": 900
+          },
+          "change_retention_days": {
+            "type": "integer",
+            "const": 90
+          },
+          "snapshot_page_bytes": {
+            "type": "integer",
+            "const": 2097152
+          },
+          "conflict_response_bytes": {
+            "type": "integer",
+            "const": 20971520
+          },
+          "event_bytes": {
+            "type": "integer",
+            "const": 131072
+          }
+        },
+        "required": [
+          "batch_mutations",
+          "batch_uncompressed_bytes",
+          "change_page_batches",
+          "snapshot_page_records",
+          "snapshot_ttl_seconds",
+          "change_retention_days",
+          "snapshot_page_bytes",
+          "conflict_response_bytes",
+          "event_bytes"
+        ]
+      },
+      "ServerInfo": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "protocol_version": {
+            "type": "string",
+            "enum": [
+              "1"
+            ]
+          },
+          "server_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mode": {
+            "type": "string",
+            "enum": [
+              "hosted",
+              "self_hosted"
+            ]
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+            "pattern": "Z$"
+          },
+          "api_base_url": {
+            "type": "string",
+            "format": "uri"
+          },
+          "authorization_endpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "token_endpoint": {
+            "type": "string",
+            "format": "uri"
+          },
+          "capabilities": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "atomic_batches",
+                "delta_pull",
+                "snapshot",
+                "export",
+                "subscription"
+              ]
+            }
+          },
+          "limits": {
+            "$ref": "#/components/schemas/Limits"
+          }
+        },
+        "required": [
+          "protocol_version",
+          "server_id",
+          "mode",
+          "server_time",
+          "api_base_url",
+          "authorization_endpoint",
+          "token_endpoint",
+          "capabilities",
+          "limits"
+        ],
+        "description": "No secrets. Stable random server_id belongs to an installation, survives normal restarts/backups; an unrelated replacement must receive a new identity. HTTPS mandatory outside localhost."
+      },
+      "DeviceInput": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "platform": {
+            "type": "string",
+            "enum": [
+              "windows",
+              "android"
+            ]
+          },
+          "app_version": {
+            "type": "string",
+            "maxLength": 40
+          }
+        },
+        "required": [
+          "device_id",
+          "display_name",
+          "platform",
+          "app_version"
+        ]
+      },
+      "Device": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "display_name": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "platform": {
+            "type": "string"
+          },
+          "app_version": {
+            "type": "string"
+          },
+          "last_seen_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+            "pattern": "Z$"
+          },
+          "revoked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "device_id",
+          "display_name",
+          "platform",
+          "app_version",
+          "last_seen_at",
+          "revoked_at"
+        ]
+      },
+      "TokenResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "token_type": {
+            "type": "string",
+            "enum": [
+              "Bearer"
+            ]
+          },
+          "access_token": {
+            "type": "string",
+            "minLength": 32
+          },
+          "expires_in": {
+            "type": "integer",
+            "const": 900
+          },
+          "refresh_token": {
+            "type": "string",
+            "minLength": 32
+          },
+          "refresh_expires_in": {
+            "type": "integer",
+            "const": 2592000
+          },
+          "server_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dataset_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sync_epoch": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "token_type",
+          "access_token",
+          "expires_in",
+          "refresh_token",
+          "refresh_expires_in",
+          "server_id",
+          "account_id",
+          "dataset_id",
+          "device_id",
+          "sync_epoch"
+        ],
+        "description": "Cache-Control:no-store. Refresh token rotates on every successful use. Values are examples of contract lifetimes, not deployed credentials."
+      },
+      "Entitlements": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mode": {
+            "type": "string",
+            "enum": [
+              "hosted",
+              "self_hosted"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "active",
+              "expired",
+              "not_subscribed",
+              "self_hosted",
+              "suspended"
+            ]
+          },
+          "sync_read": {
+            "type": "boolean"
+          },
+          "sync_write": {
+            "type": "boolean"
+          },
+          "export_allowed": {
+            "type": "boolean"
+          },
+          "current_period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "retention_until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "plan_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "limits": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "max_devices": {
+                "type": "integer",
+                "minimum": 1
+              },
+              "storage_bytes": {
+                "type": "integer",
+                "minimum": 1
+              }
+            },
+            "required": [
+              "max_devices",
+              "storage_bytes"
+            ]
+          }
+        },
+        "required": [
+          "mode",
+          "status",
+          "sync_read",
+          "sync_write",
+          "export_allowed",
+          "current_period_end",
+          "retention_until",
+          "plan_id",
+          "limits"
+        ],
+        "description": "Self-hosted bypasses billing, not authentication or quotas. Hosted current_period_end is the end of currently continuous write access from paid periods and/or a separate administrator grant. Expiry disables new writes but keeps reading, prior receipts and export. No automatic data deletion is scheduled."
+      },
+      "Event": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/EventId"
+          },
+          "title": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "Empty title is valid for reserved time; presentation may show a localized fallback."
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 32768
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "color_key": {
+            "type": "string",
+            "enum": [
+              "mist_blue",
+              "lavender",
+              "sage_green",
+              "soft_peach",
+              "rose",
+              "warm_sand",
+              "slate"
+            ]
+          },
+          "is_all_day": {
+            "type": "boolean"
+          },
+          "start_utc": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "end_utc": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "all_day_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "all_day_end_exclusive": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "time_zone_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80
+          },
+          "recurrence_rule": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "series_id": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/EventId"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "import_source": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 512
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "import_fingerprint": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 256
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_at_utc": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+            "pattern": "Z$"
+          },
+          "updated_at_utc": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+            "pattern": "Z$"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991
+          },
+          "deleted_at_utc": {
+            "type": "null"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "notes",
+          "color_key",
+          "is_all_day",
+          "start_utc",
+          "end_utc",
+          "all_day_start",
+          "all_day_end_exclusive",
+          "time_zone_id",
+          "recurrence_rule",
+          "series_id",
+          "import_source",
+          "import_fingerprint",
+          "created_at_utc",
+          "updated_at_utc",
+          "version",
+          "deleted_at_utc"
+        ],
+        "description": "Full replacement of event content, including explicit nulls. Materialized weekly/monthly occurrences retain series_id; no server-side recurrence expansion. version is source local content metadata, NOT remote revision. Live payload only; deletions are mutation.operation=delete. Existing legacy all-day fields remain transport-compatible, without adding UI. Compact serialized UTF-8 Event JSON, including necessary escaping, must not exceed 131072 bytes; validate before transaction. Empty title is valid.",
+        "allOf": [
+          {
+            "if": {
+              "properties": {
+                "is_all_day": {
+                  "const": false
+                }
+              }
+            },
+            "then": {
+              "properties": {
+                "start_utc": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                  "pattern": "Z$"
+                },
+                "end_utc": {
+                  "type": "string",
+                  "format": "date-time",
+                  "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                  "pattern": "Z$"
+                },
+                "all_day_start": {
+                  "type": "null"
+                },
+                "all_day_end_exclusive": {
+                  "type": "null"
+                }
+              }
+            },
+            "else": {
+              "properties": {
+                "start_utc": {
+                  "type": "null"
+                },
+                "end_utc": {
+                  "type": "null"
+                },
+                "all_day_start": {
+                  "type": "string",
+                  "format": "date"
+                },
+                "all_day_end_exclusive": {
+                  "type": "string",
+                  "format": "date"
+                }
+              }
+            }
+          }
+        ],
+        "examples": [
+          {
+            "id": "whu-example-course-occurrence-01",
+            "title": "高等数学",
+            "notes": "地点：2区A207\n教师：徐卓仕",
+            "color_key": "mist_blue",
+            "is_all_day": false,
+            "start_utc": "2026-11-05T00:00:00Z",
+            "end_utc": "2026-11-05T01:35:00Z",
+            "all_day_start": null,
+            "all_day_end_exclusive": null,
+            "time_zone_id": "Asia/Shanghai",
+            "recurrence_rule": null,
+            "series_id": "whu-example-series-01",
+            "import_source": "whu:example-account:2026-2027:autumn",
+            "import_fingerprint": "example-pseudonymous-course-fingerprint",
+            "created_at_utc": "2026-11-01T01:00:00Z",
+            "updated_at_utc": "2026-11-05T00:00:00Z",
+            "version": 2,
+            "deleted_at_utc": null
+          }
+        ],
+        "x-max-utf8-json-bytes": 131072
+      },
+      "Record": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/EventId"
+          },
+          "revision": {
+            "$ref": "#/components/schemas/Revision"
+          },
+          "deleted_at_utc": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "event": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Event"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "revision",
+          "deleted_at_utc",
+          "event"
+        ],
+        "description": "Live: event nonnull, deletion null. Tombstone: event null, deletion nonnull. ID and remote revision remain after payload/history compaction so stale creates cannot resurrect deleted events.",
+        "oneOf": [
+          {
+            "properties": {
+              "event": {
+                "$ref": "#/components/schemas/Event"
+              },
+              "deleted_at_utc": {
+                "type": "null"
+              }
+            }
+          },
+          {
+            "properties": {
+              "event": {
+                "type": "null"
+              },
+              "deleted_at_utc": {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              }
+            }
+          }
+        ],
+        "examples": [
+          {
+            "revision": "42",
+            "deleted_at_utc": null,
+            "event": {
+              "id": "whu-example-course-occurrence-01",
+              "title": "高等数学",
+              "notes": "地点：2区A207\n教师：徐卓仕",
+              "color_key": "mist_blue",
+              "is_all_day": false,
+              "start_utc": "2026-11-05T00:00:00Z",
+              "end_utc": "2026-11-05T01:35:00Z",
+              "all_day_start": null,
+              "all_day_end_exclusive": null,
+              "time_zone_id": "Asia/Shanghai",
+              "recurrence_rule": null,
+              "series_id": "whu-example-series-01",
+              "import_source": "whu:example-account:2026-2027:autumn",
+              "import_fingerprint": "example-pseudonymous-course-fingerprint",
+              "created_at_utc": "2026-11-01T01:00:00Z",
+              "updated_at_utc": "2026-11-05T00:00:00Z",
+              "version": 2,
+              "deleted_at_utc": null
+            },
+            "id": "whu-example-course-occurrence-01"
+          },
+          {
+            "revision": "43",
+            "deleted_at_utc": "2026-11-05T01:00:00Z",
+            "event": null,
+            "id": "whu-example-deleted-01"
+          }
+        ]
+      },
+      "Mutation": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mutation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "event_id": {
+            "$ref": "#/components/schemas/EventId"
+          },
+          "base_revision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Revision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "operation": {
+            "type": "string",
+            "enum": [
+              "put",
+              "delete"
+            ]
+          },
+          "event": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Event"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "mutation_id",
+          "event_id",
+          "base_revision",
+          "operation",
+          "event"
+        ],
+        "description": "base_revision=null means create only if this ID has NEVER existed in this dataset. Existing put/delete/restore require current remote revision; event.id must equal event_id. Mutation ID is unique per account across batches.",
+        "oneOf": [
+          {
+            "properties": {
+              "operation": {
+                "const": "put"
+              },
+              "event": {
+                "$ref": "#/components/schemas/Event"
+              }
+            }
+          },
+          {
+            "properties": {
+              "operation": {
+                "const": "delete"
+              },
+              "event": {
+                "type": "null"
+              },
+              "base_revision": {
+                "$ref": "#/components/schemas/Revision"
+              }
+            }
+          }
+        ],
+        "examples": [
+          {
+            "mutation_id": "66666666-6666-4666-8666-666666666666",
+            "event_id": "whu-example-course-occurrence-01",
+            "base_revision": "41",
+            "operation": "put",
+            "event": {
+              "id": "whu-example-course-occurrence-01",
+              "title": "高等数学",
+              "notes": "地点：2区A207\n教师：徐卓仕",
+              "color_key": "mist_blue",
+              "is_all_day": false,
+              "start_utc": "2026-11-05T00:00:00Z",
+              "end_utc": "2026-11-05T01:35:00Z",
+              "all_day_start": null,
+              "all_day_end_exclusive": null,
+              "time_zone_id": "Asia/Shanghai",
+              "recurrence_rule": null,
+              "series_id": "whu-example-series-01",
+              "import_source": "whu:example-account:2026-2027:autumn",
+              "import_fingerprint": "example-pseudonymous-course-fingerprint",
+              "created_at_utc": "2026-11-01T01:00:00Z",
+              "updated_at_utc": "2026-11-05T00:00:00Z",
+              "version": 2,
+              "deleted_at_utc": null
+            }
+          },
+          {
+            "mutation_id": "77777777-7777-4777-8777-777777777777",
+            "event_id": "whu-example-deleted-01",
+            "base_revision": "42",
+            "operation": "delete",
+            "event": null
+          }
+        ]
+      },
+      "BatchRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dataset_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sync_epoch": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "mutations": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Mutation"
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "batch_id",
+          "device_id",
+          "dataset_id",
+          "sync_epoch",
+          "mutations"
+        ],
+        "description": "All-or-nothing bounded transaction. Unique event_id and mutation_id within batch. Authenticated device must match. At most 100 mutations and 2097152 bytes of decoded UTF-8 JSON. Validate byte/count limits before any write transaction. Larger logical series operations require explicitly tracked deterministic batches with visible partial progress; never silently split an already-sent batch."
+      },
+      "Receipt": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "request_sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+          },
+          "commit_cursor": {
+            "$ref": "#/components/schemas/Cursor"
+          },
+          "committed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+            "pattern": "Z$"
+          },
+          "results": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "mutation_id": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "event_id": {
+                  "$ref": "#/components/schemas/EventId"
+                },
+                "revision": {
+                  "$ref": "#/components/schemas/Revision"
+                }
+              },
+              "required": [
+                "mutation_id",
+                "event_id",
+                "revision"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "batch_id",
+          "request_sha256",
+          "commit_cursor",
+          "committed_at",
+          "results"
+        ],
+        "description": "Persisted receipt replayed unchanged for identical batch. commit_cursor is only a catch-up hint: NEVER advance the client pull cursor from this acknowledgement. request_sha256 is SHA-256 of RFC 8785 canonicalized request JSON, computed by the server. Authenticate ownership/revocation and scope first, then replay a committed receipt before enforcing write subscription/quota; replay is a read operation."
+      },
+      "Conflict": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "mutation_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "event_id": {
+            "$ref": "#/components/schemas/EventId"
+          },
+          "reason": {
+            "type": "string",
+            "enum": [
+              "revision_mismatch",
+              "already_exists",
+              "not_found",
+              "deleted"
+            ]
+          },
+          "current": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/Record"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "mutation_id",
+          "event_id",
+          "reason",
+          "current"
+        ]
+      },
+      "ChangeBatch": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "origin_device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "committed_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+            "pattern": "Z$"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/Cursor"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Record"
+            },
+            "minItems": 1,
+            "maxItems": 100
+          }
+        },
+        "required": [
+          "batch_id",
+          "origin_device_id",
+          "committed_at",
+          "cursor",
+          "records"
+        ],
+        "description": "One committed atomic batch, never split across pages. Client applies/stages all records and cursor in one local transaction."
+      },
+      "ChangePage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "changes": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ChangeBatch"
+            },
+            "maxItems": 10
+          },
+          "next_cursor": {
+            "$ref": "#/components/schemas/Cursor"
+          },
+          "has_more": {
+            "type": "boolean"
+          },
+          "server_time": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+            "pattern": "Z$"
+          }
+        },
+        "required": [
+          "changes",
+          "next_cursor",
+          "has_more",
+          "server_time"
+        ],
+        "description": "Strictly after request cursor. next_cursor acknowledges only included committed batches, or unchanged input if empty. A cursor from another account/server/epoch is never accepted."
+      },
+      "SnapshotPage": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "snapshot_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dataset_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sync_epoch": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "boundary_cursor": {
+            "$ref": "#/components/schemas/Cursor"
+          },
+          "expires_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+            "pattern": "Z$"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Record"
+            },
+            "maxItems": 500
+          },
+          "next_page_token": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 1024
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "snapshot_id",
+          "dataset_id",
+          "sync_epoch",
+          "boundary_cursor",
+          "expires_at",
+          "records",
+          "next_page_token"
+        ],
+        "description": "Immutable materialized snapshot from one repeatable-read MVCC boundary serialized by the account state row lock; retry serialization failure. Includes compact tombstone heads. Same boundary on all pages, 900-second TTL, at most one active snapshot per account. Stage pages before atomic local installation; preserve local outbox and fetch changes after boundary only after completion. Stop before 2097152 UTF-8 serialized bytes even if fewer than 500 complete records; never split a record. Reuse the same unexpired account snapshot and remaining TTL for another device/create request; do not invalidate a snapshot already being read."
+      },
+      "Ack": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "cursor": {
+            "$ref": "#/components/schemas/Cursor"
+          }
+        },
+        "required": [
+          "device_id",
+          "cursor"
+        ],
+        "description": "Acknowledges locally committed pull progress only; not permission to discard local outbox."
+      },
+      "Export": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "format": {
+            "type": "string",
+            "enum": [
+              "weekglass-json-v1"
+            ]
+          },
+          "server_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "dataset_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "boundary_cursor": {
+            "$ref": "#/components/schemas/Cursor"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+            "pattern": "Z$"
+          },
+          "records": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Record"
+            }
+          }
+        },
+        "required": [
+          "format",
+          "server_id",
+          "account_id",
+          "dataset_id",
+          "boundary_cursor",
+          "created_at",
+          "records"
+        ],
+        "description": "Streaming application/json export at one consistent boundary; excludes credentials, tokens, billing details and school browser sessions."
+      },
+      "Checkout": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "purchase_mode": {
+            "type": "string",
+            "enum": [
+              "single",
+              "auto_renew"
+            ]
+          },
+          "terms_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "expected_checkout_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Continue only this existing order; never reserve a replacement."
+          },
+          "return_uri": {
+            "type": "string",
+            "enum": [
+              "weekglass://billing-return"
+            ]
+          }
+        },
+        "required": [
+          "plan_id",
+          "purchase_mode"
+        ],
+        "description": "The server locks the price, currency, period and terms for the selected plan. Optional terms_version is a quote precondition. When continuing an existing order, its stored quote is authoritative. return_uri is only a UI hint and never authorizes payment or redirects the provider."
+      },
+      "CheckoutSession": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "checkout_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uri"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "expires_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "checkout_id",
+          "url",
+          "expires_at"
+        ],
+        "description": "Hosted official HTTPS order page with short-lived one-use #ticket fragment. The same account/key/intent always identifies the same order; a still-pending order can issue another ticket. url and expires_at are both null when the order is no longer payable. Neither an opened page nor a browser return grants entitlement."
+      },
+      "TokenRequest": {
+        "oneOf": [
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "grant_type": {
+                "type": "string",
+                "enum": [
+                  "authorization_code"
+                ]
+              },
+              "code": {
+                "type": "string",
+                "minLength": 16,
+                "maxLength": 512
+              },
+              "client_id": {
+                "type": "string",
+                "enum": [
+                  "weekglass-native"
+                ]
+              },
+              "redirect_uri": {
+                "type": "string",
+                "format": "uri"
+              },
+              "code_verifier": {
+                "type": "string",
+                "minLength": 43,
+                "maxLength": 128,
+                "pattern": "^[A-Za-z0-9._~-]{43,128}$"
+              },
+              "device_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "grant_type",
+              "code",
+              "client_id",
+              "redirect_uri",
+              "code_verifier",
+              "device_id"
+            ]
+          },
+          {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "grant_type": {
+                "type": "string",
+                "enum": [
+                  "refresh_token"
+                ]
+              },
+              "refresh_token": {
+                "type": "string",
+                "minLength": 32,
+                "maxLength": 1024
+              },
+              "client_id": {
+                "type": "string",
+                "enum": [
+                  "weekglass-native"
+                ]
+              },
+              "device_id": {
+                "type": "string",
+                "format": "uuid"
+              }
+            },
+            "required": [
+              "grant_type",
+              "refresh_token",
+              "client_id",
+              "device_id"
+            ]
+          }
+        ]
+      },
+      "RevokeRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "refresh_token": {
+            "type": "string",
+            "minLength": 32,
+            "maxLength": 1024
+          },
+          "device_id": {
+            "type": "string",
+            "format": "uuid"
+          }
+        },
+        "required": [
+          "refresh_token",
+          "device_id"
+        ]
+      },
+      "DeviceList": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "devices": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/Device"
+            }
+          }
+        },
+        "required": [
+          "devices"
+        ]
+      },
+      "WebhookEvent": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "provider_event_id": {
+            "type": "string"
+          },
+          "provider_customer_id": {
+            "type": "string"
+          },
+          "provider_subscription_id": {
+            "type": "string"
+          },
+          "effective_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+            "pattern": "Z$"
+          },
+          "event_type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "provider_event_id",
+          "provider_customer_id",
+          "provider_subscription_id",
+          "effective_at",
+          "event_type"
+        ],
+        "description": "Normalized INTERNAL event, never a public client request. Exact provider webhook schema/signature verification is implemented only after provider choice."
+      },
+      "ConfirmPasswordRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current_password"
+        ],
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          }
+        }
+      },
+      "ChangePasswordRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current_password",
+          "new_password"
+        ],
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "new_password": {
+            "type": "string",
+            "minLength": 16,
+            "maxLength": 1024
+          }
+        }
+      },
+      "DeleteAccountRequest": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "current_password",
+          "confirmation"
+        ],
+        "properties": {
+          "current_password": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 1024
+          },
+          "confirmation": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 80
+          }
+        }
+      },
+      "RecoveryKeyResponse": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "recovery_key"
+        ],
+        "properties": {
+          "recovery_key": {
+            "type": "string",
+            "minLength": 40,
+            "maxLength": 100
+          }
+        }
+      },
+      "AccountProfile": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "account_id",
+          "username",
+          "created_at",
+          "recovery_configured",
+          "active_devices",
+          "usage"
+        ],
+        "properties": {
+          "account_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "username": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "recovery_configured": {
+            "type": "boolean"
+          },
+          "active_devices": {
+            "type": "integer",
+            "minimum": 0
+          },
+          "usage": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "storage_bytes",
+              "event_count"
+            ],
+            "properties": {
+              "storage_bytes": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "event_count": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        }
+      },
+      "CheckoutHandoff": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "ticket": {
+            "type": "string",
+            "pattern": "^[A-Za-z0-9_-]{43}$"
+          }
+        },
+        "required": [
+          "ticket"
+        ],
+        "description": "Single-use, short-lived order ticket; not an account credential."
+      },
+      "BillingPlan": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plan_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "amount_minor": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Amount in minor currency units (fen for CNY)."
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "CNY"
+            ]
+          },
+          "period_seconds": {
+            "type": "integer",
+            "enum": [
+              2592000,
+              31536000
+            ],
+            "description": "Fixed 30 or 365 days of 24 hours each. The 365-day plan is single-purchase only."
+          },
+          "terms_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "purchase_modes": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "single",
+                "auto_renew"
+              ]
+            },
+            "minItems": 1,
+            "maxItems": 2,
+            "uniqueItems": true
+          }
+        },
+        "required": [
+          "plan_id",
+          "amount_minor",
+          "currency",
+          "period_seconds",
+          "terms_version",
+          "provider",
+          "purchase_modes"
+        ]
+      },
+      "BillingPlans": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "plans": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BillingPlan"
+            },
+            "maxItems": 2
+          }
+        },
+        "required": [
+          "plans"
+        ],
+        "description": "Currently available hosted purchase options. The 30-day option precedes the 365-day option when both are available."
+      },
+      "BillingOrder": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "checkout_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "plan_id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "purchase_mode": {
+            "type": "string",
+            "enum": [
+              "single",
+              "auto_renew"
+            ]
+          },
+          "amount_minor": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 2147483647,
+            "description": "Amount in minor currency units (fen for CNY)."
+          },
+          "currency": {
+            "type": "string",
+            "enum": [
+              "CNY"
+            ]
+          },
+          "period_seconds": {
+            "type": "integer",
+            "enum": [
+              2592000,
+              31536000
+            ],
+            "description": "The immutable 30- or 365-day duration quoted for this order, in seconds."
+          },
+          "terms_version": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "provider": {
+            "type": "string",
+            "minLength": 1
+          },
+          "can_resume_checkout": {
+            "type": "boolean",
+            "description": "A hosted cashier link for this order exists and has not expired. Account and checkout availability still apply."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "submitting",
+              "processing",
+              "paid",
+              "closed",
+              "failed",
+              "refund_pending",
+              "refunded"
+            ]
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+            "pattern": "Z$"
+          },
+          "paid_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "period_start": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "checkout_id",
+          "plan_id",
+          "purchase_mode",
+          "amount_minor",
+          "currency",
+          "period_seconds",
+          "terms_version",
+          "provider",
+          "status",
+          "created_at",
+          "paid_at",
+          "period_start",
+          "period_end"
+        ],
+        "description": "Owner-only order status, independent of calendar rights. A refunded order may retain its historical paid period dates."
+      },
+      "BillingOrders": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "orders": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/BillingOrder"
+            },
+            "maxItems": 50
+          }
+        },
+        "required": [
+          "orders"
+        ],
+        "description": "Up to 50 most recent orders for the signed-in account."
+      },
+      "BillingSubscription": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "agreement_status": {
+            "type": "string",
+            "enum": [
+              "none",
+              "pending",
+              "active",
+              "canceling",
+              "canceled",
+              "expired"
+            ]
+          },
+          "auto_renew": {
+            "type": "boolean"
+          },
+          "current_period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "paid_period_end": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_charge_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time",
+                "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
+                "pattern": "Z$"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "next_charge_amount_minor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 2147483647,
+                "description": "Amount in minor currency units (fen for CNY)."
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "CNY"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "in_flight_order": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/BillingOrder"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "agreement_status",
+          "auto_renew",
+          "current_period_end",
+          "paid_period_end",
+          "next_charge_at",
+          "next_charge_amount_minor",
+          "currency",
+          "provider",
+          "in_flight_order"
+        ],
+        "description": "Agreement status and paid calendar coverage are independent. An in-flight order remains visible after cancellation; next_charge_at is present only for an eligible scheduled renewal."
+      }
+    }
+  },
+  "x-weekglass-invariants": [
+    "All authenticated lookups scope by account from token, never request-controlled account IDs.",
+    "Same account counter row lock serializes commits; do not use a PostgreSQL sequence alone as committed cursor.",
+    "Push receipts do not advance pull cursor.",
+    "Current event heads, including compact tombstone heads and idempotency digests, survive delta-log GC.",
+    "Official hosted Waffo plans are CNY WeChat single purchases. Checkout and event intake are configured separately; existing grants and confirmed paid periods are independent of both switches."
+  ]
+}
