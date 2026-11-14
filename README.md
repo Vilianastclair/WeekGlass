@@ -1,6 +1,6 @@
 # WeekGlass · 周计划
 
-[English](README-EN.md) · [官网](https://cloud.viliana.cn/) · [下载 Windows](https://cloud.viliana.cn/download/windows) · [下载 Android](https://cloud.viliana.cn/download/WeekGlass-Android-arm64.apk)
+[English](README-EN.md) · [官网](https://cloud.viliana.cn/) · [下载 Windows](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Windows-x64-0.20.10.zip) · [下载 Android](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Android-0.20.12-arm64.apk)
 
 WeekGlass 是一款本机优先的周日历。它把一周放在同一张时间网格上，让你看清什么时候有空、在哪留出一段时间。无需注册即可离线使用；要跨设备同步，可以使用官方云，也可以自托管。
 
@@ -24,7 +24,7 @@ flutter test
 
 **Android ARM64**：安装 JDK 17、Android SDK 36 和 NDK 28.2.13676358。运行 `flutter build apk --release --target-platform android-arm64`，安装包位于 `build/app/outputs/flutter-apk/app-release.apk`。本机构建使用开发签名，不能覆盖签名不同的已安装版本。
 
-客户端和原生入口在 `apps/client`；日程规则、SQLite 存储、视觉组件在 `packages`；同步服务、API 合同与增量更新工具在 `server`。首次安装建议用官网提供的安装包；应用内更新沿用官方签名发行渠道。
+客户端和原生入口在 `apps/client`；日程规则、SQLite 存储、视觉组件在 `packages`；同步服务、API 合同与增量更新工具在 `server`。首次安装可从 [GitHub Releases](https://github.com/Irthing/WeekGlass/releases) 下载；应用内更新沿用官方签名发行渠道。
 
 <a name="support"></a>
 

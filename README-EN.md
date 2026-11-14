@@ -1,6 +1,6 @@
 # WeekGlass
 
-[简体中文](README.md) · [Website](https://cloud.viliana.cn/) · [Download for Windows](https://cloud.viliana.cn/download/windows) · [Download for Android](https://cloud.viliana.cn/download/WeekGlass-Android-arm64.apk)
+[简体中文](README.md) · [Website](https://cloud.viliana.cn/) · [Download for Windows](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Windows-x64-0.20.10.zip) · [Download for Android](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Android-0.20.12-arm64.apk)
 
 WeekGlass is a local-first weekly calendar for Windows and Android. See your week in one grid, set aside time by dragging on the calendar, and open event notes without entering edit mode. Organize recurring events, import ICS, CSV or JSON, or export a color or black-and-white PDF. Windows keeps a full-week view; Android offers layouts suited to a phone.
 
@@ -20,7 +20,7 @@ flutter test
 - **Windows x64:** Install Visual Studio's Desktop development with C++ workload with x64 tools, ATL, CMake and a Windows SDK, then enable Windows Developer Mode. Run `flutter build windows --release` and launch `weekglass.exe` from `build/windows/x64/runner/Release`. Keep the files next to the executable. School sign-in also needs the Edge WebView2 Runtime.
 - **Android ARM64:** Install JDK 17, Android SDK 36 and NDK 28.2.13676358. Run `flutter build apk --release --target-platform android-arm64`. The APK is at `build/app/outputs/flutter-apk/app-release.apk`. Local builds use a development key and cannot replace an install signed with a different key.
 
-`apps/client` contains the shared Flutter app and native runners, `packages` contains calendar logic, local storage and UI components, and `server` contains the sync API, its contract and the signed update utilities. Official installations and in-app updates remain on the WeekGlass distribution channel.
+`apps/client` contains the shared Flutter app and native runners, `packages` contains calendar logic, local storage and UI components, and `server` contains the sync API, its contract and the signed update utilities. Download installers from [GitHub Releases](https://github.com/Irthing/WeekGlass/releases). In-app updates still use the official signed channel.
 
 ## Donations
 
