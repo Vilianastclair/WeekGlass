@@ -73,7 +73,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            const _ProjectSupportActions(),
+            const _ProjectLinkButton.githubStar(),
             const Divider(height: 24),
             if (widget.controller.cloud case final cloud?) ...[
               AnimatedBuilder(
@@ -273,6 +273,8 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                 error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
+            const Divider(height: 24),
+            const _ProjectLinkButton.sponsorship(),
           ],
         ),
       ),
@@ -324,49 +326,42 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   );
 }
 
-class _ProjectSupportActions extends StatelessWidget {
-  const _ProjectSupportActions();
+class _ProjectLinkButton extends StatelessWidget {
+  const _ProjectLinkButton._(this.label, this.icon, this.url);
 
-  static final _support = Uri.https('cloud.viliana.cn', '/support');
-  static final _repository = Uri.https(
-    'github.com',
-    '/Vilianastclair/WeekGlass',
-  );
+  const _ProjectLinkButton.githubStar()
+    : this._(
+        'GitHub Star',
+        Icons.star_border_rounded,
+        'https://github.com/Vilianastclair/WeekGlass',
+      );
+
+  const _ProjectLinkButton.sponsorship()
+    : this._(
+        '友情赞助',
+        Icons.favorite_border_rounded,
+        'https://cloud.viliana.cn/support',
+      );
+
+  final String label, url;
+  final IconData icon;
 
   @override
   Widget build(BuildContext context) {
     final palette = WeekGlassPalette.of(context);
-    final style = OutlinedButton.styleFrom(
-      foregroundColor: palette.text,
-      backgroundColor: palette.surfaceSoft,
-      side: BorderSide(color: palette.line),
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-    );
-    return Wrap(
-      spacing: 8,
-      runSpacing: 6,
-      children: [
-        OutlinedButton.icon(
-          style: style,
-          onPressed: () => _open(context, _support),
-          icon: Icon(
-            Icons.favorite_border_rounded,
-            color: palette.accentStrong,
-            size: 17,
-          ),
-          label: const Text('微信赞赏'),
+    return Align(
+      alignment: AlignmentDirectional.centerStart,
+      child: OutlinedButton.icon(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: palette.text,
+          backgroundColor: palette.surfaceSoft,
+          side: BorderSide(color: palette.line),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
         ),
-        OutlinedButton.icon(
-          style: style,
-          onPressed: () => _open(context, _repository),
-          icon: Icon(
-            Icons.star_border_rounded,
-            color: palette.accentStrong,
-            size: 17,
-          ),
-          label: const Text('GitHub Star'),
-        ),
-      ],
+        onPressed: () => _open(context, Uri.parse(url)),
+        icon: Icon(icon, color: palette.accentStrong, size: 17),
+        label: Text(label),
+      ),
     );
   }
 

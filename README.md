@@ -31,7 +31,7 @@ flutter test
 
 ## 支持 WeekGlass
 
-用得顺手的话，欢迎点个 Star、[微信赞赏](https://cloud.viliana.cn/support)，或[告诉我哪里还能做得更好](https://github.com/Vilianastclair/WeekGlass/issues/new)。
+用得顺手的话，欢迎点个 Star、[友情赞助](https://cloud.viliana.cn/support)，或[告诉我哪里还能做得更好](https://github.com/Vilianastclair/WeekGlass/issues/new)。
 
 ## 许可证
 
