@@ -1,35 +1,36 @@
 # WeekGlass
 
-[简体中文](README.md) · [Website](https://cloud.viliana.cn/) · [Download for Windows](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Windows-x64-0.20.10.zip) · [Download for Android](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Android-0.20.12-arm64.apk)
+**See your week at a glance. Make time for what matters.**
 
-WeekGlass is a local-first weekly calendar for Windows and Android. See your week in one grid, set aside time by dragging on the calendar, and open event notes without entering edit mode. Organize recurring events, import ICS, CSV or JSON, or export a color or black-and-white PDF. Windows keeps a full-week view; Android offers layouts suited to a phone.
+WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointments, and focus time in one view. Plan offline without an account.
 
-You can use the calendar offline without an account. Official hosted sync is optional and paid; [self-hosted sync](server/README.md) is free.
+[Download for Windows x64 (ZIP)](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Windows-x64-0.20.10.zip) · [Download for Android ARM64 (APK)](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Android-0.20.12-arm64.apk) · [Website](https://cloud.viliana.cn/) · [简体中文](README.md)
+
+**Windows:** Extract the full ZIP, then run `weekglass.exe`. **Android:** Open the APK to install.
+
+## Plan your week
+
+- **Make time by dragging on the calendar.** Open an event to see its notes. Create and edit recurring events as a group.
+- **Bring in an existing schedule.** Import a Wuhan University timetable or an ICS, CSV, or JSON file. Export a color or black-and-white PDF to print.
+- **Keep your calendar on your device.** To sync across devices, choose the paid WeekGlass Cloud service or [use your own server for free](server/README.md).
 
 ## Build from source
 
-Use **Flutter 3.47.9 (Dart 3.13.7)**. From the repository root:
+Use Flutter 3.47.9 (Dart 3.13.7). From the repository root:
 
-```powershell
+```sh
 cd apps/client
 flutter pub get
-flutter analyze
 flutter test
 ```
 
-- **Windows x64:** Install Visual Studio's Desktop development with C++ workload with x64 tools, ATL, CMake and a Windows SDK, then enable Windows Developer Mode. Run `flutter build windows --release` and launch `weekglass.exe` from `build/windows/x64/runner/Release`. Keep the files next to the executable. School sign-in also needs the Edge WebView2 Runtime.
-- **Android ARM64:** Install JDK 17, Android SDK 36 and NDK 28.2.13676358. Run `flutter build apk --release --target-platform android-arm64`. The APK is at `build/app/outputs/flutter-apk/app-release.apk`. Local builds use a development key and cannot replace an install signed with a different key.
+- **Windows:** Install Visual Studio's Desktop development with C++ tools, including ATL, CMake, and the Windows SDK. Enable Developer Mode and run `flutter build windows --release`.
+- **Android:** Install JDK 17, Android SDK 36, and NDK 28.2.13676358. Run `flutter build apk --release --target-platform android-arm64`.
 
-`apps/client` contains the shared Flutter app and native runners, `packages` contains calendar logic, local storage and UI components, and `server` contains the sync API, its contract and the signed update utilities. Download installers from [GitHub Releases](https://github.com/Irthing/WeekGlass/releases). In-app updates still use the official signed channel.
+## Support WeekGlass
 
-## Donations
+If WeekGlass works well for you, star the repository or [tell me what could be better](https://github.com/Irthing/WeekGlass/issues/new).
 
-Donations aren't open yet. If WeekGlass is useful to you, you can star this repository or share it with a friend. You can also [report a problem or suggest an improvement](https://github.com/Irthing/WeekGlass/issues/new).
+## License
 
-## Open source and commercial licensing
-
-Copyright © 2026 Viliana and WeekGlass contributors.
-
-WeekGlass's original code is available under the [GNU AGPL-3.0-only](LICENSE). Individuals and businesses can use it under the AGPL. Local use and self-hosting are free; official hosted sync is a separate paid service. If you want to distribute a closed-source derivative or run a modified service under different terms, contact [support@viliana.cn](mailto:support@viliana.cn?subject=WeekGlass%20Commercial%20Licensing) to discuss a separate commercial license. A hosted sync purchase does not grant a commercial source code license.
-
-Earlier releases published under MIT keep their original license. Bundled third-party code and fonts remain under their [respective licenses](THIRD_PARTY_NOTICES.md).
+Original WeekGlass code is available under [AGPL-3.0-only](LICENSE). For a separate commercial license, email [support@viliana.cn](mailto:support@viliana.cn?subject=WeekGlass%20Commercial%20Licensing). [Third-party notices](THIRD_PARTY_NOTICES.md)
