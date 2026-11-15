@@ -4,9 +4,9 @@
 
 WeekGlass 是一款面向 Windows 和 Android 的周日历。把课表、约会和专注时间放进同一张日历。无需账号，离线也能排日程。
 
-[下载 Windows x64（ZIP）](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Windows-x64-0.20.10.zip) · [下载 Android ARM64（APK）](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Android-0.20.12-arm64.apk) · [官网](https://cloud.viliana.cn/) · [English](README-EN.md)
+[下载 Windows x64 安装包](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Setup-0.20.13-Windows-x64.exe) · [下载 Android ARM64（APK）](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Android-0.20.13-arm64.apk) · [官网](https://cloud.viliana.cn/) · [English](README-EN.md)
 
-**Windows**：完整解压 ZIP，再运行 `weekglass.exe`。**Android**：打开 APK 安装。
+**Windows**：打开 EXE 安装。**Android**：打开 APK 安装。已有用户可在「设置 → 软件更新」升级。
 
 ## 排好你的一周
 
@@ -24,14 +24,14 @@ flutter pub get
 flutter test
 ```
 
-- **Windows**：准备 Visual Studio 的 C++ 桌面开发工具（含 ATL、CMake 和 Windows SDK），开启开发人员模式。运行 `flutter build windows --release`。
+- **Windows**：准备 Visual Studio 的 C++ 桌面开发工具（含 ATL、CMake 和 Windows SDK），开启开发人员模式。运行 `flutter build windows --release`。[构建 EXE 安装包](tooling/windows-installer/README.md)。
 - **Android**：准备 JDK 17、Android SDK 36 和 NDK 28.2.13676358。运行 `flutter build apk --release --target-platform android-arm64`。
 
 <a name="support"></a>
 
 ## 支持 WeekGlass
 
-用得顺手的话，欢迎点个 Star，或[告诉我哪里还能做得更好](https://github.com/Irthing/WeekGlass/issues/new)。
+用得顺手的话，欢迎点个 Star、[微信赞赏](https://cloud.viliana.cn/support)，或[告诉我哪里还能做得更好](https://github.com/Vilianastclair/WeekGlass/issues/new)。
 
 ## 许可证
 

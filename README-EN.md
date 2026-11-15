@@ -4,9 +4,9 @@
 
 WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointments, and focus time in one view. Plan offline without an account.
 
-[Download for Windows x64 (ZIP)](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Windows-x64-0.20.10.zip) · [Download for Android ARM64 (APK)](https://github.com/Irthing/WeekGlass/releases/download/downloads-2026-11-14/WeekGlass-Android-0.20.12-arm64.apk) · [Website](https://cloud.viliana.cn/) · [简体中文](README.md)
+[Download Windows x64 installer](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Setup-0.20.13-Windows-x64.exe) · [Download for Android ARM64 (APK)](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Android-0.20.13-arm64.apk) · [Website](https://cloud.viliana.cn/) · [简体中文](README.md)
 
-**Windows:** Extract the full ZIP, then run `weekglass.exe`. **Android:** Open the APK to install.
+**Windows:** Run the EXE installer. **Android:** Open the APK to install. Already using WeekGlass? Update under Settings → Software Update.
 
 ## Plan your week
 
@@ -24,12 +24,12 @@ flutter pub get
 flutter test
 ```
 
-- **Windows:** Install Visual Studio's Desktop development with C++ tools, including ATL, CMake, and the Windows SDK. Enable Developer Mode and run `flutter build windows --release`.
+- **Windows:** Install Visual Studio's Desktop development with C++ tools, including ATL, CMake, and the Windows SDK. Enable Developer Mode and run `flutter build windows --release`. [Build the EXE installer](tooling/windows-installer/README.md).
 - **Android:** Install JDK 17, Android SDK 36, and NDK 28.2.13676358. Run `flutter build apk --release --target-platform android-arm64`.
 
 ## Support WeekGlass
 
-If WeekGlass works well for you, star the repository or [tell me what could be better](https://github.com/Irthing/WeekGlass/issues/new).
+If WeekGlass works well for you, star the repository, [support it via WeChat](https://cloud.viliana.cn/support), or [tell me what could be better](https://github.com/Vilianastclair/WeekGlass/issues/new).
 
 ## License
 
