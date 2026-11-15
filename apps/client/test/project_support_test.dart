@@ -9,8 +9,11 @@ import 'package:weekglass_design_system/weekglass_design_system.dart';
 
 import 'whu_import_test.dart' show MemoryImportRepo;
 
-const _repo = 'https://github.com/Irthing/WeekGlass';
-const _links = {'捐赠说明': '$_repo#support', 'GitHub Star': _repo};
+const _repo = 'https://github.com/Vilianastclair/WeekGlass';
+const _links = {
+  '微信赞赏': 'https://cloud.viliana.cn/support',
+  'GitHub Star': _repo,
+};
 const _urlLauncher = MethodChannel('plugins.flutter.io/url_launcher');
 
 void main() {
@@ -24,12 +27,27 @@ void main() {
         return true;
       });
       final controller = await _openSettings(tester, size);
-      await _tap(tester, find.text('睡眠时段'));
+      final scrollView = find.byType(SingleChildScrollView).first;
+      final viewport = tester.getRect(scrollView);
+      final settings = tester.getRect(find.text('设置'));
+      final firstSetting = tester.getRect(find.text('睡眠时段'));
+      for (final label in _links.keys) {
+        final button = find.widgetWithText(OutlinedButton, label);
+        final bounds = tester.getRect(button);
+        expect(button.hitTestable(), findsOneWidget);
+        expect(bounds.top, greaterThanOrEqualTo(viewport.top));
+        expect(bounds.bottom, lessThanOrEqualTo(viewport.bottom));
+        expect(bounds.top, greaterThan(settings.bottom));
+        expect(bounds.bottom, lessThan(firstSetting.top));
+        expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+      }
 
+      await tester.tap(find.text('睡眠时段'));
+      await tester.pumpAndSettle();
       for (final action in _links.entries) {
         final button = find.widgetWithText(OutlinedButton, action.key);
-        await _tap(tester, button);
-        expect(tester.getSize(button).height, greaterThanOrEqualTo(48));
+        await tester.tap(button);
+        await tester.pumpAndSettle();
         expect(launches.last.method, 'launch');
         expect(launches.last.arguments['url'], action.value);
         expect(launches.last.arguments['useWebView'], isFalse);
@@ -50,11 +68,11 @@ void main() {
   ) async {
     _mockLauncher(tester, (_) async => false);
     await _openSettings(tester, const Size(320, 568));
-    await _tap(tester, find.text('捐赠说明'));
+    await _tap(tester, find.text('微信赞赏'));
     expect(find.text('无法打开链接'), findsOneWidget);
     expect(
       tester.widget<SelectableText>(find.byType(SelectableText)).data,
-      _links['捐赠说明'],
+      _links['微信赞赏'],
     );
     await _tap(tester, find.text('返回设置'));
     expect(find.text('设置'), findsOneWidget);

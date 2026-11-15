@@ -16,8 +16,8 @@ import 'update_reconstruction.dart';
 class UpdateService extends ChangeNotifier {
   UpdateService._();
   static final instance = UpdateService._();
-  static const currentVersion = '0.20.12';
-  static const currentBuild = 36;
+  static const currentVersion = '0.20.13';
+  static const currentBuild = 37;
   Future<void> Function()? beforeInstall;
   Future<void> Function()? beforeAndroidInstall;
   Future<void> Function()? afterInstallFailure;

@@ -73,6 +73,8 @@ class _SettingsDialogState extends State<_SettingsDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            const _ProjectSupportActions(),
+            const Divider(height: 24),
             if (widget.controller.cloud case final cloud?) ...[
               AnimatedBuilder(
                 animation: cloud,
@@ -271,8 +273,6 @@ class _SettingsDialogState extends State<_SettingsDialog> {
                 error!,
                 style: TextStyle(color: Theme.of(context).colorScheme.error),
               ),
-            const Divider(height: 24),
-            const _ProjectSupportActions(),
           ],
         ),
       ),
@@ -327,7 +327,11 @@ class _SettingsDialogState extends State<_SettingsDialog> {
 class _ProjectSupportActions extends StatelessWidget {
   const _ProjectSupportActions();
 
-  static final _repository = Uri.https('github.com', '/Irthing/WeekGlass');
+  static final _support = Uri.https('cloud.viliana.cn', '/support');
+  static final _repository = Uri.https(
+    'github.com',
+    '/Vilianastclair/WeekGlass',
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -340,17 +344,17 @@ class _ProjectSupportActions extends StatelessWidget {
     );
     return Wrap(
       spacing: 8,
+      runSpacing: 6,
       children: [
         OutlinedButton.icon(
           style: style,
-          onPressed: () =>
-              _open(context, _repository.replace(fragment: 'support')),
+          onPressed: () => _open(context, _support),
           icon: Icon(
             Icons.favorite_border_rounded,
             color: palette.accentStrong,
             size: 17,
           ),
-          label: const Text('捐赠说明'),
+          label: const Text('微信赞赏'),
         ),
         OutlinedButton.icon(
           style: style,
