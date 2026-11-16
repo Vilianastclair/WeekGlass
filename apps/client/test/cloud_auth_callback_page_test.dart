@@ -25,9 +25,7 @@ void main() {
     );
     expect(
       html,
-      contains(
-        '<title>${const HtmlEscape().convert(title)} · WeekGlass</title>',
-      ),
+      contains('<title>${const HtmlEscape().convert(title)} WeekGlass</title>'),
     );
     expect(
       html,

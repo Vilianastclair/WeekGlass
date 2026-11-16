@@ -243,9 +243,12 @@ void main() {
       await tester.pumpAndSettle();
       openPlannerSettings(tester.element(find.byType(Scaffold)), c);
       await tester.pumpAndSettle();
-      expect(find.text('显示'), findsOneWidget);
+      await tester.tap(find.text('日历与外观'));
+      await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('show-teaching-week')), findsNothing);
       await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('关闭设置'));
       await tester.pumpAndSettle();
       await c.rememberTeachingTerm(
         TeachingTerm(
@@ -261,6 +264,8 @@ void main() {
       await tester.pumpAndSettle();
       expect(c.teachingWeekLabel, '第 1 学期 · 第 10 周');
       openPlannerSettings(tester.element(find.byType(Scaffold)), c);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('日历与外观'));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('show-teaching-week')));
       await tester.tap(find.text('保存'));

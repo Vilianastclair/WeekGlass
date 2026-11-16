@@ -41,13 +41,11 @@ void main() {
       await restored.saveSidebarActions({});
       await tester.pumpAndSettle();
       expect(find.byTooltip('皮肤与外观'), findsNothing);
-      expect(find.byTooltip('设置 · 睡眠与外观'), findsOneWidget);
-      await tester.tap(find.byTooltip('设置 · 睡眠与外观'));
+      expect(find.byTooltip('打开设置'), findsOneWidget);
+      await tester.tap(find.byTooltip('打开设置'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(
-        find.byKey(const ValueKey('sidebar-customization')),
-      );
-      await tester.tap(find.text('侧边栏'));
+      await tester.ensureVisible(find.text('快捷操作'));
+      await tester.tap(find.text('快捷操作'));
       await tester.pumpAndSettle();
       final appearance = find.byKey(const ValueKey('sidebar-appearance'));
       await tester.ensureVisible(appearance);

@@ -5,16 +5,23 @@ import 'package:url_launcher/url_launcher.dart';
 import 'update_service.dart';
 
 class UpdateSettingsTile extends StatelessWidget {
-  const UpdateSettingsTile({super.key, required this.service});
+  const UpdateSettingsTile({
+    super.key,
+    required this.service,
+    this.showTitle = true,
+  });
   final UpdateService service;
+  final bool showTitle;
   @override
   Widget build(BuildContext context) => AnimatedBuilder(
     animation: service,
     builder: (context, _) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        const Text('软件更新', style: TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(height: 8),
+        if (showTitle) ...[
+          const Text('软件更新', style: TextStyle(fontWeight: FontWeight.w600)),
+          const SizedBox(height: 8),
+        ],
         Text(
           service.supportsUpdates
               ? service.message

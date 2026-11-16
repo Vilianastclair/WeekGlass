@@ -7,13 +7,15 @@ Builds a per-user WeekGlass installer from a prepared Windows x64 runtime direct
 param(
   [Parameter(Mandatory)][string]$PackageDirectory,
   [string]$OutputDirectory,
-  [string]$SmokeArtifactDirectory
+  [string]$SmokeArtifactDirectory,
+  [string]$LegacyInstaller
 )
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
 $package = (Get-Item -LiteralPath $PackageDirectory).FullName
 $source = Join-Path $project 'tooling/windows-installer'
 $icon = Join-Path $project 'apps/client/windows/runner/resources/app_icon.ico'
+$brand = Join-Path $project 'apps/client/assets/brand/icon.png'
 $compiler = Join-Path $env:WINDIR 'Microsoft.NET/Framework64/v4.0.30319/csc.exe'
 if (-not $OutputDirectory) { $OutputDirectory = Join-Path $project 'release' }
 
@@ -61,7 +63,7 @@ try {
   $uninstaller = Join-Path $stage 'Uninstall.exe'
   $setup = Join-Path $stage $filename
   $manifest = Join-Path $source 'WeekGlassSetup.manifest'
-  $code = Join-Path $source 'WeekGlassSetup.cs'
+  $code = @((Join-Path $source 'WeekGlassSetup.cs'), (Join-Path $source 'SetupWindow.cs'))
   Add-Type -AssemblyName System.IO.Compression.FileSystem
   [IO.Compression.ZipFile]::CreateFromDirectory($package, $payload, [IO.Compression.CompressionLevel]::Optimal, $false, [Text.Encoding]::UTF8)
   @"
@@ -77,17 +79,21 @@ using System.Reflection;
 
   $compilerArgs = @('/nologo', '/optimize+', '/platform:x64', '/codepage:65001',
     '/reference:System.Windows.Forms.dll,System.Drawing.dll,System.IO.Compression.dll,System.IO.Compression.FileSystem.dll,Microsoft.CSharp.dll',
-    "/win32manifest:$manifest", "/win32icon:$icon")
-  & $compiler @compilerArgs '/target:winexe' '/define:UNINSTALLER' "/out:$uninstaller" $assemblyInfo $code
+    "/win32manifest:$manifest", "/win32icon:$icon", "/resource:$brand,WeekGlass.Brand")
+  & $compiler @compilerArgs '/target:winexe' '/define:UNINSTALLER' "/out:$uninstaller" $assemblyInfo @code
   if ($LASTEXITCODE -ne 0) { throw "Uninstaller compilation failed: $LASTEXITCODE" }
-  & $compiler @compilerArgs '/target:winexe' "/resource:$payload,WeekGlass.Payload" "/resource:$uninstaller,WeekGlass.Uninstaller" "/out:$setup" $assemblyInfo $code
+  & $compiler @compilerArgs '/target:winexe' "/resource:$payload,WeekGlass.Payload" "/resource:$uninstaller,WeekGlass.Uninstaller" "/out:$setup" $assemblyInfo @code
   if ($LASTEXITCODE -ne 0) { throw "Installer compilation failed: $LASTEXITCODE" }
   if ($SmokeArtifactDirectory) {
     $artifacts = (New-Item -ItemType Directory -Path $SmokeArtifactDirectory -Force).FullName
     $smoke = Join-Path $stage 'InstallerSmoke.exe'
-    & $compiler @compilerArgs '/target:exe' '/main:WeekGlassSetup.InstallerSmoke' "/out:$smoke" $assemblyInfo $code (Join-Path $source 'InstallerSmoke.cs')
+    & $compiler @compilerArgs '/target:exe' '/main:WeekGlassSetup.InstallerSmoke' "/out:$smoke" $assemblyInfo @code (Join-Path $source 'InstallerSmoke.cs')
     if ($LASTEXITCODE -ne 0) { throw "Installer smoke compilation failed: $LASTEXITCODE" }
-    & $smoke $setup $stage $artifacts
+    if ($LegacyInstaller) {
+      & $smoke $setup $stage $artifacts (Resolve-Path -LiteralPath $LegacyInstaller).Path
+    } else {
+      & $smoke $setup $stage $artifacts
+    }
     if ($LASTEXITCODE -ne 0) { throw "Installer smoke failed: $LASTEXITCODE" }
   }
   [IO.File]::Copy($setup, $destination, $false)

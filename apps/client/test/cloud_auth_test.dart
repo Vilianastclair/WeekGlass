@@ -53,6 +53,12 @@ Map<String, dynamic> _discovery() => {
   'token_endpoint': '$officialCloudOrigin/v1/auth/token',
 };
 
+Map<String, dynamic> _discoveryAt(String origin) => {
+  ..._discovery(),
+  'authorization_endpoint': '$origin/v1/auth/authorize',
+  'token_endpoint': '$origin/v1/auth/token',
+};
+
 Uri _callback(Uri authorization) =>
     Uri.parse(authorization.queryParameters['redirect_uri']!).replace(
       queryParameters: {
@@ -82,6 +88,37 @@ class _HeldVault extends MemoryVault {
     await release.future;
     await super.write(value);
   }
+}
+
+class _LoopbackCloudHttp extends HttpOverrides {
+  _LoopbackCloudHttp(this.port);
+  final int port;
+
+  @override
+  HttpClient createHttpClient(SecurityContext? context) =>
+      _LoopbackCloudClient(super.createHttpClient(context), port);
+}
+
+class _LoopbackCloudClient implements HttpClient {
+  _LoopbackCloudClient(this.client, this.port);
+  final HttpClient client;
+  final int port;
+
+  @override
+  set connectionTimeout(Duration? value) => client.connectionTimeout = value;
+  @override
+  set idleTimeout(Duration value) => client.idleTimeout = value;
+  @override
+  set maxConnectionsPerHost(int? value) => client.maxConnectionsPerHost = value;
+  @override
+  void close({bool force = false}) => client.close(force: force);
+  @override
+  Future<HttpClientRequest> openUrl(String method, Uri url) => client.openUrl(
+    method,
+    url.replace(scheme: 'http', host: '127.0.0.1', port: port),
+  );
+  @override
+  dynamic noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
 void main() {
@@ -126,6 +163,167 @@ void main() {
     expect(auth.official, isTrue);
     expect(auth.origin, legacyOfficialCloudOrigin);
     expect(auth.mergeApproved, isTrue);
+  });
+
+  for (final (origin, flag, succeeds, expectedStatus) in [
+    (officialCloudOrigin, '1', true, 303),
+    (legacyOfficialCloudOrigin, '1', true, 303),
+    (officialCloudOrigin, '1', false, 502),
+    (officialCloudOrigin, '2', true, 200),
+    ('https://self-host.test', '1', true, 200),
+  ]) {
+    test(
+      'signup callback handoff is limited to durable official signup: $origin $flag $succeeds',
+      () async {
+        final browser = Completer<Uri>();
+        final vault = MemoryVault();
+        final auth = CloudAuthService(
+          vault: vault,
+          browserLauncher: (uri) async {
+            browser.complete(uri);
+            return true;
+          },
+          transport: (uri, method, body, _, _) async {
+            if (uri.path.endsWith('/server-info')) return _discoveryAt(origin);
+            if (method == 'PATCH') return {};
+            if (!succeeds) throw CloudApiException(401, 'invalid_grant', {});
+            return tokens(device: body!['device_id'] as String);
+          },
+        );
+        final http = HttpClient();
+        addTearDown(() => http.close(force: true));
+        final login = auth.login(origin);
+        final completed = succeeds
+            ? login
+            : expectLater(login, throwsA(isA<CloudApiException>()));
+        final callback = _callback(await browser.future);
+        final request = await http.getUrl(
+          callback.replace(
+            queryParameters: {
+              ...callback.queryParameters,
+              'signup': flag,
+              'next': 'https://evil.example',
+            },
+          ),
+        );
+        request.followRedirects = false;
+        final response = await request.close();
+        expect(response.statusCode, expectedStatus);
+        expect(
+          response.headers.value('Location'),
+          expectedStatus == 303 ? '$officialCloudOrigin/account#plans' : isNull,
+        );
+        expect(response.headers.value('Cache-Control'), 'no-store');
+        expect(response.headers.value('Referrer-Policy'), 'no-referrer');
+        final html = await utf8.decoder.bind(response).join();
+        expect(html, isNot(contains('test-callback-code')));
+        if (!succeeds) expect(html, contains('连接未完成'));
+        await completed;
+        expect(auth.connected, succeeds);
+        expect(vault.value, succeeds ? isNotNull : isNull);
+        expect(auth.mergeApproved, isFalse);
+      },
+    );
+  }
+
+  test(
+    'a token renewal cannot retry a sync request after the service stops',
+    () async {
+      final rotating = Completer<void>();
+      final rotation = Completer<Map<String, dynamic>>();
+      var requests = 0;
+      final auth = CloudAuthService(
+        vault: saved(),
+        transport: (uri, _, _, _, _) {
+          if (uri.path == '/v1/auth/token') {
+            rotating.complete();
+            return rotation.future;
+          }
+          requests++;
+          throw CloudApiException(401, 'expired', {});
+        },
+      )..syncTransportAllowed = () => true;
+      await auth.restore();
+      final request = expectLater(
+        auth.request('GET', '/v1/sync/changes', null),
+        throwsA(
+          isA<CloudApiException>().having(
+            (e) => e.code,
+            'code',
+            'sync_inactive',
+          ),
+        ),
+      );
+      await rotating.future;
+      // Even if a new service period is already active, this request must
+      // not cross the boundary when the old token renewal finishes.
+      auth.closeOfficialSyncTransport();
+      rotation.complete(tokens(suffix: 'new'));
+      await request;
+      expect(requests, 1);
+    },
+  );
+
+  test('pausing official sync aborts a real stream without closing account requests', () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    final streaming = Completer<void>();
+    final metadataRequested = Completer<void>();
+    final releaseMetadata = Completer<void>();
+    var holdFirstStream = true;
+    server.listen((request) async {
+      final response = request.response;
+      response.headers.contentType = ContentType.json;
+      if (request.uri.path == '/v1/sync/changes' && holdFirstStream) {
+        holdFirstStream = false;
+        response.bufferOutput = false;
+        response.write('{"changes":[');
+        await response.flush();
+        streaming.complete();
+        return;
+      }
+      if (request.uri.path == '/v1/me/account') {
+        metadataRequested.complete();
+        await releaseMetadata.future;
+        response.write('{"username":"reader"}');
+      } else {
+        response.write('{"changes":[]}');
+      }
+      await response.close();
+    });
+
+    await HttpOverrides.runWithHttpOverrides(() async {
+      var allowed = true;
+      final auth = CloudAuthService(vault: saved())
+        ..syncTransportAllowed = () => allowed;
+      addTearDown(auth.closeOfficialSyncTransport);
+      await auth.restore();
+      final interrupted = expectLater(
+        auth.request('GET', '/v1/sync/changes?wait_seconds=25', null),
+        throwsA(anyOf(isA<HttpException>(), isA<SocketException>())),
+      );
+      final metadata = auth.request('GET', '/v1/me/account', null);
+      await Future.wait([streaming.future, metadataRequested.future]);
+      allowed = false;
+      auth.closeOfficialSyncTransport();
+      releaseMetadata.complete();
+      await interrupted.timeout(const Duration(seconds: 3));
+      expect(await metadata, {'username': 'reader'});
+      await expectLater(
+        auth.request('GET', '/v1/sync/changes', null),
+        throwsA(
+          isA<CloudApiException>().having(
+            (e) => e.code,
+            'code',
+            'sync_inactive',
+          ),
+        ),
+      );
+      allowed = true;
+      expect(await auth.request('GET', '/v1/sync/changes', null), {
+        'changes': [],
+      });
+    }, _LoopbackCloudHttp(server.port));
   });
 
   test(
@@ -431,12 +629,15 @@ void main() {
       await accountRequested.future;
       expect(cloud.connected, isTrue);
       expect(cloud.working, isFalse);
-      expect(cloud.accountLoading, isTrue);
       expect(cloud.entitlements, isNull);
       expect(cloud.engine.connected, isFalse);
       expect((await receipt).status, 200);
       await cloud.disconnect();
-      entitlements.complete({'sync_write': true});
+      entitlements.complete({
+        'status': 'active',
+        'sync_read': true,
+        'sync_write': true,
+      });
       await Future<void>.delayed(Duration.zero);
       expect(cloud.connected, isFalse);
       expect(cloud.entitlements, isNull);

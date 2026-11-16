@@ -317,7 +317,124 @@ void main() {
     }
   });
 
-  test('expiry keeps export available and fresh rights pull before uploading a new batch', () async {
+  for (final (status, fails, canWrite) in [
+    ('not_subscribed', false, false),
+    ('expired', false, false),
+    ('active', false, false),
+    ('active', true, true),
+  ]) {
+    test(
+      'official restore without confirmed service is local only ($status / $fails)',
+      () async {
+        final auth = _ConnectionAuth(peer)
+          ..approved = true
+          ..status = status
+          ..canWrite = canWrite;
+        peer.failEntitlements = fails;
+        final cloud = CloudConnection(repository: repository, auth: auth);
+        try {
+          await repository.save(event('offline'));
+          await cloud.initialize();
+          expect(cloud.canSync, isFalse);
+          expect(cloud.engine.connected, isFalse);
+          await expectLater(
+            cloud.approveAndConnect(),
+            throwsA(isA<CloudLoginException>()),
+          );
+          await cloud.sync();
+          await cloud.engine.sync();
+          await repository.save(event('offline', title: '保留本机修改', version: 2));
+          cloud.didChangeAppLifecycleState(AppLifecycleState.paused);
+          cloud.didChangeAppLifecycleState(AppLifecycleState.resumed);
+          await _until(() => peer.entitlementReads == 2);
+          expect(peer.calls, isEmpty);
+          expect(
+            await repository.syncStore.pendingCount(
+              SqliteSyncStore.scopeKey('server', 'account', 'dataset'),
+            ),
+            0,
+          );
+          expect((await repository.getAllEvents()).single.title, '保留本机修改');
+        } finally {
+          cloud.dispose();
+        }
+      },
+    );
+  }
+
+  test(
+    'an elapsed paid deadline blocks sync even before a status update',
+    () async {
+      final auth = _ConnectionAuth(peer)
+        ..approved = true
+        ..end = DateTime.now().subtract(const Duration(minutes: 1));
+      final cloud = CloudConnection(repository: repository, auth: auth);
+      try {
+        await cloud.initialize();
+        expect(cloud.subscriptionState, CloudSubscriptionState.expired);
+        expect(peer.calls, isEmpty);
+      } finally {
+        cloud.dispose();
+      }
+    },
+  );
+
+  test(
+    'an active grant can sync until its deadline, even across backgrounding',
+    () async {
+      final auth = _ConnectionAuth(peer);
+      final cloud = CloudConnection(repository: repository, auth: auth);
+      try {
+        await cloud.initialize();
+        await cloud.approveAndConnect();
+        await _until(() => peer.waits.length == 1);
+        auth.end = DateTime.now().add(const Duration(milliseconds: 200));
+        await cloud.refreshEntitlements();
+        expect(cloud.subscriptionState, CloudSubscriptionState.active);
+        cloud.didChangeAppLifecycleState(AppLifecycleState.paused);
+        final count = peer.calls.length;
+        await _until(() => auth.transportClosures == 1);
+        expect(cloud.subscriptionState, CloudSubscriptionState.expired);
+        await cloud.sync();
+        expect(peer.calls, hasLength(count));
+        expect(peer.entitlementReads, 2);
+      } finally {
+        await cloud.engine.disconnect();
+        cloud.dispose();
+      }
+    },
+  );
+
+  test('subscription rejection stops long poll and local edits do not start traffic', () async {
+    final auth = _ConnectionAuth(peer);
+    final cloud = CloudConnection(repository: repository, auth: auth);
+    try {
+      await cloud.initialize();
+      await cloud.approveAndConnect();
+      await _until(() => peer.waits.length == 1);
+      peer.waits.single.response.completeError(
+        SyncRequestException(403, 'subscription_expired', {}),
+      );
+      await _until(() => !cloud.canSync);
+      expect(cloud.subscriptionState, CloudSubscriptionState.expired);
+      expect(auth.transportClosures, 1);
+      final callCount = peer.calls.length;
+      await repository.save(event('offline-after-expiry'));
+      await _until(() => cloud.engine.pendingCount == 1);
+      await cloud.engine.sync();
+      await cloud.sync();
+      expect(peer.calls, hasLength(callCount));
+      expect(
+        (await repository.getAllEvents()).single.id,
+        'offline-after-expiry',
+      );
+    } finally {
+      await cloud.engine.disconnect();
+      cloud.dispose();
+    }
+  });
+
+  test('expiry drops held deltas, preserves pending edits and resumes after renewal', () async {
     final auth = _ConnectionAuth(peer);
     final cloud = CloudConnection(repository: repository, auth: auth);
     try {
@@ -328,26 +445,16 @@ void main() {
       peer.denyWrites = true;
       await repository.saveBatch([event('remote'), event('same-group')]);
       await cloud.engine.sync();
-      await _until(() => cloud.entitlements?['sync_write'] == false);
       final deniedId = peer.attempts.single['batch_id'];
       final scope = SqliteSyncStore.scopeKey('server', 'account', 'dataset');
       expect((await repository.syncStore.flight(scope))!['batch_id'], deniedId);
-      expect(cloud.engine.uploadPaused, isTrue);
+      expect(cloud.canSync, isFalse);
       expect(cloud.connected, isTrue);
 
+      final suspendedAt = peer.calls.length;
       peer.pages['pull-0'] = _remotePage('pull-1', title: '云端冲突');
       peer.cursor = 'pull-1';
       wait.response.complete(peer.pages['pull-0']!);
-      await _until(
-        () => cloud.engine.conflicts.isNotEmpty && !cloud.engine.busy,
-      );
-      expect(cloud.engine.conflicts.single.remoteTitle, '云端冲突');
-      expect((await cloud.exportCalendar())['records'], hasLength(1));
-      expect(
-        (await repository.getAllEvents()).every((e) => e.title == '本地'),
-        isTrue,
-      );
-
       peer.failEntitlements = true;
       await expectLater(
         cloud.refreshEntitlements(),
@@ -357,8 +464,15 @@ void main() {
       expect(cloud.entitlements?['sync_write'], isFalse);
       await repository.save(event('independent'));
       await _until(() => cloud.engine.pendingCount == 3);
-      await _until(() => !cloud.engine.busy);
-      expect(peer.attempts, hasLength(1));
+      await cloud.sync();
+      await cloud.engine.sync();
+      expect(peer.calls, hasLength(suspendedAt));
+      expect((await repository.syncStore.profile(scope))['cursor'], 'pull-0');
+      expect(cloud.engine.conflicts, isEmpty);
+      expect(
+        (await repository.getAllEvents()).every((e) => e.title == '本地'),
+        isTrue,
+      );
 
       final offset = peer.calls.length;
       peer.failEntitlements = false;
@@ -371,7 +485,7 @@ void main() {
       final upload = resumed.indexOf('POST /v1/sync/batches');
       final pull = resumed.lastIndexWhere(
         (s) =>
-            s.contains('changes?cursor=pull-1') && !s.contains('wait_seconds'),
+            s.contains('changes?cursor=pull-0') && !s.contains('wait_seconds'),
         upload,
       );
       expect(lookup, greaterThanOrEqualTo(0));
@@ -383,9 +497,10 @@ void main() {
         'independent',
       );
       expect(cloud.engine.uploadPaused, isFalse);
+      expect(cloud.canSync, isTrue);
       expect(cloud.entitlementsStale, isFalse);
       expect(cloud.engine.pendingCount, 2);
-      expect(cloud.engine.conflicts, hasLength(1));
+      expect(cloud.engine.conflicts.single.remoteTitle, '云端冲突');
     } finally {
       await cloud.engine.disconnect();
       cloud.dispose();
@@ -655,6 +770,16 @@ class _ConnectionAuth extends CloudAuthService {
   bool approved = false;
   bool loggedIn = true;
   bool hosted = true;
+  String status = 'active';
+  bool canWrite = true;
+  int transportClosures = 0;
+  DateTime? end;
+
+  @override
+  void closeOfficialSyncTransport() {
+    super.closeOfficialSyncTransport();
+    transportClosures++;
+  }
 
   @override
   bool get connected => loggedIn;
@@ -697,9 +822,10 @@ class _ConnectionAuth extends CloudAuthService {
       if (peer.failEntitlements) throw const SocketException('offline');
       return {
         'mode': 'hosted',
-        'sync_read': true,
-        'sync_write': !peer.denyWrites,
-        'export_allowed': true,
+        'status': peer.denyWrites ? 'expired' : status,
+        'sync_read': status == 'active' && canWrite && !peer.denyWrites,
+        'sync_write': status == 'active' && canWrite && !peer.denyWrites,
+        if (end != null) 'current_period_end': end!.toUtc().toIso8601String(),
       };
     }
     if (path == '/v1/exports/calendar') {

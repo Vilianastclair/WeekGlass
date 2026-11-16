@@ -13,7 +13,7 @@ import 'package:weekglass_design_system/weekglass_design_system.dart';
 const _waiting = '等待浏览器授权。请在浏览器中完成登录。';
 const _exchanging = '已收到浏览器回传，正在验证授权…';
 const _saving = '授权已验证，正在安全保存连接…';
-const _approved = '已连接云账号';
+const _approved = '合并并同步日程';
 
 void main() {
   for (final size in [const Size(800, 600), const Size(390, 760)]) {
@@ -42,7 +42,6 @@ void main() {
         expect(auth.accountDetails.isCompleted, isFalse);
         expect(auth.requests, [
           'GET /v1/me/entitlements',
-          'GET /v1/devices',
           'GET /v1/me/account',
         ]);
         expect(cloud.accountLoading, isTrue);
@@ -52,7 +51,7 @@ void main() {
         await tester.tap(find.text('暂不合并'));
         await tester.pumpAndSettle();
         expect(find.text(_approved), findsNothing);
-        expect(find.text('已连接云账号。确认合并后才会上传本机日程。'), findsOneWidget);
+        expect(find.text('确认合并后才会开始同步本机日程。'), findsOneWidget);
         expect(cloud.connected, isTrue);
         expect(cloud.engine.connected, isFalse);
         expect(auth.mergeApprovals, 0);
@@ -63,7 +62,7 @@ void main() {
 
         auth.accountDetails.complete({'username': 'synthetic-account'});
         await tester.pumpAndSettle();
-        expect(find.text('账号：synthetic-account'), findsOneWidget);
+        expect(find.text('synthetic-account'), findsOneWidget);
         expect(cloud.accountLoading, isFalse);
         expect(tester.takeException(), isNull);
         await tester.tap(find.text('完成'));
@@ -71,6 +70,26 @@ void main() {
       },
     );
   }
+
+  testWidgets('unpaid registration connects but never prompts for merge', (
+    tester,
+  ) async {
+    final auth = _FakeCloudAuthService()..paid = false;
+    final cloud = await _openSettings(tester, auth, const Size(390, 760));
+    await _startLogin(tester);
+    auth.finishLogin();
+    auth.accountDetails.complete({'username': 'synthetic-account'});
+    await tester.pumpAndSettle();
+    expect(cloud.connected, isTrue);
+    expect(cloud.canSync, isFalse);
+    expect(find.text(_approved), findsNothing);
+    expect(find.text('合并日程'), findsNothing);
+    expect(find.text('立即同步'), findsNothing);
+    expect(find.text('未开通'), findsOneWidget);
+    expect(find.textContaining('不能合并或同步'), findsOneWidget);
+    expect(auth.requests, ['GET /v1/me/entitlements', 'GET /v1/me/account']);
+    expect(auth.mergeApprovals, 0);
+  });
 
   testWidgets('cancel during saving shows feedback and skips merge', (
     tester,
@@ -187,6 +206,7 @@ class _FakeCloudAuthService extends CloudAuthService {
   final requests = <String>[];
   void Function(CloudLoginPhase)? _onPhaseChanged;
   bool _connected = false;
+  bool paid = true;
   int cancellations = 0;
   int mergeApprovals = 0;
 
@@ -245,7 +265,11 @@ class _FakeCloudAuthService extends CloudAuthService {
     requests.add('$method $path');
     switch (path) {
       case '/v1/me/entitlements':
-        return {'sync_write': true};
+        return {
+          'status': paid ? 'active' : 'not_subscribed',
+          'sync_read': paid,
+          'sync_write': paid,
+        };
       case '/v1/devices':
         return {'devices': <Map<String, dynamic>>[]};
       case '/v1/me/account':

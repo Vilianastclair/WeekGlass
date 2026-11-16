@@ -4,9 +4,12 @@
 
 WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointments, and focus time in one view. Plan offline without an account.
 
-[Download Windows x64 installer](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Setup-0.20.13-Windows-x64.exe) · [Download for Android ARM64 (APK)](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Android-0.20.13-arm64.apk) · [Website](https://cloud.viliana.cn/) · [简体中文](README.md)
+- [Download the Windows x64 installer](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Setup-0.20.13-Windows-x64.exe)
+- [Download the Android ARM64 APK](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Android-0.20.13-arm64.apk)
 
-**Windows:** Run the EXE installer. **Android:** Open the APK to install. Already using WeekGlass? Update under Settings → Software Update.
+[GitHub releases](https://github.com/Vilianastclair/WeekGlass/releases) | [Website](https://cloud.viliana.cn/) | [简体中文](README.md)
+
+**Windows:** Run the EXE installer. **Android:** Open the APK to install. After installing, check for available versions under Settings → Software Update.
 
 ## Plan your week
 
@@ -14,6 +17,12 @@ WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointmen
 - **Pinch the time axis on your phone.** Pinch inward to fit the day or spread vertically for detail. Your display scale is remembered on this device.
 - **Bring in an existing schedule.** Import a Wuhan University timetable or an ICS, CSV, or JSON file. Export a color or black-and-white PDF to print.
 - **Keep your calendar on your device.** To sync across devices, choose the paid WeekGlass Cloud service or [use your own server for free](server/README.md).
+
+## Use WeekGlass Cloud
+
+Open **Subscribe to cloud** in Settings to buy a plan in your browser. Then sign in with the same account under Settings → Cloud sync. Sync starts after you confirm the calendar merge. Plans cost ¥1.00 for 30 days or ¥9.99 for 365 days, paid once with WeChat Pay. Neither plan renews automatically.
+
+Visit [your cloud account](https://cloud.viliana.cn/account) to manage orders, devices and account security. When your subscription ends, cloud sync pauses and your local calendar keeps working. You can export your cloud calendar from the account site.
 
 ## Build from source
 

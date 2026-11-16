@@ -10,7 +10,7 @@ import 'package:weekglass_design_system/weekglass_design_system.dart';
 
 import 'whu_import_test.dart' show MemoryImportRepo;
 
-const _githubLabel = 'GitHub Star';
+const _githubLabel = '有帮助的话麻烦在 GitHub 点个 Star，这对我真的很重要';
 const _sponsorLabel = '友情赞助';
 const _links = {
   _githubLabel: 'https://github.com/Vilianastclair/WeekGlass',
@@ -36,8 +36,7 @@ void main() {
         final position = tester.state<ScrollableState>(scrollable).position;
         final github = _projectButton(_githubLabel);
         final sponsor = _projectButton(_sponsorLabel);
-        final sleep = find.text('睡眠时段');
-        final save = find.text('保存');
+        final calendar = find.text('日历与外观');
         final viewport = tester.getRect(scrollView);
         final githubBounds = tester.getRect(github);
 
@@ -49,12 +48,12 @@ void main() {
           githubBounds.top,
           greaterThan(tester.getRect(find.text('设置')).bottom),
         );
-        expect(githubBounds.bottom, lessThan(tester.getRect(sleep).top));
+        expect(githubBounds.bottom, lessThan(tester.getRect(calendar).top));
         expect(tester.getSize(github).height, greaterThanOrEqualTo(48));
+        expect(find.text(_githubLabel, findRichText: true), findsOneWidget);
         expect(find.text('微信赞赏'), findsNothing);
-
-        await tester.tap(sleep);
-        await tester.pumpAndSettle();
+        expect(find.text('睡眠时段'), findsNothing);
+        expect(find.byType(UpdateSettingsTile), findsNothing);
         await tester.tap(github);
         await tester.pumpAndSettle();
         expect(find.text('设置'), findsOneWidget);
@@ -65,13 +64,12 @@ void main() {
         expect(sponsor.hitTestable(), findsOneWidget);
         expect(
           sponsorBounds.top,
-          greaterThan(tester.getRect(find.byType(UpdateSettingsTile)).bottom),
+          greaterThan(tester.getRect(find.text('软件与通知')).bottom),
         );
         expect(
           sponsorBounds.bottom,
-          closeTo(tester.getRect(scrollView).bottom, 0.01),
+          lessThanOrEqualTo(tester.getRect(scrollView).bottom),
         );
-        expect(sponsorBounds.bottom, lessThan(tester.getRect(save).top));
         expect(tester.getSize(sponsor).height, greaterThanOrEqualTo(48));
         await tester.tap(sponsor);
         await tester.pumpAndSettle();
@@ -85,8 +83,17 @@ void main() {
         }
         expect(tester.takeException(), isNull);
         expect(controller.sleep.enabled, isTrue);
-        await _tap(tester, save);
+        await _tap(tester, calendar);
+        await _tap(tester, find.text('睡眠时段'));
+        await _tap(tester, find.text('保存'));
         expect(controller.sleep.enabled, isFalse);
+        await _tap(tester, find.text('软件与通知'));
+        expect(find.byType(UpdateSettingsTile), findsOneWidget);
+        await _tap(tester, find.byTooltip('返回设置'));
+        await _tap(tester, find.text('本机日程'));
+        for (final item in ['导入日程', '导入课表', '导出日程']) {
+          expect(find.text(item), findsOneWidget);
+        }
       },
     );
 
@@ -112,7 +119,7 @@ void main() {
 }
 
 Finder _projectButton(String label) =>
-    find.widgetWithText(OutlinedButton, label);
+    find.byKey(ValueKey(label == _githubLabel ? 'github-star' : 'sponsorship'));
 
 void _mockLauncher(
   WidgetTester tester,
@@ -145,7 +152,7 @@ Future<PlannerController> _openSettings(WidgetTester tester, Size size) async {
 
   await tester.pumpWidget(
     MaterialApp(
-      theme: WeekGlassTheme.light(),
+      theme: WeekGlassTheme.light().copyWith(platform: TargetPlatform.windows),
       builder: (context, child) => MediaQuery(
         data: MediaQuery.of(context)
             .copyWith(textScaler: const TextScaler.linear(1.3)),

@@ -158,6 +158,8 @@ void main() {
     await tester.pumpWidget(_host(c));
     await tester.tap(find.text('打开设置'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('日历与外观'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('睡眠时段'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('appearance-settings')));

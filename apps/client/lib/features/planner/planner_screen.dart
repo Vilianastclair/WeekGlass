@@ -79,7 +79,7 @@ class PlannerScreen extends StatelessWidget {
                                 children: [
                                   const SizedBox(height: 10),
                                   Tooltip(
-                                    message: 'WeekGlass · 周计划',
+                                    message: 'WeekGlass 周计划',
                                     child: Image.asset(
                                       'assets/brand/mark.png',
                                       width: 28,
@@ -134,7 +134,7 @@ class PlannerScreen extends StatelessWidget {
                                   _RailButton(
                                     icon: Icons.tune_rounded,
                                     label: '设置',
-                                    hint: '设置 · 睡眠与外观',
+                                    hint: '打开设置',
                                     onTap: () => openPlannerSettings(
                                       context,
                                       controller,

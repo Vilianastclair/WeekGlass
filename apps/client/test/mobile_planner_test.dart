@@ -134,10 +134,15 @@ void main() {
       expect(find.byKey(const ValueKey('mobile-view-switch')), findsNothing);
       await tester.tap(find.byKey(const ValueKey('mobile-action-settings')));
       await tester.pumpAndSettle();
+      expect(find.byTooltip('关闭设置'), findsOneWidget);
+      await tester.tap(find.text('快捷操作'));
+      await tester.pumpAndSettle();
       expect(find.text('保存'), findsOneWidget);
       expect(tester.takeException(), isNull);
-      await tester.tap(find.text('取消'));
+      await tester.tap(find.text('保存'));
       await tester.pumpAndSettle();
+      expect(c.sidebarActions, isEmpty);
+      expect(find.byTooltip('关闭设置'), findsOneWidget);
       await tester.pumpWidget(const SizedBox.shrink());
       c.dispose();
     },
@@ -232,10 +237,12 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('mobile-action-settings')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('sidebar-customization')));
+    await tester.tap(find.text('快捷操作'));
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
     await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byTooltip('关闭设置'));
     await tester.pumpAndSettle();
     for (final (key, title) in [
       ('importEvents', '导入日程'),

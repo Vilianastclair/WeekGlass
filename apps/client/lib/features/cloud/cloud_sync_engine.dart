@@ -18,7 +18,8 @@ class CloudSyncEngine extends ChangeNotifier {
     required this.repository,
     required this.request,
     this.onRemoteChange,
-    this.onUploadDenied,
+    this.canTransport,
+    this.onServiceDenied,
     this.automatic = true,
     this.debounceDuration = const Duration(milliseconds: 750),
     this.retryDelay = const Duration(seconds: 2),
@@ -28,7 +29,7 @@ class CloudSyncEngine extends ChangeNotifier {
       if (!_connected || !_foreground) return;
       _debounce?.cancel();
       _debounce = Timer(debounceDuration, () {
-        if (_uploadPaused) {
+        if (!_transportEnabled || _uploadPaused) {
           unawaited(_refreshPendingCount(_scope!, _generation));
         } else {
           unawaited(sync());
@@ -43,7 +44,8 @@ class CloudSyncEngine extends ChangeNotifier {
   final Duration retryDelay;
   final Duration maxRetryDelay;
   final Future<void> Function()? onRemoteChange;
-  final VoidCallback? onUploadDenied;
+  final bool Function()? canTransport;
+  final bool Function(SyncRequestException)? onServiceDenied;
   SqliteSyncStore get _store => repository.syncStore;
   StreamSubscription<void>? _localSubscription;
   Timer? _debounce;
@@ -78,6 +80,25 @@ class CloudSyncEngine extends ChangeNotifier {
   int get pendingCount => _pendingCount;
   List<CloudConflict> get conflicts => List.unmodifiable(_conflicts);
 
+  bool get _transportEnabled => canTransport?.call() ?? true;
+
+  /// Keep the local profile and outbox, but invalidate replies from the old
+  /// entitlement. Call after closing the transport gate and before reopening it.
+  void suspendTransport() {
+    _generation++;
+    _watchGeneration++;
+    _watchTimer?.cancel();
+    _watchTimer = null;
+    _prefetched = null;
+    _error = null;
+    _emit();
+  }
+
+  Future<void> resumeTransport() async {
+    await _running;
+    if (_foreground) await sync();
+  }
+
   Future<void> updateWriteEntitlement(bool allowed) {
     if (_uploadPaused == !allowed) return Future.value();
     _setUploadPaused(!allowed);
@@ -102,6 +123,7 @@ class CloudSyncEngine extends ChangeNotifier {
     bool recoverReceipts = true,
   }) async {
     await disconnect();
+    if (_disposed || !_transportEnabled) return;
     _scope = await _store.activate(
       serverId: serverId,
       accountId: accountId,
@@ -153,7 +175,7 @@ class CloudSyncEngine extends ChangeNotifier {
   }
 
   Future<void> sync() {
-    if (!_connected || _disposed) return Future.value();
+    if (!_connected || _disposed || !_transportEnabled) return Future.value();
     if (_running != null) {
       _rerun = true;
       return _running!;
@@ -184,7 +206,8 @@ class CloudSyncEngine extends ChangeNotifier {
     } while (_rerun && _current(generation) && _foreground);
   }
 
-  bool get _observe => automatic && _foreground && _connected && !_disposed;
+  bool get _observe =>
+      automatic && _foreground && _connected && !_disposed && _transportEnabled;
 
   void _backoff() {
     final multiplier = 1 << _watchFailures.clamp(0, 10).toInt();
@@ -275,6 +298,7 @@ class CloudSyncEngine extends ChangeNotifier {
       }
     } on SyncRequestException catch (error) {
       if (!current()) return;
+      if (_serviceDenied(error)) return;
       if (error.status == 410) {
         await sync();
         if (!current()) return;
@@ -305,12 +329,26 @@ class CloudSyncEngine extends ChangeNotifier {
     _ => '暂时无法同步，恢复连接后会重试',
   };
 
+  bool _serviceDenied(SyncRequestException error) =>
+      error.status == 403 &&
+      (error.code == 'subscription_required' ||
+          error.code == 'subscription_expired') &&
+      onServiceDenied?.call(error) == true;
+
   bool _current(int generation) =>
-      !_disposed && _connected && generation == _generation;
+      !_disposed &&
+      _connected &&
+      generation == _generation &&
+      _transportEnabled;
 
   Future<void> _refreshPendingCount(String scope, int generation) async {
     final count = await _store.pendingCount(scope);
-    if (!_current(generation) || count == _pendingCount) return;
+    if (_disposed ||
+        !_connected ||
+        generation != _generation ||
+        count == _pendingCount) {
+      return;
+    }
     _pendingCount = count;
     _emit();
   }
@@ -345,6 +383,7 @@ class CloudSyncEngine extends ChangeNotifier {
             await _readReceipt(
               scope,
               flight,
+              generation: generation,
               allowUnavailable: _uploadPaused,
             )) {
           flight = null;
@@ -352,6 +391,7 @@ class CloudSyncEngine extends ChangeNotifier {
       }
       if (!_current(generation)) return;
       var profile = await _store.profile(scope);
+      if (!_current(generation)) return;
       if (profile['cursor'] == null) {
         calendarChanged = await _snapshot(scope, generation, flight);
         flight = await _store.flight(scope);
@@ -390,7 +430,8 @@ class CloudSyncEngine extends ChangeNotifier {
             )) {
           // A delayed request may have committed since the first lookup.
           // Never apply its echo as another device's conflicting edit.
-          if (!await _readReceipt(scope, flight)) {
+          if (!await _readReceipt(scope, flight, generation: generation)) {
+            if (!_current(generation)) return;
             throw StateError('正在确认上一批上传，确认后将继续同步');
           }
           flight = null;
@@ -414,7 +455,12 @@ class CloudSyncEngine extends ChangeNotifier {
         if (await _send(scope, batch, fresh: fresh, generation: generation)) {
           if (!_current(generation)) return;
           flight = batch;
-          if (await _readReceipt(scope, flight, allowUnavailable: true)) {
+          if (await _readReceipt(
+            scope,
+            flight,
+            generation: generation,
+            allowUnavailable: true,
+          )) {
             flight = null;
           }
         } else {
@@ -431,13 +477,15 @@ class CloudSyncEngine extends ChangeNotifier {
             'device_id': profile['device_id'],
             'cursor': cursor,
           });
-          _acknowledgedCursor = cursor;
+          if (_current(generation)) _acknowledgedCursor = cursor;
         }
       }
     } on SyncRequestException catch (e) {
+      if (!_current(generation) || _serviceDenied(e)) return;
       _error = _errorMessage(e);
       if (e.status == 410) await _store.resetCursor(scope);
     } catch (e) {
+      if (!_current(generation)) return;
       _error = e is StateError ? e.message.toString() : '暂时无法连接云端，本地日程正常保存';
     } finally {
       _syncFailed = _error != null;
@@ -457,15 +505,19 @@ class CloudSyncEngine extends ChangeNotifier {
   }) async {
     try {
       final receipt = await request('POST', '/v1/sync/batches', batch);
+      if (!_current(generation)) return false;
       await _store.acceptReceipt(scope, receipt);
     } on SyncRequestException catch (e) {
-      if (e.status == 403 && e.code == 'subscription_required') {
+      if (!_current(generation)) return false;
+      if (e.status == 403 &&
+          (e.code == 'subscription_required' ||
+              e.code == 'subscription_expired')) {
+        final serviceDenied = _serviceDenied(e);
         if (fresh) {
           await _store.markFlightRejected(scope, batch['batch_id'] as String);
         }
-        if (!_current(generation)) return false;
+        if (serviceDenied || !_current(generation)) return false;
         _setUploadPaused(true);
-        onUploadDenied?.call();
         return true;
       } else if (e.status == 409 &&
           e.code == 'revision_conflict' &&
@@ -483,8 +535,10 @@ class CloudSyncEngine extends ChangeNotifier {
   Future<bool> _readReceipt(
     String scope,
     Map<String, dynamic> batch, {
+    required int generation,
     bool allowUnavailable = false,
   }) async {
+    if (!_current(generation)) return false;
     final id = batch['batch_id'] as String;
     late final Map<String, dynamic> receipt;
     try {
@@ -502,6 +556,7 @@ class CloudSyncEngine extends ChangeNotifier {
       if (allowUnavailable) return false;
       rethrow;
     }
+    if (!_current(generation)) return false;
     await _store.acceptReceipt(scope, receipt);
     return true;
   }
@@ -511,9 +566,11 @@ class CloudSyncEngine extends ChangeNotifier {
     int generation,
     Map<String, dynamic>? flight,
   ) async {
+    if (!_current(generation)) return false;
     // Pages are staged in memory and applied in a single SQLite transaction.
     // Bounded by server's 64 MiB account quota; never clear live rows first.
     final first = await request('POST', '/v1/sync/snapshots', null);
+    if (!_current(generation)) return false;
     final records = <Map<String, dynamic>>[];
     var page = first;
     var bytes = 0;
@@ -538,7 +595,7 @@ class CloudSyncEngine extends ChangeNotifier {
       if (next == null) {
         if (flight != null && flight['sync_epoch'] == first['sync_epoch']) {
           // The snapshot has no batch IDs, so check again at its boundary.
-          await _readReceipt(scope, flight);
+          await _readReceipt(scope, flight, generation: generation);
           if (!_current(generation)) return false;
         }
         return _store.applySnapshot(
@@ -562,8 +619,9 @@ class CloudSyncEngine extends ChangeNotifier {
   }
 
   Future<void> resolveConflict(String id, {required bool useLocal}) async {
+    final generation = _generation;
     await _running;
-    if (_scope == null) return;
+    if (!_current(generation) || _scope == null) return;
     final changed = await _store.resolve(_scope!, id, useLocal: useLocal);
     if (changed) await onRemoteChange?.call();
     await sync();

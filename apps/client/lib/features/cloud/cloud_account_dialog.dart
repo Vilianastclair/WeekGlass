@@ -5,13 +5,23 @@ import 'package:flutter/material.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 
 import '../calendar_io/calendar_file_store.dart';
+import 'cloud_auth_service.dart';
 import 'cloud_connection.dart';
+import 'cloud_portal_link.dart';
 
-Future<void> openCloudAccount(BuildContext context, CloudConnection cloud) =>
-    showDialog<void>(
-      context: context,
-      builder: (_) => _AccountDialog(cloud: cloud),
-    );
+Future<void> openCloudAccount(
+  BuildContext context,
+  CloudConnection cloud,
+) async {
+  if (cloud.auth.official) {
+    await openCloudPortal(context, cloud.auth, CloudPortalPage.account);
+    return;
+  }
+  await showDialog<void>(
+    context: context,
+    builder: (_) => _AccountDialog(cloud: cloud),
+  );
+}
 
 class _AccountDialog extends StatefulWidget {
   const _AccountDialog({required this.cloud});
@@ -126,7 +136,7 @@ class _AccountDialogState extends State<_AccountDialog> {
                 if (profile != null) ...[
                   const SizedBox(height: 12),
                   Text(
-                    '${profile['usage']?['event_count'] ?? 0} 条云端日程 · 已用 $used MiB',
+                    '${profile['usage']?['event_count'] ?? 0} 条云端日程，已用 $used MiB',
                   ),
                   const SizedBox(height: 6),
                   Text(
@@ -143,7 +153,7 @@ class _AccountDialogState extends State<_AccountDialog> {
                 ),
                 const SizedBox(height: 6),
                 const Text(
-                  '导出包含云端日程与同步版本信息，不含密码或令牌。订阅到期后仍可导出。',
+                  '导出包含云端日程与同步版本信息，不含密码或令牌。',
                   style: TextStyle(fontSize: 12),
                 ),
                 if (profile != null) ...[
@@ -226,38 +236,16 @@ class _CredentialDialog extends StatefulWidget {
 }
 
 class _CredentialDialogState extends State<_CredentialDialog> {
-  static const _emailPasswordHelp = '8 到 128 个字符。字母、数字、特殊字符至少选两类，空白不算特殊字符。';
-  static final _letters = RegExp(r'\p{L}', unicode: true);
-  static final _digits = RegExp(r'\p{Nd}', unicode: true);
-  static final _special = RegExp(r'[\p{P}\p{S}]', unicode: true);
-
   final current = TextEditingController();
   final next = TextEditingController();
   final confirmation = TextEditingController();
   bool busy = false;
   String? error;
   _AccountAction get action => widget.action;
-  bool get _usesEmailPasswordPolicy {
-    final backupUsername = widget.cloud.account?['backup_username'];
-    return widget.cloud.auth.official &&
-        backupUsername is String &&
-        backupUsername.isNotEmpty;
-  }
 
   String? _validateNewPassword() {
     final password = next.text;
-    if (_usesEmailPasswordPolicy) {
-      final length = password.runes.length;
-      if (length < 8 || length > 128) return '新密码须为 8 到 128 个字符。';
-      final classes = [
-        _letters.hasMatch(password),
-        _digits.hasMatch(password),
-        _special.hasMatch(password),
-      ];
-      if (classes.where((present) => present).length < 2) {
-        return '新密码需包含字母、数字、特殊字符中的至少两类。';
-      }
-    } else if (password.length < 16) {
+    if (password.length < 16) {
       return '新密码需至少 16 字符。';
     }
     return password == confirmation.text ? null : '两次输入的新密码不一致。';
@@ -361,13 +349,7 @@ class _CredentialDialogState extends State<_CredentialDialog> {
                   enabled: !busy,
                   autocorrect: false,
                   enableSuggestions: false,
-                  decoration: _usesEmailPasswordPolicy
-                      ? const InputDecoration(
-                          labelText: '新密码',
-                          helperText: _emailPasswordHelp,
-                          helperMaxLines: 4,
-                        )
-                      : const InputDecoration(labelText: '新密码（至少 16 字符）'),
+                  decoration: const InputDecoration(labelText: '新密码（至少 16 字符）'),
                 ),
                 const SizedBox(height: 12),
                 TextField(

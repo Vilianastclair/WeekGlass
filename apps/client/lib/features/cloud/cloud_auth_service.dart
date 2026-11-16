@@ -16,8 +16,22 @@ import 'cloud_auth_callback_page.dart';
 const officialCloudOrigin = 'https://cloud.viliana.cn';
 const legacyOfficialCloudOrigin = 'https://cloud.viliana.cn:8443';
 
-// Keep TLS connections reusable for small delta requests and acknowledgements.
-final _cloudHttpClient = HttpClient()
+enum CloudPortalPage {
+  account(''),
+  plans('plans'),
+  calendar('calendar');
+
+  const CloudPortalPage(this.fragment);
+  final String fragment;
+  Uri get uri => Uri.parse(
+    '$officialCloudOrigin/account${fragment.isEmpty ? '' : '#$fragment'}',
+  );
+}
+
+// Account requests and self-hosted sync can reuse this connection pool.
+final _cloudHttpClient = _createCloudHttpClient();
+
+HttpClient _createCloudHttpClient() => HttpClient()
   ..connectionTimeout = const Duration(seconds: 12)
   ..idleTimeout = const Duration(seconds: 30)
   ..maxConnectionsPerHost = 4;
@@ -110,9 +124,10 @@ Future<Map<String, dynamic>> cloudHttpRequest(
   String method,
   Map<String, dynamic>? body,
   Map<String, String> headers,
-  bool form,
-) async {
-  final request = await _cloudHttpClient
+  bool form, {
+  HttpClient? client,
+}) async {
+  final request = await (client ?? _cloudHttpClient)
       .openUrl(method, uri)
       .timeout(const Duration(seconds: 15));
   request.followRedirects = false;
@@ -170,20 +185,23 @@ class CloudAuthService {
     Future<bool> Function(Uri)? browserLauncher,
     this.callbackTimeout = const Duration(minutes: 5),
   }) : _vault = vault ?? SecureCloudTokenVault(),
-       _transport = transport ?? cloudHttpRequest,
+       _transportOverride = transport,
        _launch =
            browserLauncher ??
            ((uri) => launchUrl(uri, mode: LaunchMode.externalApplication));
 
   final CloudTokenVault _vault;
-  final CloudHttpTransport _transport;
+  final CloudHttpTransport? _transportOverride;
   final Duration callbackTimeout;
   final Future<bool> Function(Uri) _launch;
+  bool Function()? syncTransportAllowed;
   Map<String, dynamic>? _session;
   Future<String>? _refreshing;
   Future<void>? _loggingOut;
   Future<void> _vaultWrites = Future.value();
   int _sessionGeneration = 0;
+  int _officialSyncGeneration = 0;
+  HttpClient? _officialSyncClient;
   _CloudLogin? _login;
   bool get connected => _session != null;
   bool get mergeApproved => _session?['merge_approved'] == true;
@@ -195,6 +213,34 @@ class CloudAuthService {
   String get epoch => _session!['sync_epoch'] as String;
   bool get official =>
       origin == officialCloudOrigin || origin == legacyOfficialCloudOrigin;
+
+  /// Abort only the official data stream, without interrupting account or
+  /// entitlement requests. The next service period opens a fresh connection.
+  void closeOfficialSyncTransport() {
+    _officialSyncGeneration++;
+    _officialSyncClient?.close(force: true);
+    _officialSyncClient = null;
+  }
+
+  Future<Map<String, dynamic>> _transport(
+    Uri uri,
+    String method,
+    Map<String, dynamic>? body,
+    Map<String, String> headers,
+    bool form, {
+    bool officialSync = false,
+  }) =>
+      _transportOverride?.call(uri, method, body, headers, form) ??
+      cloudHttpRequest(
+        uri,
+        method,
+        body,
+        headers,
+        form,
+        client: officialSync
+            ? _officialSyncClient ??= _createCloudHttpClient()
+            : null,
+      );
 
   Future<void> restore() async {
     final generation = _sessionGeneration;
@@ -331,6 +377,11 @@ class CloudAuthService {
             callbackPages,
             status: 502,
             receipt: receipt.future,
+            signup:
+                (base.origin == officialCloudOrigin ||
+                    base.origin == legacyOfficialCloudOrigin) &&
+                q['signup']?.length == 1 &&
+                q['signup']!.single == '1',
           ),
         );
         if (claimedCode == null) {
@@ -452,16 +503,26 @@ class CloudAuthService {
     Future<CloudAuthCallbackPages> pages, {
     required int status,
     Future<bool>? receipt,
+    bool signup = false,
   }) async {
     try {
       final success = receipt != null && await receipt;
-      final content = await pages;
       final response = request.response;
-      response.headers.contentType = ContentType.html;
       response.headers.set('Cache-Control', 'no-store');
       response.headers.set('Referrer-Policy', 'no-referrer');
       response.headers.set('X-Content-Type-Options', 'nosniff');
       response.headers.set('Content-Security-Policy', cloudAuthCallbackCsp);
+      if (success && signup) {
+        response.statusCode = HttpStatus.seeOther;
+        response.headers.set(
+          HttpHeaders.locationHeader,
+          CloudPortalPage.plans.uri,
+        );
+        await response.close();
+        return;
+      }
+      final content = await pages;
+      response.headers.contentType = ContentType.html;
       response.statusCode = success ? 200 : status;
       response.write(
         success
@@ -502,8 +563,8 @@ class CloudAuthService {
         {
           'device_id': device,
           'display_name': Platform.isWindows
-              ? 'Windows · WeekGlass'
-              : 'Android · WeekGlass',
+              ? 'WeekGlass Windows'
+              : 'WeekGlass Android',
           'platform': Platform.isWindows ? 'windows' : 'android',
           'app_version':
               '${UpdateService.currentVersion}+${UpdateService.currentBuild}',
@@ -544,43 +605,14 @@ class CloudAuthService {
     Map<String, dynamic>? body,
   ) => _request(method, path, body);
 
-  Future<bool> openEmailVerification() {
-    _ensureSession(_sessionGeneration);
-    if (!official) throw StateError('仅支持验证官方云账号的邮箱。');
-    // Sign in again on the official site. Never put the device session,
-    // checkout ticket, or account details in the browser URL.
-    return _launch(Uri.parse(origin!).resolve('/v1/auth/email'));
-  }
-
-  Future<Map<String, dynamic>> billingServerInfo() async {
-    final generation = _sessionGeneration;
-    _ensureSession(generation);
-    if (!official) throw StateError('仅可查看官方云订阅。');
-    final target = Uri.parse(origin!).resolve('/v1/server-info');
-    final info = await _transport(target, 'GET', null, {}, false);
-    _ensureSession(generation);
-    return info;
-  }
-
-  Future<Map<String, dynamic>> createBillingCheckout(
-    Map<String, dynamic> body,
-    String idempotencyKey,
-  ) {
-    if (!official) throw StateError('仅可购买官方云订阅。');
-    return _request(
-      'POST',
-      '/v1/billing/checkout-sessions',
-      body,
-      headers: {'Idempotency-Key': idempotencyKey},
-    );
-  }
+  /// The browser signs in independently. Never hand off native credentials.
+  Future<bool> openPortal(CloudPortalPage page) => _launch(page.uri);
 
   Future<Map<String, dynamic>> _request(
     String method,
     String path,
-    Map<String, dynamic>? body, {
-    Map<String, String> headers = const {},
-  }) async {
+    Map<String, dynamic>? body,
+  ) async {
     final generation = _sessionGeneration;
     _ensureSession(generation);
     final session = _session!;
@@ -591,15 +623,36 @@ class CloudAuthService {
     if (target.origin != session['origin']) {
       throw ArgumentError('Cross-origin API request');
     }
+    final syncRequest = target.path.startsWith('/v1/sync/');
+    final officialSync = syncRequest && official;
+    final syncGeneration = _officialSyncGeneration;
+    void ensureSyncAllowed() {
+      if (syncRequest &&
+          (syncTransportAllowed?.call() == false ||
+              officialSync && syncGeneration != _officialSyncGeneration)) {
+        throw CloudApiException(403, 'sync_inactive', {});
+      }
+    }
+
+    Future<Map<String, dynamic>> send(String access) {
+      ensureSyncAllowed();
+      return _transport(
+        target,
+        method,
+        body,
+        {'Authorization': 'Bearer $access'},
+        false,
+        officialSync: officialSync,
+      );
+    }
+
     final access = session['access_token'] as String;
     try {
-      return await _transport(target, method, body, {
-        ...headers,
-        'Authorization': 'Bearer $access',
-      }, false);
+      return await send(access);
     } on CloudApiException catch (error) {
       if (error.status != 401) rethrow;
       _ensureSession(generation);
+      ensureSyncAllowed();
       if (_session?['access_token'] == access) {
         var refresh = _refreshing;
         if (refresh == null) {
@@ -611,10 +664,7 @@ class CloudAuthService {
         await refresh;
       }
       _ensureSession(generation);
-      return _transport(target, method, body, {
-        ...headers,
-        'Authorization': 'Bearer ${_session!['access_token']}',
-      }, false);
+      return send(_session!['access_token'] as String);
     }
   }
 
@@ -668,6 +718,7 @@ class CloudAuthService {
 
   Future<void> _logout() async {
     _sessionGeneration++;
+    closeOfficialSyncTransport();
     final login = _login;
     login?.cancel();
     await login?.finished.future;

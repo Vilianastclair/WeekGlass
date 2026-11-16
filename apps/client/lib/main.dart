@@ -26,7 +26,7 @@ Future<void> main(List<String> args) async {
       size: Size(1280, 760),
       minimumSize: Size(800, 560),
       center: true,
-      title: 'WeekGlass · 周计划',
+      title: 'WeekGlass 周计划',
       titleBarStyle: TitleBarStyle.hidden,
       windowButtonVisibility: false,
       backgroundColor: Color(0xFF0A0F20),

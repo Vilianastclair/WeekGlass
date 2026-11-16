@@ -4,9 +4,12 @@
 
 WeekGlass 是一款面向 Windows 和 Android 的周日历。把课表、约会和专注时间放进同一张日历。无需账号，离线也能排日程。
 
-[下载 Windows x64 安装包](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Setup-0.20.13-Windows-x64.exe) · [下载 Android ARM64（APK）](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Android-0.20.13-arm64.apk) · [官网](https://cloud.viliana.cn/) · [English](README-EN.md)
+- [下载 Windows x64 安装包](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Setup-0.20.13-Windows-x64.exe)
+- [下载 Android ARM64 APK](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Android-0.20.13-arm64.apk)
 
-**Windows**：打开 EXE 安装。**Android**：打开 APK 安装。已有用户可在「设置 → 软件更新」升级。
+[GitHub 发行页](https://github.com/Vilianastclair/WeekGlass/releases) | [官网](https://cloud.viliana.cn/) | [English](README-EN.md)
+
+**Windows**：打开 EXE 安装。**Android**：打开 APK 安装。首次安装后，可在「设置 → 软件更新」检查可用版本。
 
 ## 排好你的一周
 
@@ -14,6 +17,12 @@ WeekGlass 是一款面向 Windows 和 Android 的周日历。把课表、约会�
 - **手机上双指缩放时间轴**：捏合看全天，张开看细节，自动记住本机的显示比例。
 - **导入课表和日历**：支持武汉大学在线课表和 ICS、CSV、JSON 文件。需要打印时，可导出彩色或黑白 PDF。
 - **日程默认留在本机**：要跨设备同步，可以选官方付费云服务，也可以[用自己的服务器免费同步](server/README.md)。
+
+## 使用官方云
+
+在「设置」点「订阅云服务」，在浏览器开通后到「设置 → 云同步」登录同一账号，确认合并后才同步。官方云 ¥1.00／30 天或 ¥9.99／365 天，微信单次付款，不自动续费。
+
+在[云服务账号网页](https://cloud.viliana.cn/account)管理订单、设备和账号安全。订阅到期后停止云端同步，本机日历照常使用；如需取回云端日程，可从网页自助导出。
 
 ## 从源码构建
 

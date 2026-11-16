@@ -154,7 +154,7 @@ class WindowsReminders {
   static Future<bool> testNotification() async =>
       await const MethodChannel('weekglass/desktop')
           .invokeMethod<bool>('notify', {
-            'title': 'WeekGlass · 通知已连接',
+            'title': 'WeekGlass 通知已连接',
             'body': '日程开始或结束时会在这里提醒你。收起到托盘后仍然有效。',
             'eventId': '',
           }) ??

@@ -42,6 +42,9 @@ void main() {
       expect(find.byTooltip('添加全天日程'), findsNothing);
       await tester.tap(find.bySemanticsLabel('设置'));
       await tester.pumpAndSettle();
+      expect(find.text('入睡 23:00'), findsNothing);
+      await tester.tap(find.text('日历与外观'));
+      await tester.pumpAndSettle();
       expect(find.text('入睡 23:00'), findsOneWidget);
       expect(find.text('起床 07:00'), findsOneWidget);
       await tester.tap(find.text('睡眠时段'));
