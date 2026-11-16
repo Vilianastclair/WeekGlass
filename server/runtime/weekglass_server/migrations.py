@@ -6,11 +6,83 @@ def migrate_auth(conn):
     conn.execute('''CREATE TABLE IF NOT EXISTS schema_migrations (
       migration_id text PRIMARY KEY, applied_at timestamptz NOT NULL DEFAULT now())''')
     name = '20261106_account_recovery_v1'
+    if not conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
+        conn.execute('ALTER TABLE auth_accounts ADD COLUMN IF NOT EXISTS recovery_hash text')
+        conn.execute('''ALTER TABLE auth_grants ADD COLUMN IF NOT EXISTS account_id uuid
+          REFERENCES accounts(account_id) ON DELETE CASCADE''')
+        conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
+
+    migrate_email_identity(conn)
+    migrate_paid_email_identity(conn)
+
+
+def migrate_email_identity(conn):
+    name = '20261115_email_identity_v1'
     if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
         return
-    conn.execute('ALTER TABLE auth_accounts ADD COLUMN IF NOT EXISTS recovery_hash text')
-    conn.execute('''ALTER TABLE auth_grants ADD COLUMN IF NOT EXISTS account_id uuid
-      REFERENCES accounts(account_id) ON DELETE CASCADE''')
+    conn.execute('''
+      ALTER TABLE auth_accounts
+        ADD COLUMN verified_email text UNIQUE,
+        ADD COLUMN email_verified_at timestamptz,
+        ADD COLUMN legacy_login boolean NOT NULL DEFAULT true,
+        ADD COLUMN credential_version bigint NOT NULL DEFAULT 0,
+        ADD CHECK ((verified_email IS NULL) = (email_verified_at IS NULL)),
+        ADD CHECK (legacy_login OR verified_email IS NOT NULL);
+
+      -- A draft signup is scoped to a PKCE grant. It does not reserve an
+      -- email address or create a durable account before mailbox proof.
+      CREATE TABLE auth_email_flows (
+        grant_hash text PRIMARY KEY REFERENCES auth_grants(grant_hash) ON DELETE CASCADE,
+        action text NOT NULL CHECK (action IN ('email_register_verify','email_otp_verify',
+          'email_reset_verify','email_reset_finish','email_bind_send','email_bind_verify',
+          'email_change_old_send','email_change_old_verify',
+          'email_change_new_send','email_change_new_verify')),
+        expires_at timestamptz NOT NULL,
+        email text,
+        account_id uuid REFERENCES accounts(account_id) ON DELETE CASCADE,
+        credential_version bigint,
+        password_hash text,
+        code_nonce text,
+        code_hash text,
+        attempts integer NOT NULL DEFAULT 0 CHECK (attempts BETWEEN 0 AND 5),
+        old_email text,
+        old_code_nonce text,
+        old_code_hash text,
+        manage_expires_at timestamptz,
+        CHECK ((account_id IS NULL) = (credential_version IS NULL))
+      );
+      CREATE INDEX auth_email_flows_account ON auth_email_flows(account_id);
+    ''')
+    conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
+
+
+def migrate_paid_email_identity(conn):
+    name = '20261115_paid_email_identity_v1'
+    if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
+        return
+    conn.execute('''
+      ALTER TABLE auth_accounts
+        ADD COLUMN pending_email text,
+        ADD COLUMN pending_login_key text UNIQUE,
+        DROP CONSTRAINT auth_accounts_check1,
+        ADD CHECK (legacy_login OR verified_email IS NOT NULL OR pending_email IS NOT NULL),
+        ADD CHECK ((pending_email IS NULL) = (pending_login_key IS NULL)),
+        ADD CHECK (pending_email IS NULL OR (NOT legacy_login AND verified_email IS NULL));
+      CREATE INDEX auth_accounts_pending_recovery ON auth_accounts(pending_email,recovery_hash)
+        WHERE pending_email IS NOT NULL;
+
+      ALTER TABLE auth_grants ADD COLUMN management_only boolean NOT NULL DEFAULT false;
+
+      -- Enrollment no longer uses OTPs and the prior bind entry screen had
+      -- no payment check. Discard those drafts, not accounts or sessions.
+      DELETE FROM auth_email_flows WHERE action IN ('email_register_verify','email_bind_send');
+      ALTER TABLE auth_email_flows
+        DROP COLUMN password_hash,
+        DROP CONSTRAINT auth_email_flows_action_check,
+        ADD CHECK (action IN ('email_otp_verify','email_reset_verify','email_reset_finish',
+          'email_manage_unverified','email_manage_unavailable','email_bind_verify',
+          'email_change_old_send','email_change_old_verify','email_change_new_send','email_change_new_verify'));
+    ''')
     conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
 
 

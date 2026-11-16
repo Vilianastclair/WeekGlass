@@ -14,7 +14,19 @@ PASSWORD_SCRIPT = """document.querySelectorAll('[data-password-toggle]').forEach
 FORM_SCRIPT = PASSWORD_SCRIPT + r"""
 (function(){
   var forms=Array.from(document.querySelectorAll('form[data-auth-form]'));
-  var busy=false, timer=null;
+  var busy=false, timer=null, resendTimer=null;
+  var resend=forms.find(function(form){return form.dataset && Number(form.dataset.resendAfter)>0;});
+  var resendButton=resend&&resend.querySelector('button[type="submit"]');
+  var resendLabel=resendButton&&resendButton.textContent;
+  var resendUntil=resend?Date.now()+Number(resend.dataset.resendAfter)*1000:0;
+  function updateResend(){
+    if(!resendButton||busy){return;}
+    if(resendTimer!==null){window.clearTimeout(resendTimer);resendTimer=null;}
+    var remaining=Math.max(0,Math.ceil((resendUntil-Date.now())/1000));
+    resendButton.disabled=remaining>0;
+    resendButton.textContent=remaining?resendLabel+'（'+remaining+' 秒）':resendLabel;
+    if(remaining){resendTimer=window.setTimeout(updateResend,1000);}
+  }
   function reset(){
     busy=false;
     if(timer!==null){window.clearTimeout(timer);timer=null;}
@@ -27,6 +39,7 @@ FORM_SCRIPT = PASSWORD_SCRIPT + r"""
       var status=form.querySelector('[data-submit-status]');
       status.hidden=true;status.textContent='';
     });
+    updateResend();
   }
   forms.forEach(function(form){
     form.addEventListener('submit',function(event){
@@ -37,7 +50,11 @@ FORM_SCRIPT = PASSWORD_SCRIPT + r"""
       });});
       var button=form.querySelector('button[type="submit"]');
       var action=form.querySelector('input[name="action"]').value;
-      button.textContent=action==='login'?'正在验证…':action==='register'?'正在创建账号…':action==='recover'?'正在重设密码…':'正在连接…';
+      button.textContent=action.endsWith('_send')||action==='email_resend'?'正在发送…':
+        action==='recover'||action==='email_reset_finish'?'正在重设密码…':
+        action==='register'||action==='email_register'?'正在创建账号…':
+        action==='email_pending_save'?'正在保存…':action==='email_cancel'?'正在返回…':
+        action==='continue'||action==='email_manage_connect'?'正在连接…':'正在验证…';
       var status=form.querySelector('[data-submit-status]');
       status.hidden=false;status.textContent='正在安全提交，请稍候。';
       timer=window.setTimeout(function(){
@@ -45,6 +62,7 @@ FORM_SCRIPT = PASSWORD_SCRIPT + r"""
       },15000);
     });
   });
+  updateResend();
   window.addEventListener('pageshow',function(event){if(event.persisted){reset();}});
 })();"""
 
@@ -77,6 +95,10 @@ def _script_source(script):
 FORM_SCRIPT_SOURCE = _script_source(FORM_SCRIPT)
 HANDOFF_SCRIPT_SOURCE = _script_source(HANDOFF_SCRIPT)
 
+_EMAIL_PASSWORD_MIN = 8
+_EMAIL_PASSWORD_MAX = 128
+_EMAIL_PASSWORD_GUIDANCE = '8 至 128 个字符，至少包含字母、数字、特殊字符中的两类。空白不算特殊字符。'
+
 
 def _escape(value):
     return html.escape(value, quote=True)
@@ -87,36 +109,294 @@ def _hidden(csrf, action):
             f'<input type="hidden" name="action" value="{action}">')
 
 
-def _form(csrf, action, fields, button):
-    return ('<form method="post" action="/v1/auth/authorize" data-auth-form>' + _hidden(csrf, action)
-            + fields + f'<button type="submit">{button}</button>'
+def _form(csrf, action, fields, button, *, secondary=False, resend_after=0):
+    style = ' class="secondary-form"' if secondary else ''
+    countdown = f' data-resend-after="{resend_after:d}"' if resend_after and resend_after > 0 else ''
+    return (f'<form method="post" action="/v1/auth/authorize" data-auth-form{style}{countdown}>' + _hidden(csrf, action)
+            + fields + f'<button type="submit">{_escape(button)}</button>'
             '<p class="submit-status" data-submit-status role="status" aria-live="polite" hidden></p></form>')
 
 
-def _username(prefix):
-    return (f'<label for="{prefix}-username">WeekGlass 账号</label><input id="{prefix}-username" '
-            'name="username" autocomplete="section-weekglass username" required minlength="3" maxlength="80" '
+def _username(prefix, *, or_email=False):
+    label = 'WeekGlass 账号或邮箱' if or_email else 'WeekGlass 账号'
+    return (f'<label for="{prefix}-username">{label}</label><input id="{prefix}-username" '
+            f'name="username" autocomplete="section-weekglass username" required minlength="3" maxlength="{254 if or_email else 80}" '
             'spellcheck="false" autocapitalize="none">')
 
 
-def _password(prefix, *, new=False):
-    return (f'<label for="{prefix}-password">{"新密码" if new else "密码"}</label>'
+def _email(prefix, *, label='邮箱', login=False, value=None):
+    prefill = f' value="{_escape(value)}"' if value is not None else ''
+    return (f'<label for="{prefix}-email">{label}</label><input id="{prefix}-email" '
+            f'name="email" type="email" autocomplete="section-{prefix} {"username" if login else "email"}" '
+            f'required maxlength="254" spellcheck="false" autocapitalize="none"{prefill}>')
+
+
+def _password(prefix, *, new=False, label=None, section='weekglass', min_length=16, max_length=1024, guidance=None):
+    requirements = f'minlength="{min_length}" aria-describedby="{prefix}-password-help" ' if new else ''
+    guidance = guidance or f'至少 {min_length} 个字符'
+    return (f'<label for="{prefix}-password">{label or ("新密码" if new else "密码")}</label>'
             f'<div class="password-field"><input id="{prefix}-password" name="password" type="password" '
-            f'autocomplete="section-weekglass {"new-password" if new else "current-password"}" required '
-            f'{"minlength=16" if new else ""} maxlength="1024">'
+            f'autocomplete="section-{section} {"new-password" if new else "current-password"}" required '
+            f'{requirements}maxlength="{max_length}">'
             f'<button type="button" hidden data-password-toggle aria-controls="{prefix}-password" '
-            'aria-pressed="false">显示</button></div>')
+            'aria-pressed="false">显示</button></div>'
+            + (f'<p class="field-help" id="{prefix}-password-help">{_escape(guidance)}</p>' if new else ''))
 
 
-def _confirmation(prefix):
+def _confirmation(prefix, *, section='weekglass', min_length=16, max_length=1024):
     return (f'<label for="{prefix}-confirm">再次输入密码</label><input id="{prefix}-confirm" '
-            'name="confirm_password" type="password" autocomplete="new-password" '
-            'required minlength="16" maxlength="1024">')
+            f'name="confirm_password" type="password" autocomplete="section-{section} new-password" '
+            f'required minlength="{min_length}" maxlength="{max_length}">')
+
+
+def _code(prefix):
+    return (f'<label for="{prefix}-code">验证码</label><input id="{prefix}-code" class="otp-code" '
+            'name="code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" '
+            'pattern="[0-9]{6}" required spellcheck="false">')
+
+
+def _feedback(message, notice):
+    error = f'<p class="message" role="alert">{_escape(message)}</p>' if message else ''
+    status = f'<p class="notice" role="status">{_escape(notice)}</p>' if notice else ''
+    return error + status
+
+
+def _link(target, label, *, current=False):
+    marked = ' aria-current="page"' if current else ''
+    return f'<a href="#{target}"{marked}>{label}</a>'
+
+
+def _nav(label, links, *, style='links'):
+    return f'<nav class="{style}" aria-label="{label}">' + ''.join(links) + '</nav>'
+
+
+def _primary_nav(view, registration):
+    if not registration:
+        return ''
+    return _nav('账号入口', [_link('login', '登录', current=view != 'register'),
+                            _link('register', '注册', current=view == 'register')], style='segment')
+
+
+def _login_methods(view):
+    password_view = view if view in ('legacy', 'pending-login') else 'login'
+    return _nav('登录方式', [_link(password_view, '密码登录', current=view != 'otp'),
+                            _link('otp', '邮箱验证码', current=view == 'otp')], style='methods')
+
+
+def _recovery_fields(*, or_email):
+    minimum = _EMAIL_PASSWORD_MIN if or_email else 16
+    guidance = f'邮箱注册账号：{_EMAIL_PASSWORD_GUIDANCE}原账号：至少 16 个字符。' if or_email else None
+    return (_username('recover', or_email=or_email) + '<label for="recovery-key">恢复码</label><input id="recovery-key" '
+            'name="recovery_key" autocomplete="off" required maxlength="100" spellcheck="false">'
+            + _password('recover', new=True, min_length=minimum, guidance=guidance)
+            + _confirmation('recover', min_length=minimum))
+
+
+def _management_fields():
+    return ('<label for="manage-kind">账号类型</label><select id="manage-kind" name="identity_kind">'
+            '<option value="email">邮箱</option><option value="pending_email">未验证邮箱</option>'
+            '<option value="username">WeekGlass 账号标识</option></select>'
+            '<label for="manage-identifier">账号或邮箱</label><input id="manage-identifier" name="identifier" '
+            'required maxlength="254" autocomplete="section-manage username" spellcheck="false" autocapitalize="none">'
+            '<p class="field-help">可在 WeekGlass 的账号设置中查看账号标识。</p>'
+            + _password('manage', section='manage'))
+
+
+# Local fragment navigation keeps the same browser authorization grant and also
+# works when JavaScript is disabled. Only one pane is visible or keyboard reachable.
+def _entry_views(csrf, action, registration, email_enabled, email_login_enabled, email_signup_enabled,
+                 email_manage_enabled, message, notice):
+    routes = {'login': 'login', 'email_login': 'login', 'legacy_login': 'legacy' if email_login_enabled else 'login',
+              'email_pending_login': 'pending-login', 'register': 'register', 'email_register': 'register', 'email_otp_send': 'otp',
+              'email_reset_send': 'reset', 'recover': 'recover', 'email_manage_begin': 'manage'}
+    current = routes.get(action, 'login')
+    if current == 'register' and not registration:
+        current = 'login'
+
+    def pane(view, content, *, nav='', intro=''):
+        active = ' class="is-current"' if view == current else ''
+        feedback = _feedback(message, notice) if view == current else ''
+        return (f'<section id="{view}"{active} tabindex="-1">'
+                + _primary_nav(view, registration) + nav + intro + feedback + content + '</section>')
+
+    def account_links(*, identity='email'):
+        recovery = 'reset' if email_enabled else 'recover'
+        links = [_link(recovery, '忘记密码')]
+        if email_manage_enabled:
+            links.append(_link('manage', '验证或更换邮箱'))
+        if email_login_enabled:
+            if identity == 'email':
+                links += [_link('pending-login', '使用未验证邮箱'), _link('legacy', '使用原账号')]
+            else:
+                links.append(_link('login', '返回邮箱登录'))
+        return _nav('更多账号选项', links)
+
+    if email_login_enabled:
+        panes = [
+            pane('login', _form(csrf, 'email_login', _email('login', login=True) + _password('login', section='login'),
+                                '登录并连接') + account_links(), nav=_login_methods('login') if email_enabled else ''),
+            pane('pending-login', _form(csrf, 'email_pending_login', _email('pending-login', login=True, label='未验证邮箱')
+                                       + _password('pending-login', section='pending-login'), '登录并连接')
+                 + account_links(identity='pending'), nav=_login_methods('pending-login') if email_enabled else '',
+                 intro='<h2>使用未验证邮箱</h2><p class="view-copy">请输入你注册时使用的邮箱和密码。</p>'),
+            pane('legacy', _form(csrf, 'login', _username('legacy') + _password('legacy'), '登录并连接')
+                 + account_links(identity='legacy'), nav=_login_methods('legacy') if email_enabled else '',
+                 intro='<p class="view-copy">未绑定邮箱时，请使用原 WeekGlass 账号登录。</p>'),
+        ]
+    else:
+        panes = [pane('login', _form(csrf, 'login', _username('login') + _password('login'), '登录并连接')
+                      + account_links())]
+
+    if email_enabled:
+        panes += [
+            pane('otp', _form(csrf, 'email_otp_send', _email('otp'), '发送验证码') + account_links(),
+                 nav=_login_methods('otp'), intro='<p class="view-copy">已付费并验证邮箱的用户可用验证码登录。</p>'),
+            pane('reset', _form(csrf, 'email_reset_send', _email('reset'), '发送验证码')
+                 + _nav('其他恢复选项', [_link('recover', '使用恢复码'), _link('login', '返回登录')]),
+                 intro='<h2>找回密码</h2><p class="view-copy">已付费并验证邮箱的用户可通过验证码设置新密码。</p>'),
+        ]
+    if email_manage_enabled:
+        panes.append(pane('manage', _form(csrf, 'email_manage_begin', _management_fields(), '确认身份')
+                          + _nav('返回登录', [_link('login', '返回登录')]),
+                          intro='<h2>验证或更换邮箱</h2><p class="view-copy">已付费用户可验证当前邮箱，也可以改用另一个邮箱。请先确认账号和密码。</p>'))
+
+    if registration:
+        # Hosted email sign-up and self-hosted username sign-up share the same
+        # visible entry point but keep distinct server-side contracts.
+        if email_signup_enabled:
+            fields = _email('register', login=True)
+            intro = '<p class="view-copy">注册即连接设备。付款确认后可验证邮箱。</p>'
+            submit_action, label = 'email_register', '注册并连接'
+            password_rules = dict(section='register', min_length=_EMAIL_PASSWORD_MIN, max_length=_EMAIL_PASSWORD_MAX)
+            password_guidance = _EMAIL_PASSWORD_GUIDANCE
+        else:
+            fields = _username('register')
+            intro = '<p class="view-copy">账号使用 3 到 80 位英文字母、数字或 _.@+-。</p>'
+            submit_action, label = 'register', '注册并获取恢复码'
+            password_rules = {}
+            password_guidance = None
+        panes.append(pane('register', _form(csrf, submit_action, fields
+                          + _password('register', new=True, label='密码', guidance=password_guidance, **password_rules)
+                          + _confirmation('register', **password_rules), label)
+                          + '<p class="field-help">官方云写入需订阅权益，自托管同步免费。</p>', intro=intro))
+
+    recovery_intro = '<h2>使用恢复码重设密码</h2><p class="view-copy">成功后，旧设备会退出登录，并生成新的恢复码。'
+    if email_login_enabled:
+        recovery_intro += '原账号会解除邮箱绑定；用邮箱注册的账号会保留邮箱。'
+    panes.append(pane('recover', _form(csrf, 'recover', _recovery_fields(or_email=email_login_enabled), '重设密码')
+                      + _nav('其他恢复选项', ([_link('reset', '使用邮箱找回')] if email_enabled else [])
+                             + [_link('login', '返回登录')])
+                      + '<p class="field-help">如果没有可用的恢复码，请联系服务器管理员。</p>',
+                      intro=recovery_intro + '</p>'))
+    return '<div class="auth-views">' + ''.join(panes) + '</div>'
+
+
+# State in these views is tied to the server grant. The only displayed address
+# comes from the server's pre-masked hint; resend and cancel post no credentials.
+_CODE_VIEWS = {
+    'email_otp_verify': ('输入验证码', '验证后连接此设备', '验证并连接'),
+    'email_reset_verify': ('验证邮箱', '验证后设置新密码', '验证验证码'),
+    'email_bind_verify': ('验证邮箱', '验证后可用此邮箱登录和找回密码', '验证并连接'),
+    'email_change_old_verify': ('验证原邮箱', '验证后输入新邮箱', '验证原邮箱'),
+    'email_change_new_verify': ('验证新邮箱', '更换后所有旧设备将退出登录', '确认更换'),
+}
+
+_STEP_TITLES = {
+    'email_reset_finish': '设置新密码',
+    'email_change_old_send': '验证原邮箱',
+    'email_change_new_send': '输入新邮箱',
+} | {action: info[0] for action, info in _CODE_VIEWS.items()}
+
+
+def _email_step(csrf, action, email_hint, feedback, resend_after, *, management_only=False):
+    recipient = f' <span class="email-hint">{_escape(email_hint)}</span> ' if email_hint else '邮箱'
+    if action in _CODE_VIEWS:
+        _, next_step, label = _CODE_VIEWS[action]
+        if action == 'email_bind_verify' and management_only:
+            label = '确认验证'
+        intro = f'<p>请输入发往{recipient}的 6 位验证码。{next_step}。</p>'
+        fields = _code('verify')
+        resend = ('<p class="field-help resend-help">没收到邮件？请检查垃圾邮件。</p>'
+                  + _form(csrf, 'email_resend', '', '重新发送', secondary=True, resend_after=resend_after))
+    else:
+        resend = ''
+        label = '发送验证码'
+        if action == 'email_reset_finish':
+            intro = '<p>重设密码后，所有设备会退出，已保存的恢复码也会失效。请用新密码登录。</p>'
+            password_rules = dict(section='reset-finish', min_length=_EMAIL_PASSWORD_MIN, max_length=_EMAIL_PASSWORD_MAX)
+            fields = (_password('reset-finish', new=True, guidance=_EMAIL_PASSWORD_GUIDANCE, **password_rules)
+                      + _confirmation('reset-finish', **password_rules))
+            label = '保存新密码'
+        elif action == 'email_change_old_send':
+            intro = f'<p>先向{recipient if email_hint else "原邮箱"}发送验证码，确认后再验证新邮箱。</p>'
+            fields = ''
+        else:
+            intro = '<p>请填写新邮箱。更换成功后，所有旧设备将退出登录。</p>'
+            fields = _email('change', label='新邮箱')
+    controls = '<div class="step-controls">' + resend + _management_cancel(csrf, management_only) + '</div>'
+    return intro + feedback + _form(csrf, action, fields, label) + controls
+
+
+def _management_cancel(csrf, management_only):
+    label = '返回验证入口' if management_only else '取消并返回登录'
+    return _form(csrf, 'email_cancel', '', label, secondary=True)
+
+
+def _management_title(action, email_paid, email_enabled):
+    if action == 'email_manage_unavailable':
+        return '暂时无法管理邮箱'
+    return '验证邮箱' if email_paid and email_enabled else '邮箱尚未验证'
+
+
+def _management_step(csrf, action, pending_email, email_paid, email_enabled, feedback, *,
+                     email_pending_editable=False, management_only=False, backup_username=None):
+    if action == 'email_manage_unverified' and email_paid and email_enabled:
+        advice = ('确认当前邮箱，或填写新的邮箱地址。验证后可用它登录和找回密码。' if pending_email else
+                  '填写你要验证的邮箱。验证后可用它登录和找回密码。')
+        form = _form(csrf, 'email_bind_send', _email('bind', value=pending_email), '发送验证码')
+    else:
+        if email_paid:
+            advice = '邮件服务暂不可用。你仍可使用密码登录。'
+        else:
+            advice = '付款确认后可验证或更换邮箱。你仍可使用密码登录。'
+        form = ''
+        if action == 'email_manage_unverified' and email_pending_editable:
+            form = ('<h2>更正注册邮箱</h2><p class="view-copy">如果注册时填错邮箱，可以先更正。此操作不会发送邮件。</p>'
+                    + _form(csrf, 'email_pending_save', _email('pending', value=pending_email)
+                            + _password('pending', section='pending'), '保存邮箱'))
+    secondary = _management_cancel(csrf, management_only)
+    if not management_only:
+        if form:
+            secondary = _form(csrf, 'email_manage_connect', '', '跳过并连接', secondary=True) + secondary
+        else:
+            form = _form(csrf, 'email_manage_connect', '', '继续连接')
+    backup = ''
+    if action == 'email_manage_unverified' and backup_username:
+        backup = ('<div class="account-fallback"><p>邮箱无法登录时，可使用此账号标识。</p>'
+                  f'<code aria-label="备用账号标识">{_escape(backup_username)}</code></div>')
+    return f'<p>{advice}</p>' + feedback + form + '<div class="step-controls">' + secondary + '</div>' + backup
 
 
 def page(csrf, message='', *, action='login', registration=True, recovery_key=None, expired=False,
-         handoff_url=None, error_message=None):
-    title = '返回 WeekGlass' if handoff_url else '连接 WeekGlass'
+         handoff_url=None, error_message=None, email_enabled=False, email_hint=None, notice=None, resend_after=0,
+         email_login_enabled=False, email_signup_enabled=False, email_manage_enabled=False,
+         pending_email=None, email_paid=False, email_pending_editable=False, management_only=False,
+         management_done=False, backup_username=None):
+    active = not (recovery_key or expired or error_message or handoff_url)
+    step = active and email_enabled and action in _STEP_TITLES
+    management = active and action in ('email_manage_unverified', 'email_manage_unavailable')
+    if handoff_url:
+        title = '返回 WeekGlass'
+    elif step:
+        title = _STEP_TITLES[action]
+    elif management:
+        title = _management_title(action, email_paid, email_enabled)
+    elif management_done:
+        title = '邮箱已验证'
+    elif management_only:
+        title = '验证或更换邮箱'
+    else:
+        title = '连接 WeekGlass'
     head = ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
             '<title>' + title + '</title><style>' + AUTH_STYLE
@@ -144,27 +424,24 @@ def page(csrf, message='', *, action='login', registration=True, recovery_key=No
                    f'<code id="recovery-key">{_escape(recovery_key)}</code>'
                    + _form(csrf, 'continue', '', '我已保存，连接此设备')
                    + '<p class="fine">恢复码更新后，旧恢复码即失效。不要将它发给其他人。</p>')
+    elif step:
+        content = _email_step(csrf, action, email_hint, _feedback(message, notice), resend_after,
+                              management_only=management_only)
+    elif management:
+        content = _management_step(csrf, action, pending_email, email_paid, email_enabled, _feedback(message, notice),
+                                   email_pending_editable=email_pending_editable, management_only=management_only,
+                                   backup_username=backup_username)
+    elif management_done:
+        content = _feedback(message, notice) + '<p>回到 WeekGlass，在账号设置中查看邮箱验证结果。</p>'
+    elif management_only:
+        content = ('<p>请先确认身份。付款确认后，即可验证当前邮箱或更换邮箱。</p>' + _feedback(message, notice)
+                   + _form(csrf, 'email_manage_begin', _management_fields(), '确认身份'))
     else:
-        content = ('<p>让日程，在设备之间轻盈流转。</p>'
-                   '<p class="fine">使用独立的 WeekGlass 账号，与主网站及学校账号分开。</p>')
-        if message:
-            content += f'<p class="message" role="alert">{_escape(message)}</p>'
-        content += _form(csrf, 'login', _username('login') + _password('login'), '登录并连接')
-        if registration:
-            content += ('<details id="register"' + (' open' if action == 'register' else '')
-                        + '><summary>创建 WeekGlass 账号</summary>'
-                        '<p class="fine">账号使用 3–80 位英文字母、数字或 _.@+-；密码至少 16 字符。'
-                        '此账号与 Viliana 主站、学校账号独立。官方云写入需订阅权益；自托管同步免费。</p>'
-                        + _form(csrf, 'register', _username('register') + _password('register', new=True)
-                                + _confirmation('register'), '注册并获取恢复码') + '</details>')
-        content += ('<details id="recover"' + (' open' if action == 'recover' else '')
-                    + '><summary>忘记密码</summary><p class="fine">使用保存的恢复码重设密码。'
-                    '成功后所有旧设备退出登录，并生成新的恢复码。若没有恢复码，请联系此服务器管理员。</p>'
-                    + _form(csrf, 'recover', _username('recover')
-                            + '<label for="recovery-key">恢复码</label><input id="recovery-key" '
-                              'name="recovery_key" autocomplete="off" required maxlength="100" spellcheck="false">'
-                            + _password('recover', new=True) + _confirmation('recover'), '重设密码') + '</details>'
-                    '<p class="fine">仅连接你发起授权的设备。如需取消，请返回 WeekGlass 取消登录。</p>')
-    script = HANDOFF_SCRIPT if handoff_url else ('' if expired or error_message else FORM_SCRIPT)
+        email_password = email_signup_enabled or email_login_enabled or email_enabled
+        content = ('<p class="scope">使用独立的 WeekGlass 账号，与主网站及学校账号分开。</p>'
+                   + _entry_views(csrf, action, registration, email_enabled, email_password,
+                                  email_signup_enabled, email_manage_enabled, message, notice)
+                   + '<p class="connection-note">仅连接你发起授权的设备。</p>')
+    script = HANDOFF_SCRIPT if handoff_url else ('' if expired or error_message or management_done else FORM_SCRIPT)
     return (head + content + '</main>' + ('<script>' + script + '</script>' if script else '')
             + '</body></html>')

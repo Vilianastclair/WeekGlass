@@ -57,6 +57,7 @@ class CloudConnection extends ChangeNotifier with WidgetsBindingObserver {
   bool _disposed = false;
   bool _cancelLoginRequested = false;
   int _accountRead = 0;
+  int _accountProfileRead = 0;
   int _sessionRead = 0;
   Future<void>? _entitlementRead;
   int _writeDenials = 0;
@@ -72,6 +73,12 @@ class CloudConnection extends ChangeNotifier with WidgetsBindingObserver {
   bool get busy => working || engine.busy;
   bool get connected => auth.connected;
   bool get entitlementsStale => _entitlementsStale;
+  bool get emailVerificationRequired =>
+      auth.official && account?['email_verification_required'] == true;
+  bool get emailVerificationAvailable =>
+      emailVerificationRequired &&
+      account?['email_verification_available'] == true;
+  bool get emailVerified => auth.official && account?['email_verified'] == true;
   String get displayName => auth.official ? 'WeekGlass 云' : '自己的服务器';
   void _changed() {
     if (!_disposed) notifyListeners();
@@ -262,6 +269,38 @@ class CloudConnection extends ChangeNotifier with WidgetsBindingObserver {
   Future<void> refreshAccount({bool afterLogin = false}) =>
       _refreshAccount(afterLogin: afterLogin, readEntitlements: true);
 
+  /// Verification can be refreshed without waiting for sync or device reads.
+  Future<void> refreshAccountProfile() => _refreshAccountProfile();
+
+  Future<void> _refreshAccountProfile({bool notify = true}) async {
+    if (_disposed || !auth.connected) return;
+    final session = _sessionRead;
+    final read = ++_accountProfileRead;
+    bool current() => _currentSession(session) && _accountProfileRead == read;
+    try {
+      final details = await auth.request('GET', '/v1/me/account', null);
+      if (current()) account = details;
+    } on CloudApiException catch (error) {
+      if (error.status != 404) rethrow;
+      if (current()) account = null; // Older self-hosted servers.
+    } finally {
+      if (notify && current()) _changed();
+    }
+  }
+
+  Future<bool> openEmailVerification() => emailVerificationAvailable
+      ? auth.openEmailVerification()
+      : Future.value(false);
+
+  Future<void> refreshEmailStatusQuietly() async {
+    if (!auth.official || emailVerified) return;
+    try {
+      await refreshAccountProfile();
+    } catch (_) {
+      // Keep the last confirmed status on automatic refresh.
+    }
+  }
+
   Future<void> _refreshAccount({
     bool afterLogin = false,
     required bool readEntitlements,
@@ -276,13 +315,7 @@ class CloudConnection extends ChangeNotifier with WidgetsBindingObserver {
       final result = await auth.request('GET', '/v1/devices', null);
       if (!current()) return;
       devices = (result['devices'] as List).cast<Map<String, dynamic>>();
-      try {
-        final details = await auth.request('GET', '/v1/me/account', null);
-        if (current()) account = details;
-      } on CloudApiException catch (error) {
-        if (error.status != 404) rethrow;
-        if (current()) account = null; // Older self-hosted servers.
-      }
+      await _refreshAccountProfile(notify: false);
     } catch (_) {
       if (!afterLogin) rethrow;
       if (current()) accountProblem = '连接已完成，暂时无法读取账号或设备资料。';
@@ -449,6 +482,7 @@ class CloudConnection extends ChangeNotifier with WidgetsBindingObserver {
       unawaited(sync());
     } else if (auth.official) {
       unawaited(_refreshEntitlementsQuietly());
+      unawaited(refreshEmailStatusQuietly());
     }
   }
 

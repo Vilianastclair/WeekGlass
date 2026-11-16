@@ -1,0 +1,10 @@
+**
+!contracts/sync-v1.openapi.json
+!runtime/requirements-linux.lock
+!runtime/wheels/*.whl
+!runtime/node-v24.22.3-linux-x64.tar.gz
+!runtime/waffo_bridge/package.json
+!runtime/waffo_bridge/package-lock.json
+!runtime/waffo_bridge/*.mjs
+runtime/waffo_bridge/*.test.mjs
+!runtime/weekglass_server/*.py

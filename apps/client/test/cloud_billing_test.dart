@@ -7,9 +7,12 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:weekglass/features/cloud/cloud_auth_service.dart';
 import 'package:weekglass/features/cloud/cloud_billing_client.dart';
+import 'package:weekglass/features/cloud/cloud_connection.dart';
 import 'package:weekglass/features/cloud/cloud_subscription_dialog.dart';
+import 'package:weekglass_data/weekglass_data.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 import 'package:window_manager/window_manager.dart';
 
@@ -56,6 +59,8 @@ class _BillingServer {
   bool cancelTimesOut = false;
   bool closeRacesPayment = false;
   bool offline = false;
+  bool emailEligible = false;
+  bool emailVerified = false;
   int cancelRequests = 0;
   int entitlementReads = 0;
   final keys = <String>[];
@@ -126,6 +131,14 @@ class _BillingServer {
         requests.add('$method ${uri.path}');
         if (offline) throw TimeoutException('offline');
         switch (uri.path) {
+          case '/v1/me/account':
+            final required = emailEligible && !emailVerified;
+            return {
+              'username': 'wg-example',
+              'email_verification_required': required,
+              'email_verification_available': required,
+              'email_verified': emailVerified,
+            };
           case '/v1/server-info':
             expectSync(headers, isEmpty);
             return {
@@ -238,8 +251,23 @@ Future<GlobalKey> _open(
   double scale = 1.0,
   Size size = const Size(390, 740),
   Future<bool> Function(Uri)? launch,
+  bool attachCloud = false,
 }) async {
-  final client = CloudBillingClient(await server.auth());
+  final auth = await server.auth();
+  final client = CloudBillingClient(auth);
+  CloudConnection? cloud;
+  if (attachCloud) {
+    final repository = SqliteEventRepository(
+      factory: databaseFactoryFfi,
+      databasePath: inMemoryDatabasePath,
+    );
+    cloud = CloudConnection(repository: repository, auth: auth);
+    // Billing's own paid-order check must update the profile, even without a
+    // separate application resume read to discover the payment first.
+    WidgetsBinding.instance.removeObserver(cloud);
+    addTearDown(cloud.dispose);
+    addTearDown(repository.close);
+  }
   final frame = GlobalKey();
   tester.view.devicePixelRatio = 1;
   tester.view.physicalSize = size;
@@ -265,6 +293,7 @@ Future<GlobalKey> _open(
                 context: context,
                 builder: (_) => CloudSubscriptionDialog(
                   client: client,
+                  cloud: cloud,
                   refreshEntitlements: () async {
                     server.entitlementReads++;
                   },
@@ -411,6 +440,45 @@ void main() {
     await _tap(tester, find.text('完成'));
     await tester.pump(const Duration(seconds: 20));
     expect(_orderReads(server), 1);
+  });
+
+  testWidgets('paid order refreshes the native verification next step', (
+    tester,
+  ) async {
+    final server = _BillingServer.waffo();
+    await _open(
+      tester,
+      server,
+      attachCloud: true,
+      platform: TargetPlatform.android,
+      size: const Size(320, 570),
+      scale: 1.8,
+      launch: (_) async => true,
+    );
+    expect(find.text('验证邮箱'), findsNothing);
+    await _tap(tester, find.text(_waffoPurchase));
+    await _tap(tester, find.text('前往收银台'));
+    server.orderStatus = 'processing';
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+    tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+    await tester.pumpAndSettle();
+    expect(find.text('验证邮箱'), findsNothing);
+    expect(server.requests, isNot(contains('GET /v1/me/account')));
+
+    server
+      ..orderStatus = 'paid'
+      ..emailEligible = true;
+    await tester.pump(const Duration(seconds: 2));
+    await tester.pumpAndSettle();
+    expect(server.requests, contains('GET /v1/me/account'));
+    expect(find.text('订阅邮箱待验证'), findsOneWidget);
+    expect(find.text('验证邮箱').hitTestable(), findsOneWidget);
+    expect(find.text('最近订单：已付款。'), findsOneWidget);
+
+    server.emailEligible = false; // The server no longer qualifies the account.
+    await _tap(tester, find.text('刷新'));
+    expect(find.text('验证邮箱'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 
   testWidgets('two one-time quotes show the selected duration and price', (
@@ -979,6 +1047,19 @@ void main() {
         await capture(key, '$label-confirm-annual');
         await _tap(tester, find.text('前往收银台'));
         await capture(key, '$label-browser');
+        await tester.pumpWidget(const SizedBox());
+        final paid = await _open(
+          tester,
+          _BillingServer.waffo()
+            ..orderStatus = 'paid'
+            ..emailEligible = true,
+          size: size,
+          scale: scale,
+          dark: dark,
+          attachCloud: true,
+        );
+        await _tap(tester, find.text('刷新'));
+        await capture(paid, '$label-paid-email');
       }
     });
   }

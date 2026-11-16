@@ -171,7 +171,7 @@ def _page(title, message, *, script='', actions='', style='', referrer_policy='n
     js_policy = ("'sha256-" + base64.b64encode(sha256(script.encode()).digest()).decode() + "'") if script else "'none'"
     css_policy = ("'sha256-" + base64.b64encode(sha256(style.encode()).digest()).decode() + "'") if style else "'none'"
     return HTMLResponse(f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
-      <meta name="viewport" content="width=device-width,initial-scale=1"><title>{title} · WeekGlass</title>
+      <meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title>
       {'<style>' + style + '</style>' if style else ''}</head>
       <body><main class="panel"><h1>{title}</h1><p role="status">{message}</p>{actions}</main>
       {'<script>' + script + '</script>' if script else ''}</body></html>''',
@@ -196,16 +196,17 @@ def _session(request, checkout_id):
 def browser(request: Request, checkout_id: UUID):
     _browser_origin(request)
     if _session(request, checkout_id):
+        config = request.app.state.billing
         with connect() as conn:
             row = conn.execute('SELECT * FROM billing_orders WHERE checkout_id=%s AND account_id IS NOT NULL',
                                (checkout_id,)).fetchone()
+            if (row and config and config.scope[0] in (billing.WAFFO_TEST_PROVIDER, billing.WAFFO_LIVE_PROVIDER)
+                    and billing.same_scope(row, config)):
+                from .waffo_routes import order_page, show_paid_email_action
+                return order_page(row, config, request.query_params.get('returned') == '1',
+                                  verify_email=show_paid_email_action(conn, row, config))
         if row:
             status = row['status']
-            config = request.app.state.billing
-            if (config and config.scope[0] in (billing.WAFFO_TEST_PROVIDER, billing.WAFFO_LIVE_PROVIDER)
-                    and billing.same_scope(row, config)):
-                from .waffo_routes import order_page
-                return order_page(row, config, request.query_params.get('returned') == '1')
             message = {'paid': '付款已确认。请返回 WeekGlass 刷新权益。',
                        'pending': '订单已保留，当前未接通在线收银。请返回 WeekGlass 查看订单。',
                        'closed': '此订单已关闭。请返回 WeekGlass。', 'failed': '订单未付款。请返回 WeekGlass。',

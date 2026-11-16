@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Request, Response
 from starlette.concurrency import run_in_threadpool
 
-from . import billing, waffo_runtime
+from . import billing, email_delivery, waffo_runtime
 from .auth_styles import AUTH_STYLE
 from .billing_routes import _page, _session
 from .db import connect
@@ -19,7 +19,15 @@ _CHECKOUT_STYLE = AUTH_STYLE + '''
   min-height:38px;margin-top:8px;background:transparent;border-color:transparent;
   box-shadow:none;color:var(--accent);font-size:13px;
 }
+.checkout-email-action {
+  display:grid;place-items:center;min-height:46px;margin-top:24px;padding:10px 16px;
+  border:1px solid var(--edge);border-radius:var(--radius);color:var(--ink);
+  background:linear-gradient(180deg,var(--button-top),var(--button-bottom));
+  box-shadow:0 5px 12px var(--shade),inset 0 1px 0 #ffffff48;font-weight:550;text-decoration:none;
+}
+.checkout-email-action:hover{text-decoration:underline}
 '''
+_VERIFY_EMAIL_ACTION = '<a class="checkout-email-action" href="/v1/auth/email">验证或更换邮箱</a>'
 
 _ACTIONS = '''const controls = [...document.querySelectorAll('button')];
 const status = document.querySelector('[role=status]');
@@ -52,10 +60,15 @@ async function act(action) {
       location.assign(result.url);
       return false;
     }
-    status.textContent = messages[result.status] || '还没有已确认的付款。若刚完成，请稍候；到账后会自动开通。';
+    const verify = result.status === 'paid' && result.verify_email === true && !test;
+    status.textContent = verify
+      ? `付款已确认，${refresh.dataset.periodDays} 天云同步已到账。请验证邮箱，以便找回账号。`
+      : messages[result.status] || '还没有已确认的付款。若刚完成，请稍候；到账后会自动开通。';
     if (messages[result.status]) {
       document.querySelector('[data-action="provider"]')?.remove();
       if (!test) refresh?.remove();
+      const emailAction = document.querySelector('#checkout-email-next');
+      if (verify && emailAction) emailAction.replaceWith(emailAction.content.cloneNode(true));
       return false;
     }
     return true;
@@ -87,7 +100,16 @@ def mount_routes(app):
         app.state.waffo_routes_mounted = True
 
 
-def order_page(order, config, returned=False):
+def show_paid_email_action(conn, order, config):
+    return (
+        order['status'] == 'paid'
+        and config.scope[0] == billing.WAFFO_LIVE_PROVIDER
+        and email_delivery.available()
+        and billing.needs_paid_email_verification(conn, order['account_id'])
+    )
+
+
+def order_page(order, config, returned=False, *, verify_email=False):
     status = order['status']
     is_test = bool(config.sandbox_origin)
     days = order['period_seconds'] // 86400
@@ -104,7 +126,7 @@ def order_page(order, config, returned=False):
                f' data-period-days="{days}"{hidden}>'
                f'{refresh_label}</button>') if should_refresh else ''
     if is_test:
-        title = 'WeekGlass · 测试订单'
+        title = 'WeekGlass 测试订单'
         message = {'pending': '测试订单，不会扣款。', 'submitting': '收银会话正在核对。',
                    'processing': '付款后回到这里核对结果。', 'paid': '测试付款已确认。',
                    'refunded': '测试退款已确认。', 'refund_pending': '测试退款待确认。',
@@ -119,7 +141,14 @@ def order_page(order, config, returned=False):
                    'paid': f'付款已确认。{days} 天云同步已到账，可以关闭此页并返回 WeekGlass。',
                    'refunded': '退款已确认，对应的云同步权益已撤销。', 'refund_pending': '退款待确认。',
                    'closed': '此订单已关闭，未开通新的云同步时段。', 'failed': '此订单未付款。'}[status]
-    return _page(title, message, actions=pay + refresh, style=_CHECKOUT_STYLE,
+    if verify_email and not is_test and status == 'paid':
+        message = f'付款已确认，{days} 天云同步已到账。请验证邮箱，以便找回账号。'
+        email_action = _VERIFY_EMAIL_ACTION
+    elif refresh and not is_test:
+        email_action = f'<template id="checkout-email-next">{_VERIFY_EMAIL_ACTION}</template>'
+    else:
+        email_action = ''
+    return _page(title, message, actions=pay + refresh + email_action, style=_CHECKOUT_STYLE,
                  script=_ACTIONS if pay or refresh else '', referrer_policy='same-origin')
 
 
@@ -209,7 +238,11 @@ def refresh(request: Request, checkout_id: UUID):
     elif order['status'] in billing.IN_FLIGHT:
         waffo_runtime.reconcile_one(config, checkout_id)
     with connect() as conn:
-        return {'status': _order(conn, checkout_id, config)['status']}
+        fresh = _order(conn, checkout_id, config)
+        result = {'status': fresh['status']}
+        if show_paid_email_action(conn, fresh, config):
+            result['verify_email'] = True
+        return result
 
 
 @router.post('/webhooks/waffo-test', status_code=204)

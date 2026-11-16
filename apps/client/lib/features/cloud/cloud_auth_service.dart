@@ -544,6 +544,14 @@ class CloudAuthService {
     Map<String, dynamic>? body,
   ) => _request(method, path, body);
 
+  Future<bool> openEmailVerification() {
+    _ensureSession(_sessionGeneration);
+    if (!official) throw StateError('仅支持验证官方云账号的邮箱。');
+    // Sign in again on the official site. Never put the device session,
+    // checkout ticket, or account details in the browser URL.
+    return _launch(Uri.parse(origin!).resolve('/v1/auth/email'));
+  }
+
   Future<Map<String, dynamic>> billingServerInfo() async {
     final generation = _sessionGeneration;
     _ensureSession(generation);

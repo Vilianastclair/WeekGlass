@@ -1,0 +1,23 @@
+{
+  "services": {
+    "api": {
+      "environment": {
+        "WEEKGLASS_SMTP_HOST": "${WEEKGLASS_SMTP_HOST:?Set the transactional SMTP host}",
+        "WEEKGLASS_SMTP_PORT": "${WEEKGLASS_SMTP_PORT:-465}",
+        "WEEKGLASS_SMTP_TLS": "${WEEKGLASS_SMTP_TLS:-implicit}",
+        "WEEKGLASS_SMTP_USER": "${WEEKGLASS_SMTP_USER:?Set the WeekGlass sender address}",
+        "WEEKGLASS_SMTP_FROM": "${WEEKGLASS_SMTP_FROM:-}",
+        "WEEKGLASS_SMTP_PASSWORD_FILE": "/run/secrets/weekglass_smtp_password"
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "./secrets/weekglass_smtp_password",
+          "target": "/run/secrets/weekglass_smtp_password",
+          "read_only": true,
+          "bind": {"create_host_path": false}
+        }
+      ]
+    }
+  }
+}

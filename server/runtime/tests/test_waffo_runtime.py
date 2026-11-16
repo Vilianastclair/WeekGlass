@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 import pytest
 
 from test_auth import headers, tokens_for
-from weekglass_server import auth, billing, main, waffo_runtime
+from weekglass_server import auth, billing, email_delivery, main, waffo_runtime
 from weekglass_server.db import connect
 from weekglass_server.protocol import now, validate
 from weekglass_server.settings import settings
@@ -180,6 +180,38 @@ def test_pilot_payment_and_refund_work_with_sales_paused(official, monkeypatch):
                              merchant_refund_id='refund-pilot', provider_refund_id='refund-provider')
     assert webhook(f, refund).status_code == 204
     assert order(f, oid)['status'] == 'refunded'
+
+
+def test_paid_order_offers_separate_email_verification_only_after_confirmation(official, monkeypatch):
+    f = official
+    monkeypatch.setattr(email_delivery, 'available', lambda: True)
+    sent = []
+    monkeypatch.setattr(email_delivery, 'send_code', lambda *args: sent.append(args))
+    oid, path = open_order(f, checkout(f))
+    browser_headers = {'Origin': ORIGIN}
+    assert f.client.post(path + '/provider', headers=browser_headers).status_code == 200
+    pending = f.client.get(path + '?returned=1').text.split('</main>', 1)[0]
+    assert '付款结果待确认' in pending and '请验证邮箱，以便找回账号' not in pending
+    assert f.client.post(path + '/refresh', headers=browser_headers).json() == {'status': 'processing'}
+
+    paid = f.adapter.event('payment_paid', oid)
+    assert webhook(f, paid).status_code == 204
+    assert f.client.post(path + '/refresh', headers=browser_headers).json() == {'status': 'paid', 'verify_email': True}
+    page = f.client.get(path)
+    assert '30 天云同步已到账。请验证邮箱' in page.text
+    assert 'href="/v1/auth/email">验证或更换邮箱</a>' in page.text
+    assert '<template id="checkout-email-next">' not in page.text
+    assert '/v1/auth/email?' not in page.text
+    assert not sent  # Confirmation itself never triggers a message.
+
+    monkeypatch.setattr(email_delivery, 'available', lambda: False)
+    assert '验证或更换邮箱' not in f.client.get(path).text
+    monkeypatch.setattr(email_delivery, 'available', lambda: True)
+    refund = f.adapter.event('refund_succeeded', oid, paid.external_id,
+                             merchant_refund_id='refund-email', provider_refund_id='email-provider')
+    assert webhook(f, refund).status_code == 204
+    assert f.client.post(path + '/refresh', headers=browser_headers).json() == {'status': 'refunded'}
+    assert '验证或更换邮箱' not in f.client.get(path).text
 
 
 def test_reconciles_only_due_orders_and_confirmed_cancellation_unlocks_checkout(official):

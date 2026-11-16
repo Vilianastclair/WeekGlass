@@ -128,6 +128,29 @@ def billing_capabilities(config):
     return flags
 
 
+def has_confirmed_waffo_payment(conn, account_id):
+    """Mail access comes from a retained Waffo Live payment, not write access.
+
+    A genuine former subscriber can still recover their account to renew it.
+    A fully refunded, test, administrative, or merely pending order cannot
+    issue mail. Order and period must belong to the same account.
+    """
+    return settings.mode == 'hosted' and bool(conn.execute('''SELECT 1 FROM billing_periods p
+        JOIN billing_orders o ON o.checkout_id=p.checkout_id AND o.account_id=p.account_id
+        WHERE p.account_id=%s AND p.revoked_at IS NULL AND o.provider=%s
+          AND o.source='checkout' AND o.purchase_mode='single' AND o.status IN ('paid','refund_pending')
+          AND NOT o.refund_required AND o.provider_payment_id IS NOT NULL AND o.paid_at IS NOT NULL
+        LIMIT 1''', (account_id, WAFFO_LIVE_PROVIDER)).fetchone())
+
+
+def needs_paid_email_verification(conn, account_id):
+    if settings.mode != 'hosted':
+        return False
+    pending = conn.execute('''SELECT 1 FROM auth_accounts
+        WHERE account_id=%s AND enabled AND verified_email IS NULL''', (account_id,)).fetchone()
+    return bool(pending and has_confirmed_waffo_payment(conn, account_id))
+
+
 def checkout_available(config, account_id=None):
     return bool(config and config.checkout_enabled and settings.mode == 'hosted'
                 and settings.public_origin == config.origin

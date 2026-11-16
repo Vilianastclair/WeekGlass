@@ -9,6 +9,7 @@ import 'package:window_manager/window_manager.dart';
 import 'cloud_auth_service.dart';
 import 'cloud_billing_client.dart';
 import 'cloud_connection.dart';
+import 'cloud_email_verification.dart';
 
 Future<void> openCloudSubscription(
   BuildContext context,
@@ -23,6 +24,7 @@ Future<void> openCloudSubscription(
     builder: (_) => CloudSubscriptionDialog(
       client: client,
       refreshEntitlements: cloud.refreshEntitlements,
+      cloud: cloud,
       ordersOnly: orders,
     ),
   );
@@ -33,12 +35,14 @@ class CloudSubscriptionDialog extends StatefulWidget {
     super.key,
     required this.client,
     required this.refreshEntitlements,
+    this.cloud,
     this.ordersOnly = false,
     this.launchCheckout,
   });
 
   final CloudBillingClient client;
   final Future<void> Function() refreshEntitlements;
+  final CloudConnection? cloud;
   final bool ordersOnly;
   final Future<bool> Function(Uri)? launchCheckout;
 
@@ -64,6 +68,8 @@ class _CloudSubscriptionDialogState extends State<CloudSubscriptionDialog>
   String? _notice;
   String? _error;
   String? _entitlementError;
+  String? _emailStatusError;
+  final _contentScroll = ScrollController();
   Timer? _orderCheckTimer;
   int _orderCheckIndex = 0;
   bool _loading = false;
@@ -101,6 +107,7 @@ class _CloudSubscriptionDialogState extends State<CloudSubscriptionDialog>
   @override
   void dispose() {
     _orderCheckTimer?.cancel();
+    _contentScroll.dispose();
     if (_watchingWindow) windowManager.removeListener(this);
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
@@ -142,10 +149,14 @@ class _CloudSubscriptionDialogState extends State<CloudSubscriptionDialog>
       if (refreshAccess) _entitlementError = null;
     });
     var retry = true;
+    Future<void>? emailStatus;
     try {
       final order = await _client.order(id);
       if (!mounted) return;
       retry = order.awaitingPayment;
+      if (order.status == 'paid' && order.provider == 'waffo_pancake') {
+        emailStatus = _refreshEmailStatus(showFailure: true, reveal: true);
+      }
       setState(() {
         final orders = _orders ?? const <CloudBillingOrder>[];
         _orders = [
@@ -164,7 +175,7 @@ class _CloudSubscriptionDialogState extends State<CloudSubscriptionDialog>
       // The first check on return and a confirmed result update sync access.
       // Between them, only read the order; its state may lag behind the cashier.
       if (mounted && (!retry || refreshAccess)) {
-        await _refreshSyncAccess();
+        await Future.wait([_refreshSyncAccess(), ?emailStatus]);
       }
       if (mounted) {
         setState(() => _loading = false);
@@ -192,6 +203,30 @@ class _CloudSubscriptionDialogState extends State<CloudSubscriptionDialog>
       }
     } catch (_) {
       if (mounted) setState(() => _entitlementError = '同步权限暂未刷新，请稍后重试。');
+    }
+  }
+
+  Future<void> _refreshEmailStatus({
+    required bool showFailure,
+    bool reveal = false,
+  }) async {
+    final cloud = widget.cloud;
+    if (cloud == null) return;
+    try {
+      await cloud.refreshAccountProfile();
+      if (mounted && _emailStatusError != null) {
+        setState(() => _emailStatusError = null);
+      }
+      if (mounted && reveal && cloud.emailVerificationRequired) {
+        // The buyer may still be scrolled down to the purchase choices.
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _contentScroll.hasClients) _contentScroll.jumpTo(0);
+        });
+      }
+    } catch (_) {
+      if (mounted && showFailure) {
+        setState(() => _emailStatusError = '暂时无法读取邮箱状态。请刷新后重试。');
+      }
     }
   }
 
@@ -271,7 +306,20 @@ class _CloudSubscriptionDialogState extends State<CloudSubscriptionDialog>
     } catch (_) {
       if (mounted) setState(() => _error = '暂时无法更新订阅记录。请刷新后重试。');
     } finally {
-      if (entitlements && mounted) await _refreshSyncAccess();
+      if (entitlements && mounted) {
+        await Future.wait([
+          _refreshSyncAccess(),
+          _refreshEmailStatus(
+            showFailure:
+                _orders?.any(
+                  (order) =>
+                      order.status == 'paid' &&
+                      order.provider == 'waffo_pancake',
+                ) ??
+                false,
+          ),
+        ]);
+      }
       if (mounted) {
         setState(() => _loading = false);
         _checkReturnedOrder();
@@ -547,6 +595,7 @@ class _CloudSubscriptionDialogState extends State<CloudSubscriptionDialog>
         content: SizedBox(
           width: 424,
           child: SingleChildScrollView(
+            controller: _contentScroll,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -555,6 +604,11 @@ class _CloudSubscriptionDialogState extends State<CloudSubscriptionDialog>
                   const Padding(
                     padding: EdgeInsets.only(bottom: 14),
                     child: LinearProgressIndicator(minHeight: 2),
+                  ),
+                if (widget.cloud case final cloud?)
+                  CloudEmailVerification(
+                    cloud: cloud,
+                    readProblem: _emailStatusError,
                   ),
                 if (_unavailable)
                   Text(widget.ordersOnly ? '当前服务器不提供订单记录。' : '当前服务器不提供订阅管理。')

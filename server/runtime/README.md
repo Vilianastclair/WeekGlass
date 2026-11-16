@@ -10,3 +10,58 @@ python -m weekglass_server.admin create-account example-user
 ```
 
 For tests, install `requirements-test.txt` and run `python -m pytest tests` from this directory. Tests that exercise the database require a dedicated disposable PostgreSQL database whose name ends in `_test`. Never run the suite against a live database.
+
+## Build the hosted API
+
+The hosted image adds the locked Waffo SDK to the same Python API. The standard self-hosted build does not need Node, Waffo, or SMTP. The hosted build needs Docker BuildKit on Linux amd64 or a builder targeting that platform. From the repository root, prepare the locked Python wheels and Node archive, then build:
+
+```sh
+python -m pip download --require-hashes --only-binary=:all: \
+  --platform manylinux_2_17_x86_64 --platform manylinux_2_28_x86_64 \
+  --python-version 312 --implementation cp --abi cp312 --abi abi3 --abi none \
+  -r server/runtime/requirements-linux.lock -d server/runtime/wheels
+curl -fL https://nodejs.org/dist/v24.22.3/node-v24.22.3-linux-x64.tar.gz \
+  -o server/runtime/node-v24.22.3-linux-x64.tar.gz
+DOCKER_BUILDKIT=1 docker build --platform linux/amd64 \
+  -f server/runtime/Dockerfile.hosted-waffo \
+  -t weekglass-api:paid-email-auth-20261115 server
+```
+
+The Dockerfile checks the Node archive against the pinned release digest and installs the SDK from its lockfile. No configuration, credentials, database data, or build downloads belong in the source checkout's commits.
+
+### Configure the hosted service
+
+Use the database, persistent server identity, trusted HTTPS proxy, and API container configuration in the [server guide](../README.md). Set `WEEKGLASS_MODE=hosted` for hosted account behavior. Waffo Live additionally requires the official `https://cloud.viliana.cn` origin; setting Waffo variables on an independently hosted instance does not enable official payment intake.
+
+The [Waffo overlay](../../infra/weekglass/compose.waffo-live.json) expects a base Compose file with an `api` service on a private network named `service`. It adds API egress for Waffo and SMTP without publishing another port. Keep deployment settings and secrets outside the source checkout. In the deployment directory:
+
+- Set `WEEKGLASS_WAFFO_LIVE_IMAGE` to the image built above. Use provider-issued `WEEKGLASS_WAFFO_LIVE_MERCHANT_ID`, `WEEKGLASS_WAFFO_LIVE_STORE_ID` and `WEEKGLASS_WAFFO_LIVE_PRODUCT_ID`. For the annual plan also set `WEEKGLASS_WAFFO_LIVE_ANNUAL_PRODUCT_ID`.
+- Mount the Waffo key at `secrets/waffo-live-private.pem` with access limited to the container's UID 10001 and authorized administrators. On the official host, preserve `WEEKGLASS_WAFFO_LIVE_ACCEPT_EVENTS=true` for signed payment and refund notifications. `WEEKGLASS_WAFFO_LIVE_ENABLED` controls new purchases; `WEEKGLASS_WAFFO_LIVE_ANNUAL_ENABLED` controls new annual purchases. Neither purchase switch disables settlement of orders already placed.
+- With the [SMTP overlay](../../infra/weekglass/compose.smtp.json), set `WEEKGLASS_SMTP_HOST` and `WEEKGLASS_SMTP_USER` to the transactional SMTP service and sender login. The default is implicit TLS on 465. For STARTTLS, set `WEEKGLASS_SMTP_TLS=starttls` and the provider's port (usually 587). If the From address differs from the login, set `WEEKGLASS_SMTP_FROM`. Put the SMTP password in the separate `secrets/weekglass_smtp_password` file with mode `0400` and owner UID 10001; never put it in an environment file.
+- Set `WEEKGLASS_EMAIL_SIGNUP_ENABLED=true` to accept new email-password registrations in hosted mode when registration is enabled. Registration sends no email. Verification and email-code recovery require a qualifying confirmed payment; they do not determine access to purchased sync.
+
+Run from the deployment directory, where `compose.yml` is the base file and `SOURCE` is the absolute path to the source checkout:
+
+```sh
+live() {
+  docker compose --env-file .env -f compose.yml \
+    -f "$SOURCE/infra/weekglass/compose.waffo-live.json" \
+    -f "$SOURCE/infra/weekglass/compose.smtp.json" "$@"
+}
+live config --quiet
+live run --no-deps --rm -T api python -c \
+  'from weekglass_server.email_delivery import check_connection; check_connection()'
+live up -d --no-deps --wait --wait-timeout 90 api
+```
+
+The SMTP check uses TLS and authenticates without sending a message. Before enabling new purchases, inspect the Live catalog with `WaffoLive.load()` and `catalog_amount()` (100 fen monthly, 999 fen annually); this creates no orders. After switching, verify `/healthz`, `/v1/server-info`, existing account login, and the intended checkout and email routes. If mail is unavailable after email registration has opened, keep the new image and Waffo overlay, remove only the SMTP overlay, and replace only `api`. Existing logins, email-password registration, and purchased sync continue to work. Do not switch to an image that cannot sign in users who have registered with email.
+
+### Run scoped account tests
+
+Use a disposable PostgreSQL database for server integration tests. Set `DB_NAME` to a name ending in `_test`, configure `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD_FILE`, and provide a test server UUID and signing key file as in the server guide. Leave `DATABASE_URL` unset. Install `requirements-test.txt`, then run from `server/runtime`:
+
+```sh
+python -m pytest tests/test_email_delivery.py tests/test_email_identity.py tests/test_waffo_runtime.py
+```
+
+The browser fixture tests also require Playwright and Chromium. From a disposable test workspace with Playwright resolvable by Node, run `node --test tests/auth_email_browser.test.cjs tests/checkout_email_browser.test.cjs` from `server/runtime`. The fixtures render local pages and do not send mail or contact Waffo. From `apps/client`, run `flutter test test/cloud_account_test.dart test/cloud_billing_test.dart test/cloud_settings_test.dart` for the account panels and payment handoff.

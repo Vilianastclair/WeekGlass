@@ -10,6 +10,7 @@ import 'cloud_auth_service.dart';
 import 'cloud_account_dialog.dart';
 import 'cloud_billing_client.dart';
 import 'cloud_connection.dart';
+import 'cloud_email_verification.dart';
 import 'cloud_subscription_dialog.dart';
 
 Future<void> openCloudSettings(BuildContext context, CloudConnection cloud) =>
@@ -31,6 +32,12 @@ class _CloudDialogState extends State<_CloudDialog> {
   String? localError;
   bool _ownsLogin = false;
   CloudConnection get cloud => widget.cloud;
+
+  @override
+  void initState() {
+    super.initState();
+    unawaited(cloud.refreshEmailStatusQuietly());
+  }
 
   Future<void> login() async {
     if (_ownsLogin) return;
@@ -233,7 +240,9 @@ class _CloudDialogState extends State<_CloudDialog> {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '登录页可注册独立账号，或使用恢复码找回密码。',
+                      hosted
+                          ? '登录页可用邮箱注册，也可使用恢复码找回密码。'
+                          : '登录页可注册独立账号，或使用恢复码找回密码。',
                       style: theme.textTheme.bodySmall,
                     ),
                     if (cloud.loginPhase case final phase?) ...[
@@ -280,6 +289,7 @@ class _CloudDialogState extends State<_CloudDialog> {
                         '同步权益截止：${cloudBillingTime(end)}',
                         style: theme.textTheme.bodySmall,
                       ),
+                    CloudEmailVerification(cloud: cloud),
                     const SizedBox(height: 8),
                     if (cloud.auth.mergeApproved) ...[
                       Text(

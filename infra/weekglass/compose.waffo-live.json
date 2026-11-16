@@ -1,0 +1,39 @@
+{
+  "services": {
+    "api": {
+      "image": "${WEEKGLASS_WAFFO_LIVE_IMAGE:?Set the approved WeekGlass Waffo image tag}",
+      "environment": {
+        "WEEKGLASS_WAFFO_LIVE_ACCEPT_EVENTS": "${WEEKGLASS_WAFFO_LIVE_ACCEPT_EVENTS:-false}",
+        "WEEKGLASS_WAFFO_LIVE_ENABLED": "${WEEKGLASS_WAFFO_LIVE_ENABLED:-false}",
+        "WEEKGLASS_WAFFO_LIVE_ACCOUNT_ID": "${WEEKGLASS_WAFFO_LIVE_ACCOUNT_ID:-}",
+        "WEEKGLASS_WAFFO_LIVE_MERCHANT_ID": "${WEEKGLASS_WAFFO_LIVE_MERCHANT_ID:?Set the live merchant ID}",
+        "WEEKGLASS_WAFFO_LIVE_STORE_ID": "${WEEKGLASS_WAFFO_LIVE_STORE_ID:?Set the live store ID}",
+        "WEEKGLASS_WAFFO_LIVE_PRODUCT_ID": "${WEEKGLASS_WAFFO_LIVE_PRODUCT_ID:?Set the published live one-time product ID}",
+        "WEEKGLASS_WAFFO_LIVE_ANNUAL_PRODUCT_ID": "${WEEKGLASS_WAFFO_LIVE_ANNUAL_PRODUCT_ID:-}",
+        "WEEKGLASS_WAFFO_LIVE_ANNUAL_ENABLED": "${WEEKGLASS_WAFFO_LIVE_ANNUAL_ENABLED:-false}",
+        "WEEKGLASS_WAFFO_LIVE_PRIVATE_KEY_FILE": "/run/secrets/waffo_live_private_key",
+        "WEEKGLASS_EMAIL_SIGNUP_ENABLED": "${WEEKGLASS_EMAIL_SIGNUP_ENABLED:-false}"
+      },
+      "volumes": [
+        {
+          "type": "bind",
+          "source": "./secrets/waffo-live-private.pem",
+          "target": "/run/secrets/waffo_live_private_key",
+          "read_only": true,
+          "bind": {
+            "create_host_path": false
+          }
+        }
+      ],
+      "networks": [
+        "service",
+        "waffo_egress"
+      ]
+    }
+  },
+  "networks": {
+    "waffo_egress": {
+      "driver": "bridge"
+    }
+  }
+}

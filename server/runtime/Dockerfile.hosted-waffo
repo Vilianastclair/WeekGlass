@@ -1,0 +1,25 @@
+FROM python@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30 AS waffo-sdk
+COPY runtime/node-v24.22.3-linux-x64.tar.gz /tmp/
+RUN echo '061ec3e3062115705b56b51fa9cc330ab50d34b6969387d4e4b1a50c6809acc2  /tmp/node-v24.22.3-linux-x64.tar.gz' | sha256sum -c - \
+    && mkdir /opt/node \
+    && tar -xzf /tmp/node-v24.22.3-linux-x64.tar.gz -C /opt/node --strip-components=1
+ENV PATH=/opt/node/bin:$PATH
+WORKDIR /bridge
+COPY runtime/waffo_bridge/package.json runtime/waffo_bridge/package-lock.json ./
+RUN npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+
+FROM python@sha256:b18b261e1b4974b4f321451ad5251ded85abb22c2b8b262da527dda1d031ab30
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /app/runtime
+COPY runtime/requirements-linux.lock ./
+RUN --mount=type=bind,source=runtime/wheels,target=/wheels,readonly pip install --no-index --find-links=/wheels --require-hashes -r requirements-linux.lock && useradd --uid 10001 --no-create-home app
+COPY --from=waffo-sdk /opt/node/bin/node /usr/local/bin/node
+COPY --from=waffo-sdk /opt/node/LICENSE /usr/local/share/doc/node/LICENSE
+COPY --from=waffo-sdk /bridge/node_modules /app/runtime/waffo_bridge/node_modules
+COPY runtime/waffo_bridge/*.mjs /app/runtime/waffo_bridge/
+COPY contracts/sync-v1.openapi.json /app/contracts/sync-v1.openapi.json
+COPY runtime/weekglass_server/*.py /app/runtime/weekglass_server/
+USER 10001:10001
+RUN node --version && cd waffo_bridge && node --input-type=module -e 'import { WaffoPancake, verifyWebhook } from "@waffo/pancake-ts"; if (typeof WaffoPancake !== "function" || typeof verifyWebhook !== "function") process.exit(1)'
+EXPOSE 8000
+CMD ["uvicorn", "weekglass_server.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1", "--limit-concurrency", "16", "--timeout-keep-alive", "5", "--no-access-log"]

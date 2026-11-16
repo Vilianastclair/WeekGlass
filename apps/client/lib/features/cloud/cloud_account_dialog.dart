@@ -226,12 +226,43 @@ class _CredentialDialog extends StatefulWidget {
 }
 
 class _CredentialDialogState extends State<_CredentialDialog> {
+  static const _emailPasswordHelp = '8 到 128 个字符。字母、数字、特殊字符至少选两类，空白不算特殊字符。';
+  static final _letters = RegExp(r'\p{L}', unicode: true);
+  static final _digits = RegExp(r'\p{Nd}', unicode: true);
+  static final _special = RegExp(r'[\p{P}\p{S}]', unicode: true);
+
   final current = TextEditingController();
   final next = TextEditingController();
   final confirmation = TextEditingController();
   bool busy = false;
   String? error;
   _AccountAction get action => widget.action;
+  bool get _usesEmailPasswordPolicy {
+    final backupUsername = widget.cloud.account?['backup_username'];
+    return widget.cloud.auth.official &&
+        backupUsername is String &&
+        backupUsername.isNotEmpty;
+  }
+
+  String? _validateNewPassword() {
+    final password = next.text;
+    if (_usesEmailPasswordPolicy) {
+      final length = password.runes.length;
+      if (length < 8 || length > 128) return '新密码须为 8 到 128 个字符。';
+      final classes = [
+        _letters.hasMatch(password),
+        _digits.hasMatch(password),
+        _special.hasMatch(password),
+      ];
+      if (classes.where((present) => present).length < 2) {
+        return '新密码需包含字母、数字、特殊字符中的至少两类。';
+      }
+    } else if (password.length < 16) {
+      return '新密码需至少 16 字符。';
+    }
+    return password == confirmation.text ? null : '两次输入的新密码不一致。';
+  }
+
   String get title => switch (action) {
     _AccountAction.password => '修改密码',
     _AccountAction.recovery => '生成新的恢复码',
@@ -244,10 +275,12 @@ class _CredentialDialogState extends State<_CredentialDialog> {
       setState(() => error = '请输入当前密码。');
       return;
     }
-    if (action == _AccountAction.password &&
-        (next.text.length < 16 || next.text != confirmation.text)) {
-      setState(() => error = '新密码需至少 16 字符，两次输入须一致。');
-      return;
+    if (action == _AccountAction.password) {
+      final problem = _validateNewPassword();
+      if (problem != null) {
+        setState(() => error = problem);
+        return;
+      }
     }
     if (action == _AccountAction.delete &&
         confirmation.text.trim() != widget.cloud.account?['username']) {
@@ -309,8 +342,7 @@ class _CredentialDialogState extends State<_CredentialDialog> {
                   '修改后所有设备会退出登录，请用新密码重新连接。本机日程与待同步修改会保留。',
                 _AccountAction.recovery => '新的恢复码会立即替换旧恢复码，请在下一步妥善保存。',
                 _AccountAction.sessions => '其他设备需重新登录才能继续同步；此设备保持连接。',
-                _AccountAction.delete =>
-                  '将永久删除此服务器上的账号、日程和会话，无法撤销。本机日程保留。',
+                _AccountAction.delete => '将永久删除此服务器上的账号、日程和会话，无法撤销。本机日程保留。',
               }),
               const SizedBox(height: 16),
               TextField(
@@ -329,7 +361,13 @@ class _CredentialDialogState extends State<_CredentialDialog> {
                   enabled: !busy,
                   autocorrect: false,
                   enableSuggestions: false,
-                  decoration: const InputDecoration(labelText: '新密码（至少 16 字符）'),
+                  decoration: _usesEmailPasswordPolicy
+                      ? const InputDecoration(
+                          labelText: '新密码',
+                          helperText: _emailPasswordHelp,
+                          helperMaxLines: 4,
+                        )
+                      : const InputDecoration(labelText: '新密码（至少 16 字符）'),
                 ),
                 const SizedBox(height: 12),
                 TextField(

@@ -17,6 +17,7 @@ class Settings:
     max_devices: int = 10
     max_history_bytes: int = 128 * 1024 * 1024
     registration_enabled: bool = True
+    email_signup_enabled: bool = False
 
 
 def validated_origin(value):
@@ -44,7 +45,8 @@ def load():
         raise RuntimeError('Signing secret must contain at least 32 bytes')
     return Settings(os.environ.get('DATABASE_URL', ''), origin, server_id, mode, key,
                     alternate_origins=alternates,
-                    registration_enabled=os.environ.get('WEEKGLASS_REGISTRATION_ENABLED', 'true').lower() == 'true')
+                    registration_enabled=os.environ.get('WEEKGLASS_REGISTRATION_ENABLED', 'true').lower() == 'true',
+                    email_signup_enabled=os.environ.get('WEEKGLASS_EMAIL_SIGNUP_ENABLED', 'false').lower() == 'true')
 
 
 def request_origin(request):

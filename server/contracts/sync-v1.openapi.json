@@ -189,10 +189,7 @@
             }
           },
           "200": {
-            "description": "First-party HTML login/consent UI. Required implementation, not a substitute for an identity provider configuration. Secure cookies and CSRF protections."
-          },
-          "302": {
-            "description": "Redirect to exact validated loopback callback with code and original state; error redirects only to already validated URI."
+            "description": "First-party HTML with origin and CSRF checks. Hosted email signup does not send mail. Configured hosted servers allow email verification, passwordless sign-in, recovery and mailbox changes only for accounts with confirmed qualifying payments. Successful native sign-in navigates the exact validated loopback callback from a same-origin handoff page."
           },
           "400": {
             "description": "Invalid authorization request.",
@@ -4186,8 +4183,9 @@
           },
           "new_password": {
             "type": "string",
-            "minLength": 16,
-            "maxLength": 1024
+            "minLength": 8,
+            "maxLength": 1024,
+            "description": "8 to 128 characters using at least two of letters, decimal digits, and punctuation/symbols for email-created accounts (whitespace is not a special character); 16 to 1024 for legacy username accounts."
           }
         }
       },
@@ -4207,7 +4205,8 @@
           "confirmation": {
             "type": "string",
             "minLength": 3,
-            "maxLength": 80
+            "maxLength": 254,
+            "description": "The account profile username: the original username (up to 80 characters), the backup username while email is unverified, or the current verified email for an email-created account."
           }
         }
       },
@@ -4242,7 +4241,34 @@
             "format": "uuid"
           },
           "username": {
-            "type": "string"
+            "type": "string",
+            "description": "The original WeekGlass username, or the backup username while a new email account is unverified, or the currently verified email."
+          },
+          "verified_email": {
+            "type": "string",
+            "maxLength": 254,
+            "description": "Present only after this mailbox has been verified for the account."
+          },
+          "pending_email": {
+            "type": "string",
+            "maxLength": 254,
+            "description": "Unverified address currently on this account. A pending address does not prove mailbox ownership."
+          },
+          "backup_username": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Stable username sign-in option for an email-created account if its pending email is unavailable."
+          },
+          "email_verified": {
+            "type": "boolean"
+          },
+          "email_verification_required": {
+            "type": "boolean",
+            "description": "A retained confirmed Waffo payment is on file and the account has not verified an email. This is an account-security next step, not a condition of purchased sync access."
+          },
+          "email_verification_available": {
+            "type": "boolean",
+            "description": "The suggested verification can be completed now because this server has mail configured."
           },
           "created_at": {
             "type": "string",
