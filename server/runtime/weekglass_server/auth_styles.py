@@ -4,6 +4,48 @@ No remote assets. The embedded brand is the unmodified application mark.
 Only two compositor transforms move the ambient light; reduced motion is static.
 """
 
+CLOUD_SOURCE_URL = '/v1/source/weekglass-cloud-20261116.tar.gz'
+
+PORTAL_AUTH_STYLE = r'''
+body.portal-auth{--surface-radius:22px;padding:clamp(22px,5vw,72px);background:
+  radial-gradient(ellipse at 14% 12%,#cce8ff88,transparent 51%),radial-gradient(ellipse at 96% 88%,#c6befb75,transparent 52%),var(--canvas)}
+.auth-stage{width:min(1060px,100%);display:grid;grid-template-columns:minmax(0,1.12fr) minmax(0,1fr);align-items:stretch;gap:18px}
+.auth-stage .auth-panel{width:auto;border-radius:var(--surface-radius);padding:clamp(32px,4vw,57px);margin:0;background:linear-gradient(148deg,var(--panel-top),var(--panel-bottom));box-shadow:0 32px 70px -33px #334f8846,inset 0 1px 0 #fff7}
+.auth-panel .brand{margin-bottom:36px}.auth-panel .brand img{width:42px;height:42px}.auth-panel .brand-name{font-size:19px;font-weight:700}.auth-panel .brand-label{display:none}
+.auth-panel .auth-eyebrow{color:var(--accent);font-size:13px;font-weight:700;margin:0 0 6px;letter-spacing:.08em}
+.auth-panel h1{font-size:clamp(26px,3vw,36px);font-weight:730;letter-spacing:-.05em;line-height:1.3;margin:0 0 12px}
+.auth-panel .portal-intro,.auth-panel>p{font-size:15px;line-height:1.7}.auth-panel form{margin-top:24px}
+.auth-panel .secondary-form{margin-top:0}.auth-panel label{font-size:14px;font-weight:650;margin:16px 0 7px}
+.auth-panel input{height:51px;border-radius:12px;font-size:16px}.auth-panel .password-field button{top:6px;right:6px;font-size:13px}
+.auth-panel form:not(.secondary-form)>button[type="submit"],.auth-panel .action-link{min-height:51px;margin-top:24px;color:white;border:1px solid #4f62c5;background:linear-gradient(135deg,#5368d8,#4656bc);box-shadow:inset 0 1px 0 #e6f6ff60,0 12px 24px -13px #3345bc;letter-spacing:.025em}
+.auth-panel .field-help{font-size:13px;line-height:1.58}.auth-panel .quiet{margin-top:14px}.auth-panel .quiet a{padding:0 2px}
+.auth-panel .portal-links{display:flex;justify-content:space-between;flex-wrap:wrap;gap:8px;margin:18px 0 0;font-size:14px;color:var(--muted)}
+.auth-panel .portal-links a{font-weight:650}.auth-panel .connection-note{margin-top:26px;font-size:13px;line-height:1.6}
+.step-return{align-self:center;text-align:center;padding:9px 0;font-size:14px}
+.auth-art{color:#223c75;position:relative;isolation:isolate;overflow:hidden;min-height:550px;display:flex;flex-direction:column;justify-content:space-between;padding:36px;border-radius:var(--surface-radius);border:1px solid #fcfeffce;background:
+  radial-gradient(ellipse at 72% 19%,#e2dcffed,transparent 54%),radial-gradient(ellipse at 8% 68%,#c6f8ff 0,transparent 62%),linear-gradient(151deg,#e5eeff 9%,#a9b8f1 60%,#d5e1f7 100%);box-shadow:0 35px 65px -42px #4e5d9f69,inset 0 1px 0 #fff}
+.auth-art::before,.auth-art::after{content:'';position:absolute;pointer-events:none;border-radius:50%;z-index:-1}
+.auth-art::before{inset:9% -25% 8% 17%;border:1px solid #fff9;transform:rotate(-37deg);box-shadow:0 0 0 31px #f3f9ff30,0 0 0 64px #eff7ff28,0 0 0 103px #eff5ff24}
+.auth-art::after{width:105%;aspect-ratio:1.7;left:-18%;top:20%;background:radial-gradient(ellipse,#fbffffcf 7%,#f0ffff65 36%,transparent 69%);filter:blur(9px);transform:rotate(-38deg)}
+.art-caption{display:flex;align-items:center;gap:11px;font:700 11px/1.2 ui-monospace,Consolas,monospace;letter-spacing:.18em}
+.art-dot{width:9px;height:9px;border:1px solid #fff;border-radius:50%;background:#4f74df;box-shadow:0 0 0 4px #518ae622}
+.art-copy{margin-top:22px}.art-copy p{font-size:clamp(30px,4vw,53px);font-weight:760;line-height:1.16;letter-spacing:-.09em;color:#162b54;margin:0 0 10px}.art-copy span{font-size:15px;color:#354d78}
+.art-calendar{position:relative;width:min(88%,355px);aspect-ratio:1.38;align-self:center;isolation:isolate;transform:perspective(950px) rotateX(14deg) rotateY(-15deg) rotateZ(-8deg);border:1px solid #fff;background:linear-gradient(126deg,#fff9,#f2f6ff5c 69%);border-radius:var(--surface-radius);box-shadow:inset 0 1px 0 #fff,0 5px 12px #647cb833,0 34px 50px -23px #415fa388}
+.art-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:8px;position:absolute;inset:13% 9% 12%}
+.art-grid i{border-radius:7px;background:linear-gradient(180deg,#fff9 0 11%,#f9fbff4a 12%);border:1px solid #ffffff8a}
+.art-event{display:block;position:absolute;border-radius:9px;border:1px solid #fffafd;box-shadow:0 9px 14px -8px #4358b088,inset 0 1px 0 white;background:linear-gradient(135deg,#ccecff,#9abbf3)}
+.event-one{left:12%;top:37%;width:25%;height:20%;background:linear-gradient(130deg,#d8eeff,#abc2fb)}
+.event-two{left:38%;top:28%;width:21%;height:24%;background:linear-gradient(130deg,#e6dbfe,#c2b0f6)}
+.event-three{left:47%;top:61%;width:32%;height:16%;background:linear-gradient(130deg,#d9fffd,#a9ddee)}
+.event-four{left:68%;top:43%;width:17%;height:14%;background:linear-gradient(130deg,#f9e2ff,#dfc2f6)}
+.art-signal{position:absolute;right:-14px;bottom:-13px;display:flex;align-items:center;gap:8px;padding:11px 15px;color:#314671;background:#f6fbffed;border:1px solid #fff;border-radius:24px;font-size:12px;font-weight:700;box-shadow:0 8px 16px #607eaa35}
+.art-signal i{width:7px;height:7px;background:#42a694;border-radius:50%;box-shadow:0 0 0 3px #5ac6b630}
+@media(prefers-color-scheme:dark){body.portal-auth{background:radial-gradient(ellipse at 14% 10%,#2d488255,transparent 55%),radial-gradient(ellipse at 95% 85%,#3d2d6c42,transparent 53%),var(--canvas)}.auth-stage .auth-panel{box-shadow:0 26px 65px -30px #01050eaa,inset 0 1px 0 #fff2}.auth-art{border-color:#b8caf966;background:radial-gradient(ellipse at 71% 21%,#b9b3ef,transparent 60%),radial-gradient(ellipse at 8% 68%,#b2d8f2,transparent 63%),linear-gradient(135deg,#b1c2f3,#7f93cb 73%,#a0b8da)}.auth-panel form:not(.secondary-form)>button[type="submit"],.auth-panel .action-link{background:linear-gradient(135deg,#596fde,#4b5fca)}}
+@media(max-width:760px){body.portal-auth{padding:26px 16px}.auth-stage{max-width:490px;display:block}.auth-art{display:none}.auth-stage .auth-panel{padding:30px 25px}.auth-panel .brand{margin-bottom:30px}}
+@media(max-width:360px){.auth-stage .auth-panel{padding:26px 19px}.auth-panel h1{font-size:25px}}
+@media(forced-colors:active){.auth-art{display:none}.auth-stage{display:block;max-width:530px}}
+'''
+
 AUTH_STYLE = r'''
 :root{color-scheme:light dark;--canvas:#e9eff7;--ink:#222b48;--muted:#53617f;--accent:#5366aa;--edge:#ffffffda;--panel-top:#f8fbff8c;--panel-bottom:#eaf1ff45;--field:#ffffff35;--field-hover:#ffffff65;--shade:#374a6e24;--light-a:#a8c8ec;--light-b:#c8bdec;--error:#9d405c;--error-bg:#fce7ed91;--button-top:#eef3ffce;--button-bottom:#bbccf29e;--focus:#7189cb;--radius:12px}
 *{box-sizing:border-box}
@@ -13,12 +55,12 @@ body::before,body::after{content:'';position:fixed;pointer-events:none;z-index:-
 body::before{top:-26vh;left:-22vw}
 body::after{bottom:-30vh;right:-25vw;background:radial-gradient(ellipse,var(--light-b),transparent 66%);animation-duration:31s;animation-direction:alternate-reverse;opacity:.38}
 @keyframes lake-drift{to{transform:translate3d(9vw,5vh,0) scale(1.12)}}
-.panel{position:relative;isolation:isolate;width:min(440px,100%);padding:30px 32px 26px;border:1px solid var(--edge);border-radius:var(--radius);background:linear-gradient(180deg,var(--panel-top),var(--panel-bottom));box-shadow:0 7px 20px var(--shade),0 28px 70px -30px var(--shade),inset 0 1px 0 #ffffff45;backdrop-filter:blur(20px) saturate(1.18);-webkit-backdrop-filter:blur(20px) saturate(1.18)}
+.panel{position:relative;isolation:isolate;width:min(474px,100%);padding:36px 38px 32px;border:1px solid var(--edge);border-radius:24px;background:linear-gradient(180deg,var(--panel-top),var(--panel-bottom));box-shadow:0 7px 20px var(--shade),0 28px 70px -30px var(--shade),inset 0 1px 0 #ffffff45;backdrop-filter:blur(20px) saturate(1.18);-webkit-backdrop-filter:blur(20px) saturate(1.18)}
 .brand{display:flex;align-items:center;gap:10px;margin-bottom:21px}
 .brand img{display:block;width:32px;height:32px;object-fit:contain}
 .brand-name{display:block;font-size:17px;line-height:1.35;font-weight:600;letter-spacing:-.35px}
 .brand-label{display:block;color:var(--muted);font-size:11px;line-height:1.5;letter-spacing:1.8px;margin-top:2px}
-h1{font-size:25px;line-height:1.45;font-weight:550;letter-spacing:.1px;margin:0 0 8px}
+h1{font-size:30px;line-height:1.35;font-weight:700;letter-spacing:-.025em;margin:0 0 10px}
 h2{font-size:18px;font-weight:600;line-height:1.4;margin:17px 0 5px}
 p{margin:0 0 14px;color:var(--muted);overflow-wrap:anywhere}
 .fine{font-size:12px;line-height:1.75}

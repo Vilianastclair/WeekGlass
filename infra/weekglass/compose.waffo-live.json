@@ -11,8 +11,7 @@
         "WEEKGLASS_WAFFO_LIVE_PRODUCT_ID": "${WEEKGLASS_WAFFO_LIVE_PRODUCT_ID:?Set the published live one-time product ID}",
         "WEEKGLASS_WAFFO_LIVE_ANNUAL_PRODUCT_ID": "${WEEKGLASS_WAFFO_LIVE_ANNUAL_PRODUCT_ID:-}",
         "WEEKGLASS_WAFFO_LIVE_ANNUAL_ENABLED": "${WEEKGLASS_WAFFO_LIVE_ANNUAL_ENABLED:-false}",
-        "WEEKGLASS_WAFFO_LIVE_PRIVATE_KEY_FILE": "/run/secrets/waffo_live_private_key",
-        "WEEKGLASS_EMAIL_SIGNUP_ENABLED": "${WEEKGLASS_EMAIL_SIGNUP_ENABLED:-false}"
+        "WEEKGLASS_WAFFO_LIVE_PRIVATE_KEY_FILE": "/run/secrets/waffo_live_private_key"
       },
       "volumes": [
         {
@@ -20,20 +19,13 @@
           "source": "./secrets/waffo-live-private.pem",
           "target": "/run/secrets/waffo_live_private_key",
           "read_only": true,
-          "bind": {
-            "create_host_path": false
-          }
+          "bind": { "create_host_path": false }
         }
       ],
-      "networks": [
-        "service",
-        "waffo_egress"
-      ]
+      "networks": ["service", "waffo_egress"]
     }
   },
   "networks": {
-    "waffo_egress": {
-      "driver": "bridge"
-    }
+    "waffo_egress": { "driver": "bridge" }
   }
 }

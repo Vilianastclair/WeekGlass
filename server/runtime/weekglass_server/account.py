@@ -30,7 +30,15 @@ def recovery_key():
     return 'WG-' + secrets.token_urlsafe(32)
 
 
-def revoke_sessions(conn, account_id, *, except_device=None, keep_grant=None):
+def revoke_sessions(conn, account_id, *, except_device=None, keep_grant=None, keep_web_session=None,
+                    credentials_changed=False):
+    # Invalidate unconsumed password/mailbox proof as well as issued tokens.
+    # Such proofs can live on an email flow, not on auth_grants.account_id.
+    # The caller holds the account lock and may have advanced this generation
+    # already while updating credentials.
+    if not credentials_changed:
+        conn.execute('UPDATE auth_accounts SET credential_version=credential_version+1 WHERE account_id=%s',
+                     (account_id,))
     if except_device:
         conn.execute('UPDATE auth_families SET revoked_at=now() WHERE account_id=%s AND device_id<>%s',
                      (account_id, except_device))
@@ -42,6 +50,12 @@ def revoke_sessions(conn, account_id, *, except_device=None, keep_grant=None):
         conn.execute('UPDATE devices SET revoked_at=now() WHERE account_id=%s', (account_id,))
         conn.execute('DELETE FROM auth_codes WHERE account_id=%s', (account_id,))
     conn.execute('DELETE FROM auth_grants WHERE account_id=%s AND grant_hash<>%s', (account_id, keep_grant or ''))
+    conn.execute('DELETE FROM web_sessions WHERE account_id=%s AND session_hash<>%s',
+                 (account_id, keep_web_session or ''))
+    if keep_web_session:
+        conn.execute('''UPDATE web_sessions s SET credential_version=u.credential_version FROM auth_accounts u
+          WHERE s.session_hash=%s AND s.account_id=%s AND u.account_id=s.account_id''',
+                     (keep_web_session, account_id))
 
 
 def browser_action(request, action, form):
@@ -56,7 +70,7 @@ def browser_action(request, action, form):
     with connect() as conn:
         if action == 'continue':
             grant, _ = auth.authorization_grant(conn, request, form['csrf'], lock=False)
-            auth.require_native_grant(grant)
+            auth.require_login_grant(grant)
             if not grant['account_id']:
                 auth.fail(400, 'invalid_request', '请先注册或恢复账号。')
             # Revocation takes the account lock before deleting pending grants.
@@ -67,7 +81,7 @@ def browser_action(request, action, form):
                 auth.fail(403, 'account_unavailable', '账号不可用。')
             return auth.complete_authorization(conn, grant, cookie_name, account['account_id'])
         grant, _ = auth.authorization_grant(conn, request, form['csrf'])
-        auth.require_native_grant(grant)
+        auth.require_login_grant(grant)
         if grant['account_id']:
             auth.fail(400, 'invalid_request', '此操作已完成，请重新登录。')
         username = form['username'].strip().casefold()
@@ -79,14 +93,14 @@ def browser_action(request, action, form):
 
         def rejected(message, status=400):
             return auth.html_response(form['csrf'], message, status, action=action,
-                                      email_login_enabled=email_login_enabled)
+                                      email_login_enabled=email_login_enabled, portal=grant['portal'])
 
         if action == 'register':
             if not settings.registration_enabled:
                 return rejected('此服务器暂未开放注册，请联系管理员。', 403)
             if auth.email_signup_uses_address():
                 return auth.html_response(form['csrf'], '请使用邮箱注册 WeekGlass 账号。', 400,
-                                          action='email_register', email_login_enabled=True)
+                                          action='email_register', email_login_enabled=True, portal=grant['portal'])
         if not valid_username and not email:
             return rejected('请输入 WeekGlass 账号或已验证邮箱。' if action == 'recover' and email_login_enabled else
                             '账号需为 3–80 位英文字母、数字或 _.@+-。')
@@ -142,9 +156,9 @@ def browser_action(request, action, form):
                       (password_hash, auth.hashed(key), pending_key, aid))
             except UniqueViolation:
                 return rejected('此密码无法用于该账号，请输入其他密码。', 409)
-            revoke_sessions(conn, aid, keep_grant=grant['grant_hash'])
+            revoke_sessions(conn, aid, keep_grant=grant['grant_hash'], credentials_changed=True)
         conn.execute('UPDATE auth_grants SET account_id=%s WHERE grant_hash=%s', (aid, grant['grant_hash']))
-    return auth.html_response(form['csrf'], recovery_key=key)
+    return auth.html_response(form['csrf'], recovery_key=key, portal=grant['portal'])
 
 
 @router.get('/v1/me/account')
@@ -175,6 +189,30 @@ def account_info(identity=Depends(auth.get_identity)):
     return result
 
 
+def update_password(conn, account, password):
+    try:
+        password_hash = (auth.hash_password if account['legacy_login'] else auth.hash_email_password)(password)
+        pending_key = auth.pending_login_key(account['pending_email'], password)
+        with conn.transaction():
+            conn.execute('''UPDATE auth_accounts SET password_hash=%s,pending_login_key=%s,
+              credential_version=credential_version+1 WHERE account_id=%s''',
+                         (password_hash, pending_key, account['account_id']))
+    except (ValueError, UniqueViolation):
+        problem(422, 'invalid_changepasswordrequest')
+    revoke_sessions(conn, account['account_id'], credentials_changed=True)
+
+
+def rotate_recovery(conn, account_id):
+    key = recovery_key()
+    conn.execute('UPDATE auth_accounts SET recovery_hash=%s WHERE account_id=%s', (auth.hashed(key), account_id))
+    return key
+
+
+def delete_account_data(conn, account):
+    billing.detach_account(conn, account['account_id'])
+    conn.execute('DELETE FROM accounts WHERE account_id=%s', (account['account_id'],))
+
+
 def _account_action(request, identity, data, action):
     auth.rate_limit(request, 'account-management-ip', 12)
     auth.rate_limit(request, 'account-management-user', 6, identity['account_id'])
@@ -185,23 +223,9 @@ def _account_action(request, identity, data, action):
         if not auth.password_matches(account, data['current_password']):
             auth.fail(403, 'incorrect_password', '当前密码不正确。')
         if action == 'password':
-            try:
-                password_hash = (auth.hash_password if account['legacy_login'] else auth.hash_email_password)(data['new_password'])
-            except ValueError:
-                problem(422, 'invalid_changepasswordrequest')
-            pending_key = auth.pending_login_key(account['pending_email'], data['new_password'])
-            try:
-                with conn.transaction():
-                    conn.execute('''UPDATE auth_accounts SET password_hash=%s,pending_login_key=%s,
-                      credential_version=credential_version+1 WHERE account_id=%s''', (password_hash, pending_key, identity['account_id']))
-            except UniqueViolation:
-                problem(422, 'invalid_changepasswordrequest')
-            revoke_sessions(conn, identity['account_id'])
+            update_password(conn, account, data['new_password'])
         elif action == 'recovery':
-            key = recovery_key()
-            conn.execute('UPDATE auth_accounts SET recovery_hash=%s WHERE account_id=%s',
-                         (auth.hashed(key), identity['account_id']))
-            return {'recovery_key': key}
+            return {'recovery_key': rotate_recovery(conn, identity['account_id'])}
         elif action == 'revoke_others':
             revoke_sessions(conn, identity['account_id'], except_device=identity['device_id'])
         elif action == 'delete':
@@ -209,8 +233,7 @@ def _account_action(request, identity, data, action):
                 problem(422, 'invalid_deleteaccountrequest')
             if data['confirmation'].strip().casefold() != visible_username(account):
                 auth.fail(400, 'confirmation_required', '请输入当前账号名或已验证邮箱以确认。')
-            billing.detach_account(conn, identity['account_id'])
-            conn.execute('DELETE FROM accounts WHERE account_id=%s', (identity['account_id'],))
+            delete_account_data(conn, account)
     return Response(status_code=204)
 
 

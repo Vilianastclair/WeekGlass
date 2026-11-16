@@ -9,11 +9,11 @@ from weekglass_server.waffo_events import normalize_event
 
 
 MERCHANT = 'merchant-weekglass'
-STORE = 'STO_publicTest000000000001'
-PRODUCT = 'PROD_publicTest000000000002'
+STORE = 'STO_3bVzrkD0FJjFdZNLk8Ualx'
+PRODUCT = 'PROD_8d01GmZ0AoyIbgQOnaXdoA'
 CHECKOUT = UUID('6061b32c-ac37-4157-b7a0-16deea07a318')
-PAYMENT = 'PAY_publicTest000000000003'
-REFUND = 'REF_publicTest000000000004'
+PAYMENT = 'PAY_6eYCunG3IMmIgcQOnaXdoA'
+REFUND = 'REF_4cWAtlE1GKkGebONl9Xbnx'
 OCCURRED = datetime(2026, 11, 13, 11, 13, 30, 123000, tzinfo=timezone.utc)
 
 

@@ -11,7 +11,7 @@ const id = (prefix) => `${prefix}_12345678901234567890Ab`;
 const store = id('STO');
 const merchant = id('MER');
 const product = id('PROD');
-const annualProduct = 'PROD_publicTest000000000001';
+const annualProduct = 'PROD_ABCDEFGHIJKLMNOPQRSTUV';
 const payment = id('PAY');
 const refund = id('REF');
 const reference = 'a5766fc2-4063-43f6-8d06-ef9982d8ce0c';

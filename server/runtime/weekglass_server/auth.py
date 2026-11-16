@@ -21,7 +21,7 @@ from argon2.exceptions import VerificationError, InvalidHashError
 from argon2.low_level import Type, hash_secret_raw
 from psycopg import Error as DatabaseError
 from fastapi import APIRouter, Depends, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, Response
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from starlette.concurrency import run_in_threadpool
 
 from . import email_delivery
@@ -250,10 +250,9 @@ def checked_redirect(value: str):
 
 
 def checked_origin(request: Request):
-    origin = request.headers.get('origin')
     # Require exact same-origin browser submission on an explicitly allowed
     # endpoint. An alternate origin is not a cross-origin CSRF exception.
-    if origin != request_origin(request):
+    if request.headers.getlist('origin') != [request_origin(request)]:
         fail(403, 'invalid_origin', '请从 WeekGlass 授权页面提交。')
 
 
@@ -268,7 +267,8 @@ def mail_available():
 def html_response(csrf, message='', status=200, *, action='login', recovery_key=None, expired=False,
                   handoff_url=None, error_message=None, email_login_enabled=False, email_hint=None,
                   notice=None, resend_after=None, pending_email=None, email_paid=False, email_pending_editable=False,
-                  management_only=False, management_done=False, backup_username=None):
+                  management_only=False, management_done=False, backup_username=None, portal=False,
+                  portal_bound=False):
     script_source = HANDOFF_SCRIPT_SOURCE if handoff_url else (
         "'none'" if expired or error_message else FORM_SCRIPT_SOURCE)
     mail_enabled = mail_available()
@@ -281,7 +281,9 @@ def html_response(csrf, message='', status=200, *, action='login', recovery_key=
                              notice=notice, resend_after=resend_after, email_signup_enabled=email_signup_enabled,
                              email_manage_enabled=manage, pending_email=pending_email, email_paid=email_paid,
                              email_pending_editable=email_pending_editable, management_only=management_only,
-                             management_done=management_done, backup_username=backup_username), status_code=status, headers={
+                             management_done=management_done, backup_username=backup_username,
+                             portal=portal, portal_bound=portal_bound),
+                        status_code=status, headers={
         'Cache-Control': 'no-store', 'Pragma': 'no-cache',
         'Content-Security-Policy': "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src " + script_source + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
         # no-referrer causes browsers to send Origin:null on form POSTs.
@@ -292,15 +294,18 @@ def html_response(csrf, message='', status=200, *, action='login', recovery_key=
     })
 
 
-def handoff_response(redirect_uri, code, state):
+def handoff_response(redirect_uri, code, state, *, signup_console=False):
     # A POST 302 to loopback is blocked by Chromium's form-action 'self'.
     # Render a successful same-origin document first; its fixed hashed script
     # can navigate to this exact checked callback without relaxing form-action.
-    callback = checked_redirect(redirect_uri) + '?' + urlencode({'code': code, 'state': state})
+    fields = {'code': code, 'state': state}
+    if signup_console:
+        fields['signup'] = '1'
+    callback = checked_redirect(redirect_uri) + '?' + urlencode(fields)
     return html_response('', handoff_url=callback)
 
 
-def browser_error(status, code, headers=None):
+def browser_error(status, code, headers=None, *, portal=False):
     messages = {
         'invalid_origin': '无法确认此登录页面的来源，请重新发起连接。',
         'invalid_server_origin': '此登录入口不可用，请从应用重新连接。',
@@ -312,7 +317,7 @@ def browser_error(status, code, headers=None):
         'request_too_large': '提交内容过长，请重新打开登录页面。',
     }
     response = html_response('', status=status,
-        error_message=messages.get(code, '这次连接未能完成，请稍后重新连接。'))
+        error_message=messages.get(code, '这次登录未能完成，请稍后重试。'), portal=portal)
     response.headers['X-WeekGlass-Error'] = code if code in messages else 'request_rejected'
     if headers and 'Retry-After' in headers:
         response.headers['Retry-After'] = headers['Retry-After']
@@ -326,15 +331,19 @@ def authorization_cookie_name(csrf, origin):
     return _cookie_name + '_' + hashed(origin + '\n' + csrf)
 
 
-def _set_authorization_cookie(response, origin, name, token, max_age):
+def _cookie_scope(portal):
+    return '/account' if portal else _cookie_path
+
+
+def _set_authorization_cookie(response, origin, name, token, max_age, *, portal=False):
     response.set_cookie(name, token, max_age=max_age, httponly=True, secure=origin.startswith('https://'),
-                        samesite='lax', path=_cookie_path)
+                        samesite='lax', path=_cookie_scope(portal))
 
 
 def renew_authorization(conn, request, response, grant, cookie_name, until):
     conn.execute('UPDATE auth_grants SET expires_at=%s WHERE grant_hash=%s', (until, grant['grant_hash']))
     _set_authorization_cookie(response, request_origin(request), cookie_name, request.cookies[cookie_name],
-                              max(1, math.ceil((until - now()).total_seconds())))
+                              max(1, math.ceil((until - now()).total_seconds())), portal=grant['portal'])
 
 
 def has_email_logins(conn):
@@ -388,7 +397,8 @@ def manage_email(request: Request):
     return _authorization_page(request, origin, '', '', '', uuid4(), management_only=True)
 
 
-def _authorization_page(request, origin, redirect, challenge, state, device_id, *, management_only=False):
+def _authorization_page(request, origin, redirect, challenge, state, device_id, *, management_only=False,
+                        portal=False, portal_session_hash=None, action='login', notice=None):
     grant, csrf = secrets.token_urlsafe(32), secrets.token_urlsafe(32)
     with connect() as conn:
         conn.execute('DELETE FROM auth_grants WHERE expires_at < now()')
@@ -396,15 +406,17 @@ def _authorization_page(request, origin, redirect, challenge, state, device_id, 
         conn.execute('DELETE FROM auth_codes WHERE expires_at < now() - interval \'1 day\'')
         conn.execute('DELETE FROM auth_tokens WHERE expires_at < now()')
         conn.execute('DELETE FROM auth_families f WHERE NOT EXISTS (SELECT 1 FROM auth_tokens t WHERE t.family_id=f.family_id)')
-        conn.execute('''INSERT INTO auth_grants(grant_hash,csrf_hash,redirect_uri,challenge,state,device_id,expires_at,management_only)
-          VALUES (%s,%s,%s,%s,%s,%s,%s,%s)''',
-                     (hashed(grant), hashed(csrf), redirect, challenge, state, device_id, now()+timedelta(minutes=10), management_only))
+        conn.execute('''INSERT INTO auth_grants(grant_hash,csrf_hash,redirect_uri,challenge,state,device_id,expires_at,
+          management_only,portal,portal_session_hash) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)''',
+                     (hashed(grant), hashed(csrf), redirect, challenge, state, device_id, now()+timedelta(minutes=10),
+                      management_only, portal, portal_session_hash))
         email_login_enabled = email_signup_uses_address() or has_email_logins(conn)
     response = html_response(csrf, email_login_enabled=email_login_enabled, management_only=management_only,
-                             action='email_manage_begin' if management_only else 'login')
+                             action='email_manage_begin' if management_only else action,
+                             portal=portal, portal_bound=bool(portal_session_hash), notice=notice)
     for name in obsolete_cookies:
-        response.delete_cookie(name, path=_cookie_path)
-    _set_authorization_cookie(response, origin, authorization_cookie_name(csrf, origin), grant, 600)
+        response.delete_cookie(name, path=_cookie_scope(portal))
+    _set_authorization_cookie(response, origin, authorization_cookie_name(csrf, origin), grant, 600, portal=portal)
     return response
 
 
@@ -425,6 +437,11 @@ async def form_body(request: Request):
 
 @router.post('/v1/auth/authorize', include_in_schema=False)
 async def login(request: Request):
+    return await submit_authorization(request)
+
+
+async def submit_authorization(request, *, portal=False):
+    request.state.account_portal = portal
     try:
         checked_origin(request)
         form = await form_body(request)
@@ -433,16 +450,16 @@ async def login(request: Request):
         if exc.status_code == 403 and isinstance(exc.detail, dict) and exc.detail.get('code') == 'invalid_csrf':
             # Browser-only error view; never resubmit credentials or renew a
             # grant whose cookie/CSRF pair is missing, expired or consumed.
-            response = html_response('', status=403, expired=True)
+            response = html_response('', status=403, expired=True, portal=portal)
             response.headers['X-WeekGlass-Error'] = 'invalid_csrf'
             return response
-        if 'text/html' in request.headers.get('accept', ''):
+        if portal or 'text/html' in request.headers.get('accept', ''):
             code = exc.detail.get('code', 'request_rejected') if isinstance(exc.detail, dict) else 'request_rejected'
-            return browser_error(exc.status_code, code, exc.headers)
+            return browser_error(exc.status_code, code, exc.headers, portal=portal)
         raise
     except DatabaseError:
-        if 'text/html' in request.headers.get('accept', ''):
-            return browser_error(503, 'database_unavailable', {'Retry-After': '5'})
+        if portal or 'text/html' in request.headers.get('accept', ''):
+            return browser_error(503, 'database_unavailable', {'Retry-After': '5'}, portal=portal)
         raise
 
 
@@ -455,43 +472,69 @@ def _login(request: Request, form: dict):
     if action != 'login':
         from .account import browser_action
         return browser_action(request, action, form)
-    if set(form) != {'csrf', 'username', 'password'} or len(form['csrf']) > 128 or len(form['username']) > 80 or len(form['password']) > 1024:
+    hosted = settings.mode == 'hosted'
+    if (set(form) != {'csrf', 'username', 'password'} or len(form['csrf']) > 128
+            or len(form['username']) > (254 if hosted else 80) or len(form['password']) > 1024):
         fail(400, 'invalid_request', '登录内容无效。')
     rate_limit(request, 'login-ip', 12)
     username = form['username'].strip().casefold()
-    rate_limit(request, 'login-user', 6, username or '<empty>')
+    from .email_identity import normalize_email, password_identity
+    email = normalize_email(form['username']) if hosted else None
+    rate_limit(request, 'login-email' if email else 'login-user', 6, email or username or '<empty>')
     with connect() as conn:
         grant, cookie_name = authorization_grant(conn, request, form['csrf'])
-        require_native_grant(grant)
+        require_login_grant(grant)
         if grant['account_id']:
             fail(400, 'invalid_request', '请继续之前的操作，或重新发起连接。')
-        account = conn.execute('SELECT account_id FROM auth_accounts WHERE username=%s', (username,)).fetchone()
-        if account:
-            account = locked_credentials(conn, account['account_id'])
-        if not password_matches(account, form['password']):
-            return html_response(form['csrf'], '账号或密码不正确。', 401, action='legacy_login',
-                                 email_login_enabled=has_email_logins(conn))
+        account = password_identity(conn, username, email, form['password'])
+        if not account:
+            return html_response(form['csrf'], '账号、邮箱或密码不正确。' if hosted else '账号或密码不正确。', 401,
+                                 email_login_enabled=has_email_logins(conn), portal=grant['portal'])
         return complete_authorization(conn, grant, cookie_name, account['account_id'])
 
 
 def authorization_grant(conn, request, csrf, *, lock=True):
-    cookie_name = authorization_cookie_name(csrf, request_origin(request))
-    if cookie_name not in request.cookies:
+    origin = request_origin(request)
+    cookie_name = authorization_cookie_name(csrf, origin)
+    if cookie_name not in request.cookies and not getattr(request.state, 'account_portal', False):
         # A page opened just before deployment can still finish with its
         # original cookie, but only if its original CSRF matches that grant.
         cookie_name = _cookie_name
     grant_token = request.cookies.get(cookie_name, '')
     query = 'SELECT * FROM auth_grants WHERE grant_hash=%s FOR UPDATE' if lock else 'SELECT * FROM auth_grants WHERE grant_hash=%s'
     grant = conn.execute(query, (hashed(grant_token),)).fetchone()
-    if not grant or grant['expires_at'] <= now() or not hmac.compare_digest(grant['csrf_hash'], hashed(csrf)):
+    if (not grant or grant['expires_at'] <= now() or not hmac.compare_digest(grant['csrf_hash'], hashed(csrf))
+            or grant['portal'] != getattr(request.state, 'account_portal', False)):
         fail(403, 'invalid_csrf', '授权页面已失效，请从应用重新连接。')
+    if grant['portal']:
+        from .console_sessions import destination
+        grant['portal_target'] = destination(request.query_params.get('next'))
+    primary = urlsplit(settings.public_origin)
+    source = urlsplit(origin)
+    grant['console_cookie_origin'] = (source.scheme, source.hostname) == (primary.scheme, primary.hostname)
+    if grant['portal_session_hash']:
+        from .console_sessions import identity
+        session = identity(conn, request, lock=lock)
+        if not session or session['session_hash'] != grant['portal_session_hash']:
+            fail(403, 'invalid_csrf', '账号会话已结束，请重新登录。')
+        grant['portal_account_id'] = session['account_id']
     return grant, cookie_name
 
 
-def complete_authorization(conn, grant, cookie_name, account_id):
-    require_native_grant(grant)
+def complete_authorization(conn, grant, cookie_name, account_id, *, signup=False):
+    require_login_grant(grant)
+    if grant['portal']:
+        from .console_sessions import sign_in
+        response = sign_in(conn, account_id, target='/account#plans' if signup else grant['portal_target'])
+        response.delete_cookie(cookie_name, path=_cookie_scope(True))
+        conn.execute('DELETE FROM auth_grants WHERE grant_hash=%s', (grant['grant_hash'],))
+        return response
     code = secrets.token_urlsafe(32)
-    response = handoff_response(grant['redirect_uri'], code, grant['state'])
+    signup_console = signup and settings.mode == 'hosted' and grant['console_cookie_origin']
+    response = handoff_response(grant['redirect_uri'], code, grant['state'], signup_console=signup_console)
+    if signup_console:
+        from .console_sessions import sign_in
+        sign_in(conn, account_id, response=response)
     conn.execute('''INSERT INTO auth_codes(code_hash,account_id,device_id,redirect_uri,challenge,expires_at)
       VALUES(%s,%s,%s,%s,%s,%s)''', (hashed(code), account_id, grant['device_id'],
         grant['redirect_uri'], grant['challenge'], now()+timedelta(seconds=60)))
@@ -500,15 +543,15 @@ def complete_authorization(conn, grant, cookie_name, account_id):
     return response
 
 
-def require_native_grant(grant):
+def require_login_grant(grant):
     if grant['management_only']:
         fail(400, 'invalid_request', '邮箱管理页面不能发起设备连接。')
 
 
 def complete_management(conn, grant, cookie_name, notice):
-    response = html_response('', management_only=True, management_done=True, notice=notice)
+    response = html_response('', management_only=True, management_done=True, notice=notice, portal=grant['portal'])
     conn.execute('DELETE FROM auth_grants WHERE grant_hash=%s', (grant['grant_hash'],))
-    response.delete_cookie(cookie_name, path=_cookie_path)
+    response.delete_cookie(cookie_name, path=_cookie_scope(grant['portal']))
     return response
 
 
@@ -699,8 +742,16 @@ def revoke_device(device_id: str, identity=Depends(get_identity)):
     with connect() as conn:
         lock_account(conn, identity['account_id'])
         revalidate_identity(conn, identity)
-        row = conn.execute('UPDATE devices SET revoked_at=COALESCE(revoked_at,now()) WHERE account_id=%s AND device_id=%s RETURNING device_id', (identity['account_id'],device_id)).fetchone()
-        if not row:
-            fail(404, 'not_found', '设备不存在。')
-        conn.execute('UPDATE auth_families SET revoked_at=now() WHERE account_id=%s AND device_id=%s', (identity['account_id'],device_id))
+        disconnect_device(conn, identity['account_id'], device_id)
     return Response(status_code=204)
+
+
+def disconnect_device(conn, account_id, device_id):
+    """Disconnect one device while the caller holds its account lock."""
+    row = conn.execute('''UPDATE devices SET revoked_at=COALESCE(revoked_at,now())
+      WHERE account_id=%s AND device_id=%s RETURNING device_id''', (account_id, device_id)).fetchone()
+    if not row:
+        fail(404, 'not_found', '设备不存在。')
+    conn.execute('UPDATE auth_families SET revoked_at=now() WHERE account_id=%s AND device_id=%s',
+                 (account_id, device_id))
+    conn.execute('DELETE FROM auth_codes WHERE account_id=%s AND device_id=%s', (account_id, device_id))

@@ -14,6 +14,56 @@ def migrate_auth(conn):
 
     migrate_email_identity(conn)
     migrate_paid_email_identity(conn)
+    migrate_account_console(conn)
+
+
+def migrate_account_console(conn):
+    name = '20261116_account_console_v1'
+    if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
+        return
+    conn.execute('''
+      CREATE TABLE web_sessions (
+        session_hash text PRIMARY KEY,
+        account_id uuid NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
+        credential_version bigint NOT NULL,
+        expires_at timestamptz NOT NULL
+      );
+      CREATE INDEX web_sessions_account ON web_sessions(account_id);
+      CREATE INDEX web_sessions_expiry ON web_sessions(expires_at);
+
+      ALTER TABLE auth_grants ADD COLUMN portal boolean NOT NULL DEFAULT false,
+        ADD COLUMN portal_session_hash text,
+        ADD CHECK (NOT portal OR (redirect_uri='' AND challenge='' AND state='')),
+        ADD CHECK (portal_session_hash IS NULL OR (portal AND management_only));
+
+      CREATE TABLE web_owner (
+        singleton boolean PRIMARY KEY DEFAULT true CHECK (singleton),
+        account_id uuid NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE
+      );
+      CREATE TABLE web_owner_actions (
+        action_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        actor_id uuid NOT NULL, subject_id uuid NOT NULL,
+        action text NOT NULL CHECK (action IN ('suspend','resume','revoke_devices','revoke_device','change_grant')),
+        days smallint CHECK (days BETWEEN 0 AND 366),
+        occurred_at timestamptz NOT NULL DEFAULT now()
+      );
+
+      -- A claim freezes a boundary while the account is read/write gated.
+      -- It stores only coordinates and completion, not a copy of user data.
+      CREATE TABLE calendar_export_claims (
+        account_id uuid NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
+        ended_at timestamptz NOT NULL,
+        export_id uuid UNIQUE NOT NULL,
+        dataset_id uuid NOT NULL,
+        sync_epoch uuid NOT NULL,
+        boundary bigint NOT NULL,
+        created_at timestamptz NOT NULL DEFAULT now(),
+        delivered_at timestamptz,
+        completed_at timestamptz CHECK (completed_at IS NULL OR delivered_at IS NOT NULL),
+        PRIMARY KEY (account_id,ended_at)
+      );
+    ''')
+    conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
 
 
 def migrate_email_identity(conn):

@@ -20,8 +20,8 @@ docker build -t weekglass-api -f server/runtime/Dockerfile server
 | `DB_PASSWORD_FILE` | 容器中数据库密码文件的路径 |
 | `FORWARDED_ALLOW_IPS` | 唯一受信的反向代理 IP 或网段 |
 
-代理须保留正确的 `Host` 并设置 `X-Forwarded-Proto: https`。启动后用 `/healthz` 核对服务状态。打开客户端的「设置 → 云同步 → 自托管」，输入 HTTPS 地址；首次登录时注册独立的 WeekGlass 账号并保存恢复码即可。
+代理须保留正确的 `Host` 并设置 `X-Forwarded-Proto: https`。启动后用 `/healthz` 核对服务状态。打开客户端的「设置 → 云同步 → 自己的服务器」，输入 HTTPS 地址；首次登录时注册独立的 WeekGlass 账号并保存恢复码即可。
 
-[OpenAPI 合同](contracts/sync-v1.openapi.json) · [服务端测试](runtime/tests) · [增量更新工具](update_tools/README.md)
+[OpenAPI 合同](contracts/sync-v1.openapi.json) | [服务端测试](runtime/tests) | [构建托管版](runtime/README.md#build-the-hosted-api)
 
 如果你修改了按 AGPL 授权的服务端，并让用户通过网络使用，请按 [AGPL 第 13 条](../LICENSE)向这些用户显著、免费提供正在运行版本的对应源码，包括所需的构建、安装和运行脚本。上游仓库的链接不能代替你自己的改动。

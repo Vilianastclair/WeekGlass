@@ -15,6 +15,7 @@ from uuid import UUID, uuid4
 import anyio
 from psycopg.errors import UniqueViolation
 from starlette.background import BackgroundTask
+from fastapi.responses import RedirectResponse
 
 from . import auth, billing, email_delivery
 from .account import revoke_sessions
@@ -247,6 +248,8 @@ def _show(csrf, action='login', *, conn=None, grant=None, flow=None, account=Non
     return auth.html_response(csrf, message, status, action=view,
                               notice=notice, email_hint=email_hint, resend_after=resend_after,
                               email_login_enabled=True, management_only=management_only,
+                              portal=bool(grant and grant['portal']),
+                              portal_bound=bool(grant and grant['portal_session_hash']),
                               pending_email=account['pending_email'] if account else None, email_paid=paid,
                               email_pending_editable=bool(account and account['pending_email']),
                               backup_username=account['username'] if account and not account['legacy_login'] else None)
@@ -317,21 +320,22 @@ def _email_available(conn, email):
 
 def _register(conn, grant, cookie, csrf, form):
     if not auth.email_signup_uses_address() or not settings.registration_enabled:
-        return _show(csrf, message='此服务器未开放注册，请联系管理员。', status=403)
+        return _show(csrf, grant=grant, message='此服务器未开放注册，请联系管理员。', status=403)
     email = normalize_email(form['email'])
     if not email:
-        return _show(csrf, 'email_register', message='请输入有效的邮箱地址。', status=400)
+        return _show(csrf, 'email_register', grant=grant, message='请输入有效的邮箱地址。', status=400)
     if not _valid_new_password(form):
-        return _invalid_password(csrf, 'email_register')
+        return _invalid_password(csrf, 'email_register', grant)
     if not _take_limits(conn, auth.now(),
                         (_digest('weekglass-pending-signup-hour-v1', email), 6, _hour),
                         (auth.hashed('registration-global:weekglass'), 30, _resend_delay)):
-        response = _show(csrf, 'email_register', message='操作过于频繁，请稍后重试。', status=429)
+        response = _show(csrf, 'email_register', grant=grant, message='操作过于频繁，请稍后重试。', status=429)
         response.headers['Retry-After'] = '60'
         return response
 
     def unavailable():
-        return _show(csrf, 'email_register', message='无法使用此邮箱和密码创建账号。请登录，或改用其他邮箱或密码。', status=409)
+        return _show(csrf, 'email_register', grant=grant,
+                     message='无法使用此邮箱和密码创建账号。请登录，或改用其他邮箱或密码。', status=409)
 
     if not _email_available(conn, email):
         return unavailable()
@@ -348,13 +352,13 @@ def _register(conn, grant, cookie, csrf, form):
         # Provisional addresses do not reserve the mailbox, but email and
         # password together must distinguish one provisional account.
         return unavailable()
-    return auth.complete_authorization(conn, grant, cookie, account_id)
+    return auth.complete_authorization(conn, grant, cookie, account_id, signup=True)
 
 
 def _begin_public(conn, request, grant, cookie, csrf, action, form):
     email = normalize_email(form['email'])
     if not email:
-        return _show(csrf, action, message='请输入有效的邮箱地址。', status=400)
+        return _show(csrf, action, grant=grant, message='请输入有效的邮箱地址。', status=400)
     row = conn.execute('SELECT account_id FROM auth_accounts WHERE verified_email=%s', (email,)).fetchone()
     account = auth.locked_credentials(conn, row['account_id']) if row else None
     if (not account or not account['enabled'] or account['verified_email'] != email or
@@ -388,14 +392,53 @@ def _password_login(conn, email, username, password, *, pending_only=False):
     return account if auth.password_matches(account, password) else None
 
 
+def password_identity(conn, username, email, password):
+    """One password form for a username, verified email or provisional email."""
+    rows = conn.execute('''SELECT * FROM auth_accounts WHERE username=%s OR verified_email=%s
+      ORDER BY (verified_email IS NOT DISTINCT FROM %s) DESC''', (username, email, email)).fetchall()
+    for row in rows:
+        if auth.password_matches(row, password):
+            current = auth.locked_credentials(conn, row['account_id'])
+            if (current and current['enabled'] and current['password_hash'] == row['password_hash'] and
+                    (current['username'] == username or email and current['verified_email'] == email)):
+                return current
+            return None
+    if email and 8 <= len(password) <= 128:
+        # Pending claims don't reserve ownership of an inbox. Two claimants
+        # can use the same address; only the exact registered password selects one.
+        key = auth.pending_login_key(email, password)
+        pending = conn.execute('''SELECT account_id FROM auth_accounts WHERE pending_email=%s AND pending_login_key=%s''',
+                               (email, key)).fetchone()
+        current = auth.locked_credentials(conn, pending['account_id']) if pending else None
+        if (current and current['pending_email'] == email and current['pending_login_key'] and
+                hmac.compare_digest(current['pending_login_key'], key) and auth.password_matches(current, password)):
+            return current
+    elif not rows:
+        auth.password_matches(None, password)
+    return None
+
+
 def _begin_manage(conn, request, grant, cookie, csrf, form):
     kind = form['identity_kind']
-    email = normalize_email(form['identifier']) if kind in ('email', 'pending_email') else None
-    username = form['identifier'].strip().casefold() if kind == 'username' else None
-    account = _password_login(conn, email, username if username and _username.fullmatch(username) else None,
-                              form['password'], pending_only=kind == 'pending_email')
+    if grant['portal_session_hash']:
+        if kind != 'session' or form['identifier']:
+            auth.fail(400, 'invalid_request', '请确认当前账号。')
+        account = auth.locked_credentials(conn, grant['portal_account_id'])
+        if not auth.password_matches(account, form['password']):
+            account = None
+    elif kind == 'session':
+        auth.fail(400, 'invalid_request', '请先登录账号控制台。')
+    elif kind == 'unified':
+        account = password_identity(conn, form['identifier'].strip().casefold(),
+                                    normalize_email(form['identifier']), form['password'])
+    else:
+        email = normalize_email(form['identifier']) if kind in ('email', 'pending_email') else None
+        username = form['identifier'].strip().casefold() if kind == 'username' else None
+        account = _password_login(conn, email, username if username and _username.fullmatch(username) else None,
+                                  form['password'], pending_only=kind == 'pending_email')
     if not account:
-        return _show(csrf, 'email_manage_begin', grant=grant, message='账号或密码不正确。', status=401)
+        return _show(csrf, 'email_manage_begin', grant=grant,
+                     message='当前密码不正确。' if grant['portal_session_hash'] else '账号或密码不正确。', status=401)
     verified = account['verified_email']
     paid = billing.has_confirmed_waffo_payment(conn, account['account_id'])
     action = ('email_change_old_send' if paid and auth.mail_available() else 'email_manage_unavailable') if verified else 'email_manage_unverified'
@@ -453,6 +496,8 @@ def _edit_pending(conn, request, grant, cookie, csrf, flow, form):
                    (email, pending_key, flow.account_id)).fetchone()
         except UniqueViolation:
             return rejected('此邮箱暂不可用，请改用其他邮箱。', 409)
+        from .console_sessions import refresh_credential
+        refresh_credential(conn, grant, flow.account_id)
     updated = replace(flow, email=email, credential_version=account['credential_version'], expires_at=_expiry(flow))
     return _transition(conn, request, grant, cookie, csrf, updated, account=account, paid=paid,
                        notice='邮箱已保存，未发送邮件。')
@@ -490,11 +535,18 @@ def _resend(conn, request, grant, cookie, csrf, flow):
 
 
 def _changed_login(conn, request, grant, cookie, csrf, account_id, notice):
-    revoke_sessions(conn, account_id, keep_grant=grant['grant_hash'])
+    revoke_sessions(conn, account_id, keep_grant=grant['grant_hash'], credentials_changed=True)
+    if grant['portal']:
+        from .console_sessions import clear_cookie
+        changed = 'email' if grant['management_only'] else '1'
+        response = clear_cookie(RedirectResponse(f'/account/login?changed={changed}', status_code=303))
+        response.delete_cookie(cookie, path=auth._cookie_scope(True))
+        conn.execute('DELETE FROM auth_grants WHERE grant_hash=%s', (grant['grant_hash'],))
+        return response
     if grant['management_only']:
         return auth.complete_management(conn, grant, cookie, notice)
     conn.execute('DELETE FROM auth_email_flows WHERE grant_hash=%s', (grant['grant_hash'],))
-    response = _show(csrf, notice=notice)
+    response = _show(csrf, grant=grant, notice=notice)
     auth.renew_authorization(conn, request, response, grant, cookie, _expiry())
     return response
 
@@ -540,6 +592,8 @@ def _verify(conn, request, grant, cookie, csrf, flow, code):
         return _end_flow(conn, grant, csrf, message='此邮箱已用于其他 WeekGlass 账号，请换一个邮箱。')
     if flow.action == 'email_bind_verify':
         if grant['management_only']:
+            from .console_sessions import refresh_credential
+            refresh_credential(conn, grant, flow.account_id)
             return auth.complete_management(conn, grant, cookie, '邮箱已验证，可以使用邮箱登录或找回密码。')
         return auth.complete_authorization(conn, grant, cookie, flow.account_id)
     return _changed_login(conn, request, grant, cookie, csrf, flow.account_id, '邮箱已更换，所有设备已退出。请用新邮箱重新登录。')
@@ -549,8 +603,8 @@ def _valid_new_password(form):
     return form['password'] == form['confirm_password'] and auth.email_password_valid(form['password'])
 
 
-def _invalid_password(csrf, action):
-    return _show(csrf, action, message=auth.EMAIL_PASSWORD_HELP + '两次输入须一致。', status=400)
+def _invalid_password(csrf, action, grant):
+    return _show(csrf, action, grant=grant, message=auth.EMAIL_PASSWORD_HELP + '两次输入须一致。', status=400)
 
 
 def _finish_reset(conn, request, grant, cookie, csrf, flow, form):
@@ -558,7 +612,7 @@ def _finish_reset(conn, request, grant, cookie, csrf, flow, form):
             not billing.has_confirmed_waffo_payment(conn, flow.account_id)):
         return _end_flow(conn, grant, csrf, message='重置权限已失效，请重新验证邮箱。')
     if not _valid_new_password(form):
-        return _invalid_password(csrf, flow.action)
+        return _invalid_password(csrf, flow.action, grant)
     # Someone who knew the old password may have created a recovery key.
     conn.execute('''UPDATE auth_accounts SET password_hash=%s,recovery_hash=NULL,credential_version=credential_version+1
       WHERE account_id=%s''', (auth.hash_email_password(form['password']), flow.account_id))
@@ -568,7 +622,7 @@ def _finish_reset(conn, request, grant, cookie, csrf, flow, form):
 def browser_action(request, action, form):
     if (action not in _fields or set(form) != _fields[action] | {'csrf'} or len(form['csrf']) > 128
             or any(len(value) > 1024 for value in form.values())
-            or (action == 'email_manage_begin' and form['identity_kind'] not in ('email', 'pending_email', 'username'))):
+            or (action == 'email_manage_begin' and form['identity_kind'] not in ('email', 'pending_email', 'username', 'unified', 'session'))):
         auth.fail(400, 'invalid_request', '请求内容无效。')
     if action in _mail_actions and not auth.mail_available():
         auth.fail(403, 'email_not_configured', '此服务器未开启邮件验证。')
@@ -580,7 +634,11 @@ def browser_action(request, action, form):
         by_username = form.get('identity_kind') == 'username'
         value = form.get('email', form.get('identifier', ''))
         subject = value.strip().casefold() if by_username else normalize_email(value)
-        auth.rate_limit(request, 'login-user' if by_username else 'login-email', 6, subject or '<empty>')
+        # Password-only portal proof is throttled by the logged-in account
+        # below, rather than sharing one global empty-identifier bucket.
+        if form.get('identity_kind') != 'session':
+            auth.rate_limit(request, 'login-user' if by_username else 'login-email', 6,
+                            subject or value.strip().casefold() or '<empty>')
     elif action in _send_actions:
         auth.rate_limit(request, 'email-send-ip', 8)
     elif action == 'email_register':
@@ -591,8 +649,10 @@ def browser_action(request, action, form):
     csrf = form['csrf']
     with connect() as conn:
         grant, cookie = auth.authorization_grant(conn, request, csrf)
+        if action == 'email_manage_begin' and grant['portal_session_hash']:
+            auth.rate_limit(request, 'account-management-user', 6, str(grant['portal_account_id']))
         if action not in _management_actions:
-            auth.require_native_grant(grant)
+            auth.require_login_grant(grant)
         if grant['account_id']:
             auth.fail(400, 'invalid_request', '请继续之前的操作，或重新发起连接。')
         if action in ('email_login', 'email_pending_login'):
@@ -601,7 +661,7 @@ def browser_action(request, action, form):
             account = _password_login(conn, normalize_email(form['email']), None, form['password'],
                                       pending_only=action == 'email_pending_login')
             if not account:
-                return _show(csrf, action, message='邮箱或密码不正确。', status=401)
+                return _show(csrf, action, grant=grant, message='邮箱或密码不正确。', status=401)
             return auth.complete_authorization(conn, grant, cookie, account['account_id'])
 
         flow = _flow(conn, grant)

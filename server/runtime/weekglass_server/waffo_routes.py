@@ -7,7 +7,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import billing, email_delivery, waffo_runtime
 from .auth_styles import AUTH_STYLE
-from .billing_routes import _page, _session
+from .billing_routes import _checkout_access, _page
 from .db import connect
 from .protocol import now, problem
 from .settings import request_origin
@@ -28,14 +28,16 @@ _CHECKOUT_STYLE = AUTH_STYLE + '''
 .checkout-email-action:hover{text-decoration:underline}
 '''
 _VERIFY_EMAIL_ACTION = '<a class="checkout-email-action" href="/v1/auth/email">验证或更换邮箱</a>'
+_PORTAL_VERIFY_EMAIL = '<a class="checkout-email-action" href="/account/email">验证邮箱</a>'
 
 _ACTIONS = '''const controls = [...document.querySelectorAll('button')];
 const status = document.querySelector('[role=status]');
 const refresh = document.querySelector('[data-action="refresh"]');
 const test = refresh?.dataset.test === 'yes';
+const portal = refresh?.dataset.portal === 'yes';
 const messages = {
   paid: test ? '测试付款已确认，本地测试账号已开通云同步。' :
-    `付款已确认。${refresh.dataset.periodDays} 天云同步已到账，可以关闭此页并返回 WeekGlass。`,
+    `付款已确认。${refresh.dataset.periodDays} 天云同步已到账。${portal ? '请返回账号控制台查看。' : '可以关闭此页并返回 WeekGlass。'}`,
   refunded: '退款已确认，对应的云同步权益已撤销。',
   refund_pending: '退款待确认。',
   closed: '此订单已关闭，未开通新的云同步时段。',
@@ -51,9 +53,11 @@ async function act(action) {
     const response = await fetch(location.pathname + '/' + action, {method: 'POST'});
     const result = await response.json();
     if (!response.ok) {
-      status.textContent = ['billing_checkout_pending','test_checkout_pending'].includes(result.code)
-        ? '收银结果仍在核对，不会重复提交这笔订单。'
-        : '暂时无法核对，请稍后再试。';
+      status.textContent = result.code === 'billing_account_mismatch'
+        ? '此订单不属于目前登录的账号。请退出当前账号后重新打开订单。'
+        : ['billing_checkout_pending','test_checkout_pending'].includes(result.code)
+          ? '收银结果仍在核对，不会重复提交这笔订单。'
+          : '暂时无法核对，请稍后再试。';
       return action === 'refresh';
     }
     if (result.url) {
@@ -109,7 +113,7 @@ def show_paid_email_action(conn, order, config):
     )
 
 
-def order_page(order, config, returned=False, *, verify_email=False):
+def order_page(order, config, returned=False, *, verify_email=False, portal=False, account_label=None):
     status = order['status']
     is_test = bool(config.sandbox_origin)
     days = order['period_seconds'] // 86400
@@ -123,7 +127,7 @@ def order_page(order, config, returned=False, *, verify_email=False):
     refresh_label = '核对测试付款' if is_test else '查看付款结果'
     test_flag, returned_flag = ('yes' if is_test else 'no'), ('yes' if returned else 'no')
     refresh = (f'<button data-action="refresh" data-test="{test_flag}" data-returned="{returned_flag}"'
-               f' data-period-days="{days}"{hidden}>'
+               f' data-period-days="{days}" data-portal="{"yes" if portal else "no"}"{hidden}>'
                f'{refresh_label}</button>') if should_refresh else ''
     if is_test:
         title = 'WeekGlass 测试订单'
@@ -134,22 +138,26 @@ def order_page(order, config, returned=False, *, verify_email=False):
     else:
         amount = order['amount_minor']
         title = 'WeekGlass 云同步'
+        paid_message = (f'付款已确认。{days} 天云同步已到账。' +
+                        ('请返回账号控制台查看。' if portal else '可以关闭此页并返回 WeekGlass。'))
         message = {'pending': f'¥{amount // 100}.{amount % 100:02} / {days} 天。单次购买，不会自动续费。'
                               if may_pay else '暂未开放购买。此订单未付款。',
                    'submitting': '收银台正在准备，稍后可查看付款结果。',
                    'processing': '付款结果待确认；到账后会自动开通。',
-                   'paid': f'付款已确认。{days} 天云同步已到账，可以关闭此页并返回 WeekGlass。',
+                   'paid': paid_message,
                    'refunded': '退款已确认，对应的云同步权益已撤销。', 'refund_pending': '退款待确认。',
                    'closed': '此订单已关闭，未开通新的云同步时段。', 'failed': '此订单未付款。'}[status]
+    verify_link = _PORTAL_VERIFY_EMAIL if portal else _VERIFY_EMAIL_ACTION
     if verify_email and not is_test and status == 'paid':
         message = f'付款已确认，{days} 天云同步已到账。请验证邮箱，以便找回账号。'
-        email_action = _VERIFY_EMAIL_ACTION
+        email_action = verify_link
     elif refresh and not is_test:
-        email_action = f'<template id="checkout-email-next">{_VERIFY_EMAIL_ACTION}</template>'
+        email_action = f'<template id="checkout-email-next">{verify_link}</template>'
     else:
         email_action = ''
-    return _page(title, message, actions=pay + refresh + email_action, style=_CHECKOUT_STYLE,
-                 script=_ACTIONS if pay or refresh else '', referrer_policy='same-origin')
+    back = '<p><a href="/account/orders">返回账号订单</a></p>' if portal else ''
+    return _page(title, message, actions=pay + refresh + email_action + back, style=_CHECKOUT_STYLE,
+                 script=_ACTIONS if pay or refresh else '', referrer_policy='same-origin', account_label=account_label)
 
 
 def _config(request, provider=None):
@@ -162,27 +170,32 @@ def _config(request, provider=None):
     return config
 
 
-def _browser_config(request, checkout_id):
+def _browser_config(request):
     config = _config(request)
-    if request.headers.getlist('origin') != [config.origin] or not _session(request, checkout_id):
+    if request.headers.getlist('origin') != [config.origin]:
         problem(403, 'billing_handoff_invalid')
     return config
 
 
-def _order(conn, checkout_id, config):
+def _order(conn, request, checkout_id, config):
     order = conn.execute('SELECT * FROM billing_orders WHERE checkout_id=%s AND account_id IS NOT NULL',
                          (checkout_id,)).fetchone()
-    if not order or not billing.same_scope(order, config):
+    access = _checkout_access(conn, request, checkout_id, order)
+    if access == 'mismatch':
+        problem(403, 'billing_account_mismatch')
+    if not access:
+        problem(403, 'billing_handoff_invalid')
+    if not order or not billing.same_scope(order, config) or not billing._enabled(conn, order):
         problem(404, 'billing_order_not_found')
     return order
 
 
 @router.post('/checkout/{checkout_id}/provider')
 def provider_checkout(request: Request, checkout_id: UUID):
-    config = _browser_config(request, checkout_id)
+    config = _browser_config(request)
     pending = 'test_checkout_pending' if config.sandbox_origin else 'billing_checkout_pending'
     with connect() as conn:
-        order = _order(conn, checkout_id, config)
+        order = _order(conn, request, checkout_id, config)
         if not billing.checkout_available(config, order['account_id']):
             problem(503, 'billing_not_configured')
         if ((billing.waffo_checkout_can_resume(order)
@@ -223,9 +236,9 @@ def provider_checkout(request: Request, checkout_id: UUID):
 
 @router.post('/checkout/{checkout_id}/refresh')
 def refresh(request: Request, checkout_id: UUID):
-    config = _browser_config(request, checkout_id)
+    config = _browser_config(request)
     with connect() as conn:
-        order = _order(conn, checkout_id, config)
+        order = _order(conn, request, checkout_id, config)
     if config.sandbox_origin:
         if order['status'] in (*billing.IN_FLIGHT, 'paid', 'refund_pending'):
             try:
@@ -238,7 +251,7 @@ def refresh(request: Request, checkout_id: UUID):
     elif order['status'] in billing.IN_FLIGHT:
         waffo_runtime.reconcile_one(config, checkout_id)
     with connect() as conn:
-        fresh = _order(conn, checkout_id, config)
+        fresh = _order(conn, request, checkout_id, config)
         result = {'status': fresh['status']}
         if show_paid_email_action(conn, fresh, config):
             result['verify_email'] = True

@@ -61,6 +61,10 @@ def delivery(client, monkeypatch):
         with monkeypatch.context() as scope:
             if provider == billing.WAFFO_LIVE_PROVIDER:
                 scope.setattr(settings, 'public_origin', billing.OFFICIAL_ORIGIN)
+            elif provider == billing.WAFFO_TEST_PROVIDER:
+                # This fixture only writes to the dedicated *_test database.
+                # Test the already-verified sandbox settlement, not transport.
+                scope.setattr(billing, 'sandbox_database', lambda origin: True)
             return billing.apply_verified_event(adapter, synthetic)
 
     def pay(account_id):
@@ -210,11 +214,11 @@ def test_signup_creates_unverified_account_without_smtp_and_uses_normalized_emai
     assert not delivery
 
     password_flow = begin(client)
-    second = redeem(client, password_flow, post(client, 'email_login', password_flow[2], email=email.upper(), password=password))
+    second = redeem(client, password_flow, post(client, 'login', password_flow[2], username=email.upper(), password=password))
     assert (tokens['account_id'], tokens['dataset_id'], tokens['sync_epoch']) == (
         second['account_id'], second['dataset_id'], second['sync_epoch'])
     wrong = begin(client)
-    action_in(post(client, 'email_login', wrong[2], email=email, password='wrong'), 'email_login', 401)
+    action_in(post(client, 'login', wrong[2], username=email, password='wrong'), 'login', 401)
 
 
 def test_verified_owner_takes_precedence_over_pending_aliases_without_combining_accounts(client, delivery, address):
@@ -240,11 +244,11 @@ def test_verified_owner_takes_precedence_over_pending_aliases_without_combining_
     original = client.get('/v1/me/account', headers=headers(first)).json()
     assert original['pending_email'] == email and not original['email_verified']
     conflict = begin(client)
-    action_in(post(client, 'email_login', conflict[2], email=email, password=first_password), 'email_login', 401)
+    action_in(post(client, 'email_login', conflict[2], email=email, password=first_password), 'login', 401)
     first_fallback = tokens_for(client, (first['account_id'], original['backup_username'], first_password))
     assert first_fallback['account_id'] == first['account_id'] and first_fallback['dataset_id'] == first['dataset_id']
     pending_flow = begin(client)
-    pending_identity = redeem(client, pending_flow, post(client, 'email_pending_login', pending_flow[2], email=email, password=first_password))
+    pending_identity = redeem(client, pending_flow, post(client, 'login', pending_flow[2], username=email, password=first_password))
     assert pending_identity['account_id'] == first['account_id'] and pending_identity['dataset_id'] == first['dataset_id']
     second_flow = begin(client)
     established = redeem(client, second_flow, post(client, 'email_login', second_flow[2], email=email, password=second_password))
@@ -363,13 +367,13 @@ def test_password_reset_is_single_use_grant_and_logs_out_every_device(client, de
               'email_reset_finish', 400)
     new = 'x' * 7 + '9'
     response = post(client, 'email_reset_finish', reset[2], password=new, confirm_password=new)
-    action_in(response, 'email_login')
+    action_in(response, 'login')
     assert '密码已重设' in response.text and saved_flow(reset[2]) is None
     assert post(client, 'email_reset_finish', reset[2], password=old, confirm_password=old).status_code == 400
     for token in (first, second):
         assert client.get('/v1/me/account', headers=headers(token)).status_code == 401
         assert client.post('/v1/auth/token', data=refresh_form(token)).status_code == 400
-    action_in(post(client, 'email_login', reset[2], email=email, password=old), 'email_login', 401)
+    action_in(post(client, 'login', reset[2], username=email, password=old), 'login', 401)
     renewed = redeem(client, reset, post(client, 'email_login', reset[2], email=email, password=new))
     assert (renewed['account_id'], renewed['dataset_id'], renewed['sync_epoch']) == (
         first['account_id'], first['dataset_id'], first['sync_epoch'])
@@ -565,14 +569,14 @@ def test_bind_legacy_then_prove_both_mailboxes_and_revoke_every_device(client, d
     assert new_code != old_code
     action_in(post(client, 'email_change_new_verify', change[2], code=old_code), 'email_change_new_verify', 400)
     response = post(client, 'email_change_new_verify', change[2], code=new_code)
-    action_in(response, 'email_login')
+    action_in(response, 'login')
     assert '邮箱已更换' in response.text
     for token in (original, bound):
         assert client.get('/v1/me/account', headers=headers(token)).status_code == 401
         assert client.post('/v1/auth/token', data=refresh_form(token)).status_code == 400
     assert client.post('/v1/auth/token', data=pending).status_code == 400
     assert post(client, 'email_reset_finish', recovery[2], password='cannot-reset-now', confirm_password='cannot-reset-now').status_code == 400
-    action_in(post(client, 'email_login', change[2], email=old, password=account[2]), 'email_login', 401)
+    action_in(post(client, 'login', change[2], username=old, password=account[2]), 'login', 401)
     renewed = redeem(client, change, post(client, 'email_login', change[2], email=new, password=account[2]))
     assert renewed['account_id'] == account[0]
     native = tokens_for(client, account)
@@ -749,14 +753,14 @@ def test_pending_alias_edit_and_password_change_use_current_credentials_without_
     connected = redeem(client, phase, post(client, 'email_manage_connect', phase[2]))
     assert connected['dataset_id'] == tokens['dataset_id']
     attempt = begin(client)
-    action_in(post(client, 'email_login', attempt[2], email=email, password=password), 'email_login', 401)
+    action_in(post(client, 'login', attempt[2], username=email, password=password), 'login', 401)
 
     assert client.post('/v1/me/password', json={'current_password': password, 'new_password': '12345678'},
                        headers=headers(connected)).status_code == 422
     next_password = '-!123456'
     assert client.post('/v1/me/password', json={'current_password': password, 'new_password': next_password},
                        headers=headers(connected)).status_code == 204
-    action_in(post(client, 'email_login', attempt[2], email=replacement, password=password), 'email_login', 401)
+    action_in(post(client, 'login', attempt[2], username=replacement, password=password), 'login', 401)
     changed = redeem(client, attempt, post(client, 'email_login', attempt[2], email=replacement, password=next_password))
     assert changed['account_id'] == tokens['account_id'] and not delivery
     # If an older writer leaves the deterministic index stale, it can still
@@ -765,7 +769,7 @@ def test_pending_alias_edit_and_password_change_use_current_credentials_without_
         conn.execute('UPDATE auth_accounts SET pending_login_key=%s WHERE account_id=%s',
                      (auth.pending_login_key(replacement, password), tokens['account_id']))
     stale = begin(client)
-    action_in(post(client, 'email_pending_login', stale[2], email=replacement, password=password), 'email_pending_login', 401)
+    action_in(post(client, 'email_pending_login', stale[2], email=replacement, password=password), 'login', 401)
 
 
 def test_decoy_sends_cannot_cool_down_a_paid_bind_and_paid_budget_survives_alias_rotation(client, delivery, address):
@@ -803,12 +807,14 @@ def test_email_migration_preserves_existing_credential_and_grant(client):
               CREATE TABLE accounts (account_id uuid PRIMARY KEY,dataset_id uuid,sync_epoch uuid);
               CREATE TABLE auth_accounts (account_id uuid PRIMARY KEY,username text UNIQUE,password_hash text,
                 recovery_hash text,enabled boolean);
-              CREATE TABLE auth_grants (grant_hash text PRIMARY KEY,account_id uuid);''')
+              CREATE TABLE auth_grants (grant_hash text PRIMARY KEY,account_id uuid,
+                redirect_uri text NOT NULL DEFAULT 'http://127.0.0.1:54321/oauth/callback',
+                challenge text NOT NULL DEFAULT 'before',state text NOT NULL DEFAULT 'before');''')
             conn.execute('INSERT INTO accounts VALUES (%s,%s,%s)', (account_id, dataset_id, epoch))
             conn.execute('INSERT INTO auth_accounts VALUES (%s,%s,%s,%s,true)', (account_id, 'old', 'before', 'recovery'))
-            conn.execute('INSERT INTO auth_grants VALUES (%s,%s)', ('previous-grant', account_id))
+            conn.execute('INSERT INTO auth_grants(grant_hash,account_id) VALUES (%s,%s)', ('previous-grant', account_id))
             migrate_email_identity(conn)
-            conn.execute("INSERT INTO auth_grants VALUES ('old-bind',NULL),('old-signup',NULL)")
+            conn.execute("INSERT INTO auth_grants(grant_hash,account_id) VALUES ('old-bind',NULL),('old-signup',NULL)")
             conn.execute('''INSERT INTO auth_email_flows(grant_hash,action,expires_at,account_id,credential_version)
               VALUES ('old-bind','email_bind_send',now(),%s,0),('old-signup','email_register_verify',now(),NULL,NULL)''', (account_id,))
             migrate_auth(conn)
@@ -817,6 +823,7 @@ def test_email_migration_preserves_existing_credential_and_grant(client):
             assert row['account_id'] == account_id and row['dataset_id'] == dataset_id and row['sync_epoch'] == epoch
             assert row['username'] == 'old' and row['password_hash'] == 'before' and row['recovery_hash'] == 'recovery'
             assert row['legacy_login'] and row['verified_email'] is None and row['pending_email'] is None and row['credential_version'] == 0
-            grant = conn.execute('SELECT account_id,management_only FROM auth_grants WHERE grant_hash=%s', ('previous-grant',)).fetchone()
-            assert grant['account_id'] == account_id and not grant['management_only']
+            grant = conn.execute('SELECT * FROM auth_grants WHERE grant_hash=%s', ('previous-grant',)).fetchone()
+            assert grant['account_id'] == account_id and not grant['management_only'] and not grant['portal']
+            assert grant['challenge'] == grant['state'] == 'before'
             assert conn.execute('SELECT count(*) AS n FROM auth_email_flows').fetchone()['n'] == 0

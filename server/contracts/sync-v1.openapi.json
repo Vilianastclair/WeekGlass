@@ -3,7 +3,7 @@
   "info": {
     "title": "WeekGlass Sync API v1",
     "version": "1.0.0-draft",
-    "description": "Implemented WeekGlass-only authentication, account lifecycle and calendar synchronization. Hosted subscriptions and free self-hosting share the protocol. Payment integration is not enabled."
+    "description": "WeekGlass authentication, account lifecycle and calendar synchronization. Hosted calendar access requires active service coverage; self-hosted synchronization is free. Where configured, official hosted plans use one-time WeChat payment through Waffo."
   },
   "servers": [
     {
@@ -127,7 +127,8 @@
     },
     "/v1/auth/authorize": {
       "get": {
-        "summary": "Browser login/consent followed by one-use authorization code",
+        "summary": "Browser login or signup followed by one-use authorization code",
+        "description": "The official hosted signup callback adds signup=1 alongside code and state. Redeem the PKCE code successfully before opening the official browser account console at /account#plans. Ordinary logins and self-hosted callbacks do not include that marker.",
         "operationId": "authorize",
         "responses": {
           "401": {
@@ -1756,7 +1757,8 @@
     },
     "/v1/exports/calendar": {
       "get": {
-        "summary": "Export this calendar even when hosted subscription expired",
+        "summary": "Export this calendar while entitled or self-hosted",
+        "description": "Expired hosted accounts can use the official web account console at /account#calendar for a single export of the ended service coverage. Interrupted web downloads retry the same boundary; the privacy rights channel is separate.",
         "operationId": "exportCalendar",
         "responses": {
           "401": {
@@ -1770,7 +1772,7 @@
             }
           },
           "403": {
-            "description": "Account or capability denied.",
+            "description": "subscription_required: this hosted account has no current sync entitlement. An expired account can check its export allowance in the official web console.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -1780,7 +1782,7 @@
             }
           },
           "429": {
-            "description": "Rate limited; honor Retry-After and jittered backoff.",
+            "description": "export_busy: download capacity is temporarily full; honor Retry-After.",
             "content": {
               "application/problem+json": {
                 "schema": {
@@ -3140,7 +3142,7 @@
           "plan_id",
           "limits"
         ],
-        "description": "Self-hosted bypasses billing, not authentication or quotas. Hosted current_period_end is the end of currently continuous write access from paid periods and/or a separate administrator grant. Expiry disables new writes but keeps reading, prior receipts and export. No automatic data deletion is scheduled."
+        "description": "Self-hosted bypasses billing, not authentication or quotas. Hosted sync_read and sync_write both require active continuous service coverage from paid periods and/or an explicit administrator grant. current_period_end is the end of that coverage when active and the latest actual coverage end when expired. Prior immutable batch receipts remain available for recovery. An expired account's export_allowed describes the one-time web export allowance; /v1/exports/calendar still requires active service. No automatic data deletion is scheduled."
       },
       "Event": {
         "type": "object",
@@ -4665,6 +4667,7 @@
     "Same account counter row lock serializes commits; do not use a PostgreSQL sequence alone as committed cursor.",
     "Push receipts do not advance pull cursor.",
     "Current event heads, including compact tombstone heads and idempotency digests, survive delta-log GC.",
+    "Inactive hosted accounts cannot upload new batches, download snapshots or deltas, or acknowledge cursors. Long polls recheck entitlement.",
     "Official hosted Waffo plans are CNY WeChat single purchases. Checkout and event intake are configured separately; existing grants and confirmed paid periods are independent of both switches."
   ]
 }

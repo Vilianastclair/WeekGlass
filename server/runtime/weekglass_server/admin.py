@@ -1,11 +1,12 @@
 """Operator CLI. Passwords are read from a private file or terminal, never argv."""
 import argparse
-from datetime import datetime, timedelta, timezone
 import getpass
 import json
 from pathlib import Path
 from uuid import UUID
 from . import auth, db
+from .entitlements import set_grant
+from .protocol import now
 
 
 def main():
@@ -20,6 +21,9 @@ def main():
     grant = commands.add_parser('grant')
     grant.add_argument('account_id', type=UUID)
     grant.add_argument('--days', type=int, required=True)
+    owner = commands.add_parser('set-owner', help='Appoint an existing WeekGlass account as console owner')
+    owner.add_argument('account_id', type=UUID)
+    commands.add_parser('clear-owner', help='Remove console owner access')
     commands.add_parser('init-db')
     args = parser.parse_args()
     db.init_schema()
@@ -32,12 +36,25 @@ def main():
     elif args.command == 'grant':
         if not 0 <= args.days <= 366:
             parser.error('days must be between 0 and 366')
-        expiry = datetime.now(timezone.utc) + timedelta(days=args.days)
         with db.connect() as conn:
-            row = conn.execute('UPDATE accounts SET grant_until=%s WHERE account_id=%s RETURNING account_id', (expiry, args.account_id)).fetchone()
+            row = set_grant(conn, args.account_id, args.days, now())
             if not row:
                 parser.error('Account does not exist')
-        print(json.dumps({'account_id': str(args.account_id), 'grant_until': expiry.isoformat(), 'billing_enabled': False}))
+        expiry = row['grant_until']
+        print(json.dumps({'account_id': str(args.account_id), 'grant_until': expiry.isoformat() if expiry else None,
+                          'billing_enabled': False}))
+    elif args.command in ('set-owner', 'clear-owner'):
+        with db.connect() as conn:
+            if args.command == 'clear-owner':
+                conn.execute('DELETE FROM web_owner')
+                result = None
+            else:
+                result = args.account_id
+                if not conn.execute('SELECT 1 FROM auth_accounts WHERE enabled AND account_id=%s', (result,)).fetchone():
+                    parser.error('An enabled WeekGlass account is required')
+                conn.execute('''INSERT INTO web_owner(account_id) VALUES (%s) ON CONFLICT (singleton)
+                  DO UPDATE SET account_id=excluded.account_id''', (result,))
+        print(json.dumps({'account_id': str(result) if result else None}))
 
 
 if __name__ == '__main__':

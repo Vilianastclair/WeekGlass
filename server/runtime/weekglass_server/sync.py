@@ -8,13 +8,12 @@ import psycopg
 from psycopg.types.json import Jsonb
 import rfc8785
 from fastapi import APIRouter, Depends, Query, Request, Response
-from fastapi.responses import StreamingResponse
 from starlette.concurrency import run_in_threadpool
 from .auth import get_identity
-from . import auth
+from . import auth, calendar_export
 from .billing import billing_capabilities, WAFFO_LIVE_PROVIDER
 from .db import connect
-from .entitlements import entitlement
+from .entitlements import allow_sync, entitlement
 from .settings import settings, request_origin
 from .protocol import LIMITS, body, compact, cursor, decode_token, encode_token, now, parse_cursor, problem, stamp
 
@@ -28,6 +27,11 @@ def account_for(conn, identity, lock=False):
         problem(401, 'account_unavailable')
     auth.revalidate_identity(conn, identity)
     return row
+
+
+def require_sync(conn, account):
+    if not allow_sync(conn, account):
+        problem(403, 'subscription_required')
 
 
 @router.get('/server-info')
@@ -50,7 +54,8 @@ def server_info(request: Request):
 def entitlements(identity=Depends(get_identity)):
     with connect() as conn:
         conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-        return entitlement(conn, account_for(conn, identity))
+        rights, _ = entitlement(conn, account_for(conn, identity))
+        return rights
 
 
 def validate_event(event):
@@ -91,8 +96,7 @@ def push(data, identity):
             if previous['request_hash'] != request_hash:
                 problem(409, 'idempotency_key_reused')
             return previous['receipt']
-        if not entitlement(conn, account)['sync_write']:
-            problem(403, 'subscription_required')
+        require_sync(conn, account)
         duplicate = conn.execute('SELECT 1 FROM mutation_ids WHERE account_id=%s AND mutation_id=ANY(%s::uuid[]) LIMIT 1',
                                  (aid, [m['mutation_id'] for m in mutations])).fetchone()
         if duplicate:
@@ -193,6 +197,7 @@ def create_snapshot(identity=Depends(get_identity)):
             with connect() as conn:
                 conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ')
                 account = account_for(conn, identity, lock=True)
+                require_sync(conn, account)
                 conn.execute('DELETE FROM snapshots WHERE account_id=%s AND (expires_at<=now() OR sync_epoch<>%s)',
                              (account['account_id'], account['sync_epoch']))
                 snap = conn.execute('SELECT * FROM snapshots WHERE account_id=%s', (account['account_id'],)).fetchone()
@@ -213,7 +218,9 @@ def read_snapshot(snapshot_id: UUID, page_token: str = Query(min_length=16, max_
     if token.get('snapshot') != str(snapshot_id) or token.get('a') != identity['account_id'] or not isinstance(token.get('after'), str):
         problem(403, 'snapshot_scope_mismatch')
     with connect() as conn:
-        account_for(conn, identity)
+        conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
+        account = account_for(conn, identity)
+        require_sync(conn, account)
         snap = conn.execute('SELECT * FROM snapshots WHERE snapshot_id=%s AND account_id=%s', (snapshot_id, identity['account_id'])).fetchone()
         if not snap:
             problem(410, 'snapshot_expired')
@@ -221,7 +228,7 @@ def read_snapshot(snapshot_id: UUID, page_token: str = Query(min_length=16, max_
 
 
 @router.get('/sync/changes')
-async def changes(cursor: str = Query(min_length=16, max_length=1024), limit_batches: int = Query(1, ge=1, le=10),
+async def changes(request: Request, cursor: str = Query(min_length=16, max_length=1024), limit_batches: int = Query(1, ge=1, le=10),
             wait_seconds: int = Query(0, ge=0, le=25), identity=Depends(get_identity)):
     deadline = time.monotonic() + wait_seconds
     def read_page():
@@ -229,6 +236,7 @@ async def changes(cursor: str = Query(min_length=16, max_length=1024), limit_bat
             # Retention pruning must not remove unseen rows between floor check and pull.
             conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
             account = account_for(conn, identity)
+            require_sync(conn, account)
             seq = parse_cursor(cursor, account)
             # limit_batches is an upper bound; one indivisible batch limits peak memory.
             rows = conn.execute('SELECT seq,batch FROM changes WHERE account_id=%s AND seq>%s ORDER BY seq LIMIT 1',
@@ -236,6 +244,8 @@ async def changes(cursor: str = Query(min_length=16, max_length=1024), limit_bat
             more = bool(rows and rows[0]['seq'] < account['commit_seq'])
         return rows, more
     while True:
+        if await request.is_disconnected():
+            return Response(status_code=204)
         rows, more = await run_in_threadpool(read_page)
         if rows or time.monotonic() >= deadline:
             included = [r['batch'] for r in rows]
@@ -251,7 +261,8 @@ async def ack(request: Request, identity=Depends(get_identity)):
         problem(403, 'device_mismatch')
     def write():
         with connect() as conn:
-            account = account_for(conn, identity)
+            account = account_for(conn, identity, lock=True)
+            require_sync(conn, account)
             seq = parse_cursor(data['cursor'], account)
             conn.execute('''INSERT INTO sync_acks VALUES (%s,%s,%s) ON CONFLICT(account_id,device_id)
                          DO UPDATE SET seq=greatest(sync_acks.seq,EXCLUDED.seq)''', (identity['account_id'], identity['device_id'], seq))
@@ -261,20 +272,9 @@ async def ack(request: Request, identity=Depends(get_identity)):
 
 @router.get('/exports/calendar')
 def export(identity=Depends(get_identity)):
-    def stream():
-        with connect() as conn:
-            conn.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
-            account = account_for(conn, identity)
-            header = {'format': 'weekglass-json-v1', 'server_id': settings.server_id,
-                      'account_id': identity['account_id'], 'dataset_id': str(account['dataset_id']),
-                      'boundary_cursor': cursor(account, account['commit_seq']), 'created_at': stamp()}
-            yield compact(header)[:-1] + b',"records":['
-            with conn.cursor(name='calendar_export') as rows:
-                rows.itersize = 5
-                rows.execute('SELECT record FROM event_heads WHERE account_id=%s ORDER BY event_id', (identity['account_id'],))
-                first = True
-                for row in rows:
-                    yield (b'' if first else b',') + compact(row['record'])
-                    first = False
-            yield b']}'
-    return StreamingResponse(stream(), media_type='application/json', headers={'Content-Disposition': 'attachment; filename="weekglass-calendar.json"', 'Cache-Control': 'no-store'})
+    def select(conn):
+        account = account_for(conn, identity)
+        require_sync(conn, account)
+        return account, now()
+    # Inactive subscribers use an acknowledged claim in the web console.
+    return calendar_export.download(select)

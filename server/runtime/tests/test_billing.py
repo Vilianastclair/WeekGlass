@@ -206,10 +206,11 @@ def test_paid_periods_extend_once_and_share_write_gate(flow, monkeypatch):
     assert flow.checkout().json()['code'] == 'billing_period_already_reserved'
     monkeypatch.setattr('weekglass_server.entitlements.now', lambda: datetime.fromisoformat(second['period_end']))
     rights = flow.rights()
-    assert rights['status'] == 'expired' and not rights['sync_write'] and rights['current_period_end'] is None
+    assert rights['status'] == 'expired' and not rights['sync_read'] and not rights['sync_write']
+    assert rights['current_period_end'] == second['period_end'] and rights['export_allowed']
     assert flow.client.post('/v1/sync/batches', headers=flow.headers, json=payload).json() == receipt
     assert flow.client.get('/v1/sync/batches/' + payload['batch_id'], headers=flow.headers).json() == receipt
-    assert flow.client.get('/v1/exports/calendar', headers=flow.headers).status_code == 200
+    assert flow.client.get('/v1/exports/calendar', headers=flow.headers).json()['code'] == 'subscription_required'
 
 
 def test_agreement_due_guard_cancel_and_inflight_settlement(flow):

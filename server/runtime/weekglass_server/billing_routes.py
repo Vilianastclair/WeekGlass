@@ -1,6 +1,7 @@
 """Account billing API and a one-time, order-only browser handoff."""
 from datetime import timedelta
 from hashlib import sha256
+from html import escape
 import base64
 import re
 import secrets
@@ -10,7 +11,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from starlette.concurrency import run_in_threadpool
 
-from . import auth, billing
+from . import auth, billing, console_sessions
 from .db import connect
 from .protocol import body, decode_token, encode_token, now, problem, stamp
 from .settings import request_origin, settings
@@ -167,17 +168,19 @@ def _browser_origin(request):
         problem(404, 'billing_not_configured')
 
 
-def _page(title, message, *, script='', actions='', style='', referrer_policy='no-referrer'):
+def _page(title, message, *, script='', actions='', style='', referrer_policy='no-referrer',
+          account_label=None, status_code=200):
     js_policy = ("'sha256-" + base64.b64encode(sha256(script.encode()).digest()).decode() + "'") if script else "'none'"
     css_policy = ("'sha256-" + base64.b64encode(sha256(style.encode()).digest()).decode() + "'") if style else "'none'"
+    label = f'<p class="scope">订单所属账号：<strong>{escape(account_label)}</strong></p>' if account_label else ''
     return HTMLResponse(f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
       <meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title>
       {'<style>' + style + '</style>' if style else ''}</head>
-      <body><main class="panel"><h1>{title}</h1><p role="status">{message}</p>{actions}</main>
+      <body><main class="panel"><h1>{title}</h1>{label}<p role="status">{message}</p>{actions}</main>
       {'<script>' + script + '</script>' if script else ''}</body></html>''',
       headers={'Content-Security-Policy': f"default-src 'none'; script-src {js_policy}; style-src {css_policy}; "
                "connect-src 'self'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
-               'Referrer-Policy': referrer_policy})
+               'Referrer-Policy': referrer_policy}, status_code=status_code)
 
 
 def _session(request, checkout_id):
@@ -192,20 +195,50 @@ def _session(request, checkout_id):
         return False
 
 
+def _checkout_access(conn, request, checkout_id, order):
+    # A signed-in browser must never use an older order-only cookie to buy
+    # for a different account. The native handoff still works signed out.
+    identity = console_sessions.identity(conn, request)
+    if identity:
+        return 'account' if order and identity['account_id'] == order['account_id'] else 'mismatch'
+    return 'handoff' if _session(request, checkout_id) else None
+
+
+def _order_account_label(conn, order, portal):
+    row = conn.execute('''SELECT username,pending_email,verified_email FROM auth_accounts
+      WHERE account_id=%s AND enabled''', (order['account_id'],)).fetchone()
+    if not row:
+        return None
+    email = row['verified_email'] or row['pending_email']
+    if portal:
+        return email or row['username']
+    if email:
+        from .email_identity import _mask
+        return _mask(email)
+    username = row['username']
+    return username if len(username) <= 10 else username[:5] + '…' + username[-4:]
+
+
 @router.get('/checkout/{checkout_id}', include_in_schema=False)
 def browser(request: Request, checkout_id: UUID):
     _browser_origin(request)
-    if _session(request, checkout_id):
-        config = request.app.state.billing
-        with connect() as conn:
-            row = conn.execute('SELECT * FROM billing_orders WHERE checkout_id=%s AND account_id IS NOT NULL',
-                               (checkout_id,)).fetchone()
-            if (row and config and config.scope[0] in (billing.WAFFO_TEST_PROVIDER, billing.WAFFO_LIVE_PROVIDER)
+    config = request.app.state.billing
+    with connect() as conn:
+        row = conn.execute('SELECT * FROM billing_orders WHERE checkout_id=%s AND account_id IS NOT NULL',
+                           (checkout_id,)).fetchone()
+        access = _checkout_access(conn, request, checkout_id, row)
+        if access == 'mismatch':
+            from .auth_styles import AUTH_STYLE
+            return _page('账号与订单不匹配', '此订单不属于目前登录的账号。请退出当前账号后，从 WeekGlass 重新打开订单。',
+                         actions='<a class="action-link" href="/account/orders">查看当前账号订单</a>',
+                         style=AUTH_STYLE, status_code=403)
+        if access and row and (label := _order_account_label(conn, row, access == 'account')):
+            portal = access == 'account'
+            if (config and config.scope[0] in (billing.WAFFO_TEST_PROVIDER, billing.WAFFO_LIVE_PROVIDER)
                     and billing.same_scope(row, config)):
                 from .waffo_routes import order_page, show_paid_email_action
                 return order_page(row, config, request.query_params.get('returned') == '1',
-                                  verify_email=show_paid_email_action(conn, row, config))
-        if row:
+                                  verify_email=show_paid_email_action(conn, row, config), portal=portal, account_label=label)
             status = row['status']
             message = {'paid': '付款已确认。请返回 WeekGlass 刷新权益。',
                        'pending': '订单已保留，当前未接通在线收银。请返回 WeekGlass 查看订单。',
@@ -213,8 +246,12 @@ def browser(request: Request, checkout_id: UUID):
                        'refund_pending': '退款结果待确认。请返回 WeekGlass 查看订单。',
                        'refunded': '退款已确认。请返回 WeekGlass 查看订单。'}.get(
                            status, '付款结果待确认。请返回 WeekGlass 查看订单。')
-            # Readback is deliberately passive; only a real adapter can implement cashier submission.
-            return _page('WeekGlass 订单', message, script=_HANDOFF)
+            # Readback stays passive if the payment adapter is unavailable.
+            if portal:
+                from .auth_styles import AUTH_STYLE
+                return _page('WeekGlass 订单', message, style=AUTH_STYLE, account_label=label,
+                             actions='<a class="action-link" href="/account/orders">返回订单</a>')
+            return _page('WeekGlass 订单', message, script=_HANDOFF, account_label=label)
     if not billing.checkout_available(request.app.state.billing):
         problem(503, 'billing_not_configured')
     config = request.app.state.billing
@@ -231,20 +268,22 @@ def browser(request: Request, checkout_id: UUID):
 @router.post('/checkout/{checkout_id}/handoff', include_in_schema=False)
 async def redeem(request: Request, checkout_id: UUID):
     _browser_origin(request)
-    if request.headers.get('origin') != request_origin(request):
+    if request.headers.getlist('origin') != [request_origin(request)]:
         problem(403, 'invalid_origin')
     config = request.app.state.billing
     if not billing.checkout_available(config):
         problem(503, 'billing_not_configured')
     data = await body(request, 'CheckoutHandoff')
-    return await run_in_threadpool(_redeem, checkout_id, config, data['ticket'])
+    return await run_in_threadpool(_redeem, request, checkout_id, config, data['ticket'])
 
 
-def _redeem(checkout_id, config, ticket):
+def _redeem(request, checkout_id, config, ticket):
     if not _token_pattern.fullmatch(ticket):
         problem(403, 'billing_handoff_invalid')
     with connect() as conn:
         account, order = billing._lock_target(conn, 'billing_orders', 'checkout_id', checkout_id)
+        if _checkout_access(conn, request, checkout_id, order) == 'mismatch':
+            problem(403, 'billing_account_mismatch')
         instant = now()
         if not billing._enabled(conn, account) or not _browser_payable(conn, order, config):
             problem(403, 'billing_handoff_invalid')

@@ -3,10 +3,11 @@ from concurrent.futures import ThreadPoolExecutor
 from copy import deepcopy
 from datetime import timedelta
 import os
+from threading import Event
 from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
-from weekglass_server import auth, db
+from weekglass_server import auth, db, sync
 from weekglass_server.main import app
 from weekglass_server.protocol import SPEC, compact, now, stamp, validate
 from weekglass_server.settings import settings
@@ -117,17 +118,53 @@ def test_old_epoch_and_expired_snapshot_require_resync(client):
 
 def test_entitlement_enforced_but_committed_replay_remains_readable(client, monkeypatch):
     payload = batch(client, [event()])
+    snapshot = client.post('/v1/sync/snapshots').json()
     receipt = checked(client.post('/v1/sync/batches', json=payload), 'Receipt')
     monkeypatch.setattr(settings, 'mode', 'hosted')
     ent = checked(client.get('/v1/me/entitlements'), 'Entitlements')
-    assert ent['sync_read'] and not ent['sync_write']
+    assert ent['status'] == 'not_subscribed' and not ent['sync_read'] and not ent['sync_write']
+    assert not ent['export_allowed']
     assert client.post('/v1/sync/batches', json=payload).json() == receipt
-    assert client.post('/v1/sync/batches', json=batch(client, [event()])).status_code == 403
-    assert client.get('/v1/exports/calendar').status_code == 200
+    assert client.get('/v1/sync/batches/' + payload['batch_id']).json() == receipt
+    token = sync.encode_token({'snapshot': snapshot['snapshot_id'], 'a': client.identity['account_id'], 'after': ''})
+    cursor = snapshot['boundary_cursor']
+    rejected = [client.post('/v1/sync/batches', json=batch(client, [event()])),
+                client.post('/v1/sync/snapshots'),
+                client.get('/v1/sync/snapshots/' + snapshot['snapshot_id'], params={'page_token': token}),
+                client.get('/v1/sync/changes', params={'cursor': cursor}),
+                client.post('/v1/sync/ack', json={'cursor': cursor, 'device_id': client.identity['device_id']}),
+                client.get('/v1/exports/calendar')]
+    for response in rejected:
+        assert checked(response, 'Problem', 403)['code'] == 'subscription_required'
     assert client.post('/v1/billing/checkout-sessions').status_code == 503
     with db.connect() as conn:
         conn.execute('UPDATE accounts SET grant_until=%s WHERE account_id=%s', (now()+timedelta(days=1), client.identity['account_id']))
     assert client.post('/v1/sync/batches', json=batch(client, [event()])).status_code == 200
+    ent = checked(client.get('/v1/me/entitlements'), 'Entitlements')
+    assert ent['status'] == 'active' and ent['sync_read'] and ent['sync_write']
+    assert client.get('/v1/sync/changes', params={'cursor': cursor}).status_code == 200
+
+
+def test_long_poll_stops_when_hosted_grant_expires(client, monkeypatch):
+    monkeypatch.setattr(settings, 'mode', 'hosted')
+    aid = client.identity['account_id']
+    with db.connect() as conn:
+        conn.execute('UPDATE accounts SET grant_until=%s WHERE account_id=%s', (now()+timedelta(days=1), aid))
+    cursor = client.post('/v1/sync/snapshots').json()['boundary_cursor']
+    reading = Event()
+    require = sync.require_sync
+
+    def notify(conn, account):
+        require(conn, account)
+        reading.set()
+
+    monkeypatch.setattr(sync, 'require_sync', notify)
+    with ThreadPoolExecutor() as pool:
+        polling = pool.submit(client.get, '/v1/sync/changes', params={'cursor': cursor, 'wait_seconds': 8})
+        assert reading.wait(timeout=4)
+        with db.connect() as conn:
+            conn.execute('UPDATE accounts SET grant_until=%s WHERE account_id=%s', (now()-timedelta(seconds=1), aid))
+        assert checked(polling.result(timeout=5), 'Problem', 403)['code'] == 'subscription_required'
 
 
 def test_schema_bytes_and_time_semantics_are_checked(client):

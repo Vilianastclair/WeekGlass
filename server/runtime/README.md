@@ -24,14 +24,18 @@ curl -fL https://nodejs.org/dist/v24.22.3/node-v24.22.3-linux-x64.tar.gz \
   -o server/runtime/node-v24.22.3-linux-x64.tar.gz
 DOCKER_BUILDKIT=1 docker build --platform linux/amd64 \
   -f server/runtime/Dockerfile.hosted-waffo \
-  -t weekglass-api:paid-email-auth-20261115 server
+  -t weekglass-api:hosted server
 ```
 
 The Dockerfile checks the Node archive against the pinned release digest and installs the SDK from its lockfile. No configuration, credentials, database data, or build downloads belong in the source checkout's commits.
 
 ### Configure the hosted service
 
-Use the database, persistent server identity, trusted HTTPS proxy, and API container configuration in the [server guide](../README.md). Set `WEEKGLASS_MODE=hosted` for hosted account behavior. Waffo Live additionally requires the official `https://cloud.viliana.cn` origin; setting Waffo variables on an independently hosted instance does not enable official payment intake.
+Use the database, persistent server identity, trusted HTTPS proxy, and API container configuration in the [server guide](../README.md). Set `WEEKGLASS_MODE=hosted` to enable the hosted account console. Route both `/account` and `/account/…` to the API on the same HTTPS origin, as shown in the [WeekGlass edge configuration](../../infra/weekglass/nginx.tls.conf). This console uses browser sessions; the app keeps using the native bearer-token API.
+
+The console provides subscription purchase, orders, device and account security, and calendar export. Hosted upload, download and merge require an active entitlement. After a subscription expires, the export workflow can deliver one calendar file for that end of service; an interrupted download can retry the same export. Self-hosted sync does not depend on an official subscription.
+
+Waffo Live additionally requires the official `https://cloud.viliana.cn` origin. Setting Waffo variables on an independently hosted instance does not enable official payment intake.
 
 The [Waffo overlay](../../infra/weekglass/compose.waffo-live.json) expects a base Compose file with an `api` service on a private network named `service`. It adds API egress for Waffo and SMTP without publishing another port. Keep deployment settings and secrets outside the source checkout. In the deployment directory:
 
@@ -61,7 +65,7 @@ The SMTP check uses TLS and authenticates without sending a message. Before enab
 Use a disposable PostgreSQL database for server integration tests. Set `DB_NAME` to a name ending in `_test`, configure `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD_FILE`, and provide a test server UUID and signing key file as in the server guide. Leave `DATABASE_URL` unset. Install `requirements-test.txt`, then run from `server/runtime`:
 
 ```sh
-python -m pytest tests/test_email_delivery.py tests/test_email_identity.py tests/test_waffo_runtime.py
+python -m pytest tests/test_console.py tests/test_email_delivery.py tests/test_email_identity.py tests/test_waffo_runtime.py
 ```
 
-The browser fixture tests also require Playwright and Chromium. From a disposable test workspace with Playwright resolvable by Node, run `node --test tests/auth_email_browser.test.cjs tests/checkout_email_browser.test.cjs` from `server/runtime`. The fixtures render local pages and do not send mail or contact Waffo. From `apps/client`, run `flutter test test/cloud_account_test.dart test/cloud_billing_test.dart test/cloud_settings_test.dart` for the account panels and payment handoff.
+The browser fixture tests also require Playwright and Chromium. From a disposable test workspace with Playwright resolvable by Node, run `node --test tests/auth_email_browser.test.cjs tests/checkout_email_browser.test.cjs` from `server/runtime`. The fixtures render local pages and do not send mail or contact Waffo. From `apps/client`, run `flutter test test/cloud_account_test.dart test/cloud_auth_test.dart test/cloud_settings_test.dart` for the account panels and payment handoff.
