@@ -1,0 +1,31 @@
+{
+  "flutter": {
+    "version": "3.47.9",
+    "channel": "stable",
+    "dart": "3.13.7",
+    "archive": "https://storage.googleapis.com/flutter_infra_release/releases/stable/windows/flutter_windows_3.47.9-stable.zip",
+    "mirror": "https://storage.flutter-io.cn/flutter_infra_release/releases/stable/windows/flutter_windows_3.47.9-stable.zip",
+    "sha256": "d8e2b5977e09082c6440f89dc1aa887b94c8fbcc3b39222797046295a3f68a9e"
+  },
+  "java": {
+    "vendor": "Microsoft Build of OpenJDK",
+    "major": 17,
+    "version": "17.0.21.0.2",
+    "archive": "https://aka.ms/download-jdk/microsoft-jdk-17-windows-x64.zip",
+    "sha256": "49154292866386b2f4f09a3ecf3be07ab80a419149c84ec1d4419b9eec9e4b64"
+  },
+  "android": {
+    "commandLineTools": "15859902",
+    "archive": "https://dl.google.com/android/repository/commandlinetools-win-15859902_latest.zip",
+    "sha256": "90ae805d20434428bffcb699c290860f19bb5f66a67e6b330067e3de801fb04a",
+    "platform": "android-36",
+    "buildTools": "36.0.0"
+  },
+  "visualStudio": {
+    "edition": "Community",
+    "version": "18.11.3",
+    "workload": "Microsoft.VisualStudio.Workload.NativeDesktop",
+    "installPath": "C:\\WeekGlassToolchain\\visual-studio-community"
+  },
+  "toolchainRoot": "C:\\WeekGlassToolchain"
+}
