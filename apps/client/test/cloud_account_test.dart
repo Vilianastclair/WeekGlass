@@ -33,12 +33,13 @@ void main() {
         final auth = CloudAuthService(
           vault: vault,
           transport: (uri, method, body, headers, form) async {
-            if (uri.path == '/v1/me/entitlements')
+            if (uri.path == '/v1/me/entitlements') {
               return {
                 'status': 'self_hosted',
                 'sync_read': true,
                 'sync_write': true,
               };
+            }
             if (uri.path == '/v1/devices') {
               return {'devices': <Map<String, dynamic>>[]};
             }
