@@ -69,3 +69,11 @@ python -m pytest tests/test_console.py tests/test_email_delivery.py tests/test_e
 ```
 
 The browser fixture tests also require Playwright and Chromium. From a disposable test workspace with Playwright resolvable by Node, run `node --test tests/auth_email_browser.test.cjs tests/checkout_email_browser.test.cjs` from `server/runtime`. The fixtures render local pages and do not send mail or contact Waffo. From `apps/client`, run `flutter test test/cloud_account_test.dart test/cloud_auth_test.dart test/cloud_settings_test.dart` for the account panels and payment handoff.
+
+### Check a deployed test instance
+
+The HTTPS smoke tools are for instances you operate. From `server/runtime`, install the test dependencies plus `cryptography` (pinned in [update tools requirements](../update_tools/requirements.txt)).
+
+- `python smoke_account_http.py --help` covers the synthetic registration and account lifecycle checks. An authorized SSH alias also enables a disposable sync entitlement and cleanup.
+- `python smoke_csrf_http.py --help` checks isolation across two HTTPS ports on the same host. It requires an authorized SSH alias for synthetic account cleanup. Run it separately from the lifecycle check so both stay within server rate limits.
+- `python smoke_http.py --help` checks update metadata and sync for a dedicated synthetic account. Pass the build number you intend to test and keep its credential files outside the checkout.
