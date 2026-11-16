@@ -4,6 +4,7 @@ import android.content.ClipData
 import android.content.Intent
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.content.pm.Signature
 import android.net.Uri
 import android.os.Build
 import android.provider.Settings
@@ -127,7 +128,9 @@ class MainActivity : FlutterActivity() {
         }
         requireApk(hex(digest.digest()) == expectedHash, "file_content")
         val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            PackageManager.GET_SIGNING_CERTIFICATES
+            // Some Android releases only verify an archive's certificates when the
+            // legacy flag is set; the modern flag then exposes the verified lineage.
+            PackageManager.GET_SIGNING_CERTIFICATES or PackageManager.GET_SIGNATURES
         } else {
             PackageManager.GET_SIGNATURES
         }
@@ -140,11 +143,20 @@ class MainActivity : FlutterActivity() {
                 incoming.versionName == expectedVersion,
             "package_version",
         )
-        val installedSigners = signingCertificates(installed)
-        val incomingSigners = signingCertificates(incoming)
+        val installedSigners = currentSigningCertificates(installed)
+        val incomingSigners = currentSigningCertificates(incoming)
         requireApk(installedSigners.isNotEmpty(), "installed_signer_unavailable")
         requireApk(incomingSigners.isNotEmpty(), "archive_signer_unavailable")
-        requireApk(incomingSigners == installedSigners, "signer_mismatch")
+        // PackageManager has already verified the archive's signature, including its
+        // proof of rotation. Only consult that history when the effective signer changes.
+        val incomingHistory = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P &&
+            installedSigners != incomingSigners) {
+            incoming.signingInfo?.signingCertificateHistory?.map(::certificateSha256).orEmpty()
+        } else emptyList()
+        requireApk(
+            ApkSignerPolicy.accepts(Build.VERSION.SDK_INT, installedSigners, incomingSigners, incomingHistory),
+            "signer_mismatch",
+        )
         ZipFile(apk).use { zip ->
             requireApk(
                 zip.getEntry("lib/arm64-v8a/libapp.so") != null &&
@@ -161,18 +173,17 @@ class MainActivity : FlutterActivity() {
         else info.versionCode.toLong()
 
     @Suppress("DEPRECATION")
-    private fun signingCertificates(info: PackageInfo): Set<String> {
+    private fun currentSigningCertificates(info: PackageInfo): Set<String> {
         val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            val infoSigners = info.signingInfo
-            if (infoSigners?.hasMultipleSigners() == true) infoSigners.apkContentsSigners
-            else infoSigners?.signingCertificateHistory?.takeLast(1)?.toTypedArray()
+            info.signingInfo?.apkContentsSigners
         } else {
             info.signatures
         }
-        return signatures?.map {
-            hex(MessageDigest.getInstance("SHA-256").digest(it.toByteArray()))
-        }?.toSet() ?: emptySet()
+        return signatures?.map(::certificateSha256)?.toSet().orEmpty()
     }
+
+    private fun certificateSha256(signature: Signature): String =
+        hex(MessageDigest.getInstance("SHA-256").digest(signature.toByteArray()))
 
     private fun hex(bytes: ByteArray): String =
         bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }

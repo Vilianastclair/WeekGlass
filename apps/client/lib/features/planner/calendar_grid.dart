@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 import 'package:weekglass_domain/weekglass_domain.dart';
 
+import '../mobile/mobile_time_zoom.dart';
 import 'event_editor_dialog.dart';
 import 'event_details_dialog.dart';
 import 'planner_controller.dart';
@@ -132,10 +133,10 @@ class CalendarGrid extends StatefulWidget {
   final ValueChanged<bool>? onInteractionChanged;
 
   @override
-  State<CalendarGrid> createState() => _CalendarGridState();
+  CalendarGridState createState() => CalendarGridState();
 }
 
-class _CalendarGridState extends State<CalendarGrid>
+class CalendarGridState extends State<CalendarGrid>
     with SingleTickerProviderStateMixin {
   late final AnimationController _dropClock;
   static const double _timeRailWidth = 44;
@@ -151,9 +152,20 @@ class _CalendarGridState extends State<CalendarGrid>
 
   final ScrollController _headerHorizontalController = ScrollController();
   final ScrollController _gridHorizontalController = ScrollController();
-  late final ScrollController _timeController;
-  late final ScrollController _gridController;
+  late final _CalendarTimeScrollController _timeController;
+  late final _CalendarTimeScrollController _gridController;
   final GlobalKey _gridContentKey = GlobalKey();
+  late MobileTimeZoom _mobileTimeScale;
+  double _gridHeight = 0;
+  double? _previewTimeZoom;
+  ({double zoom, double offset})? _timePinchStart;
+  double get _timeZoom => _previewTimeZoom ?? widget.controller.mobileTimeZoom;
+  bool get _pinching => _timePinchStart != null;
+  double get _verticalOffset =>
+      _gridController.zoomOffset ??
+      (_gridController.hasClients
+          ? _gridController.offset
+          : widget.initialVerticalOffset);
 
   bool _syncingVertical = false;
   bool _syncingHorizontal = false;
@@ -200,10 +212,10 @@ class _CalendarGridState extends State<CalendarGrid>
   @override
   void initState() {
     super.initState();
-    _timeController = ScrollController(
+    _timeController = _CalendarTimeScrollController(
       initialScrollOffset: widget.initialVerticalOffset,
     );
-    _gridController = ScrollController(
+    _gridController = _CalendarTimeScrollController(
       initialScrollOffset: widget.initialVerticalOffset,
     );
     _dropClock = AnimationController(
@@ -262,10 +274,9 @@ class _CalendarGridState extends State<CalendarGrid>
     final horizontal = _gridHorizontalController.hasClients
         ? _gridHorizontalController.offset
         : 0.0;
-    final vertical = _gridController.hasClients
-        ? _gridController.offset
-        : widget.initialVerticalOffset;
-    final next = (Offset(horizontal, vertical) & _viewportSize).inflate(56);
+    final next = (Offset(horizontal, _verticalOffset) & _viewportSize).inflate(
+      56,
+    );
     if (_viewport.value != next) _viewport.value = next;
   }
 
@@ -299,6 +310,98 @@ class _CalendarGridState extends State<CalendarGrid>
   WeekGlassPalette _palette(BuildContext context) =>
       WeekGlassPalette.of(context);
 
+  void _reportInteraction() => widget.onInteractionChanged?.call(
+    _pinching || _dragOriginal != null || _selectionDate != null,
+  );
+
+  /// Called by the phone pager, including when its live grid is mid-swipe.
+  void beginTimePinch() {
+    // Stop a one-finger drag or momentum before asking the time axis to move.
+    // A second touch can enter after another recognizer has won the arena.
+    for (final controller in [
+      _gridController,
+      _timeController,
+      _gridHorizontalController,
+      _headerHorizontalController,
+    ]) {
+      if (controller.hasClients) controller.jumpTo(controller.offset);
+    }
+    setState(() {
+      _timePinchStart = (zoom: _timeZoom, offset: _verticalOffset);
+      _clearSelection();
+      if (!_settling) _clearGesture();
+    });
+    _reportInteraction();
+  }
+
+  void updateTimePinch(double ratio, double previousY, double currentY) {
+    final scale = _mobileTimeScale;
+    if (scale.viewportHeight <= 0) return;
+    final box = context.findRenderObject()! as RenderBox;
+    double focal(double y) =>
+        (box.globalToLocal(Offset(0, y)).dy - _headerHeight).clamp(
+          0.0,
+          scale.viewportHeight,
+        );
+
+    final height = scale.heightAt(_timeZoom);
+    final nextHeight = (height * ratio).clamp(
+      scale.viewportHeight,
+      scale.maximumHeight,
+    );
+    // Use the last clamped position as the next anchor, so fingers can reverse
+    // direction immediately at either zoom limit or either scroll edge.
+    final minuteFraction = (_verticalOffset + focal(previousY)) / height;
+    final offset = (minuteFraction * nextHeight - focal(currentY)).clamp(
+      0.0,
+      nextHeight - scale.viewportHeight,
+    );
+    if (nextHeight != height || offset != _verticalOffset) {
+      _previewTimePinch(
+        height == nextHeight ? _timeZoom : scale.zoomAt(nextHeight),
+        offset,
+      );
+    }
+  }
+
+  void _previewTimePinch(double zoom, double offset) {
+    final nextHeight = _mobileTimeScale.heightAt(zoom);
+    setState(() => _previewTimeZoom = zoom);
+    if (nextHeight != _gridHeight) {
+      // Apply after the new scroll extents are known, but before paint. The
+      // time labels and cards must move together in the same zoom frame.
+      _gridController.zoomOffset = _timeController.zoomOffset = offset;
+    } else {
+      _gridController.zoomOffset = _timeController.zoomOffset = null;
+      _gridController.jumpTo(offset);
+    }
+    widget.onVerticalOffsetChanged?.call(offset);
+  }
+
+  Future<void> endTimePinch(bool cancelled) async {
+    final start = _timePinchStart!;
+    final zoom = _previewTimeZoom;
+    if (cancelled && zoom != null) _previewTimePinch(start.zoom, start.offset);
+    setState(() {
+      _timePinchStart = null;
+      _previewTimeZoom = null;
+    });
+    _reportInteraction();
+    if (cancelled || zoom == null) return;
+    try {
+      await widget.controller.saveMobileTimeZoom(zoom);
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('缩放未保存，下次打开时会恢复到上次的比例。'),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final palette = _palette(context);
@@ -317,15 +420,16 @@ class _CalendarGridState extends State<CalendarGrid>
           40,
           MediaQuery.textScalerOf(context).scale(40),
         );
-        final gridHeight = math.max(
-          widget.touchMode ? ((_endMinute - _startMinute) / 60) * 56 : 24.0,
-          constraints.maxHeight - _headerHeight,
-        );
-        _hourHeight = gridHeight / ((_endMinute - _startMinute) / 60);
         _viewportSize = Size(
           math.max(0, constraints.maxWidth - _timeRailWidth),
           math.max(0, constraints.maxHeight - _headerHeight),
         );
+        final visibleMinutes = _endMinute - _startMinute;
+        _mobileTimeScale = MobileTimeZoom(_viewportSize.height, visibleMinutes);
+        final gridHeight = _gridHeight = widget.touchMode
+            ? _mobileTimeScale.heightAt(_timeZoom)
+            : math.max(24.0, _viewportSize.height);
+        _hourHeight = gridHeight / (visibleMinutes / 60);
         _updateViewport();
         final days = {for (final day in _visibleDays) day: _dayLayout(day)};
 
@@ -456,6 +560,11 @@ class _CalendarGridState extends State<CalendarGrid>
     Map<DateTime, CalendarDayLayout> days,
   ) {
     final today = dateOnly(DateTime.now());
+    final titleHeight = MediaQuery.textScalerOf(context).scale(12.5) * 1.15;
+    final compactThreshold =
+        widget.touchMode && _timeZoom < MobileTimeZoom.normal
+        ? math.max(24.0, titleHeight + 8)
+        : titleHeight + 1;
     return SizedBox(
       height: _headerHeight,
       child: Row(
@@ -491,11 +600,7 @@ class _CalendarGridState extends State<CalendarGrid>
                     final compactEvents =
                         days[date]!.events
                             .where(
-                              (e) =>
-                                  days[date]!.band(e).$2 <
-                                  MediaQuery.textScalerOf(context).scale(12.5) *
-                                          1.15 +
-                                      1,
+                              (e) => days[date]!.band(e).$2 < compactThreshold,
                             )
                             .toList()
                           ..sort(
@@ -607,6 +712,22 @@ class _CalendarGridState extends State<CalendarGrid>
         minute,
       _endMinute,
     ];
+    final labelHeight = MediaQuery.textScalerOf(context).scale(16);
+    final firstTop = math.min(
+      _topInset,
+      math.max(0.0, gridHeight - labelHeight),
+    );
+    final lastTop = math.max(firstTop, gridHeight - labelHeight - _bottomInset);
+    final compressed = widget.touchMode && _timeZoom < MobileTimeZoom.normal;
+    final spacing = math.max(22.0, labelHeight + 4);
+    final labelInterval = compressed
+        ? const [1, 2, 3, 4, 6, 8, 12, 24].firstWhere(
+                (hours) => _hourHeight * hours >= spacing,
+                orElse: () => 24,
+              ) *
+              60
+        : 60;
+    var previousTop = double.negativeInfinity;
     return Container(
       decoration: BoxDecoration(
         border: Border(
@@ -627,20 +748,23 @@ class _CalendarGridState extends State<CalendarGrid>
             height: gridHeight,
             child: Stack(
               children: marks.map((minute) {
-                if (_hourHeight < 22 &&
-                    minute != _startMinute &&
-                    minute != _endMinute &&
-                    (minute ~/ 60).isOdd) {
-                  return const SizedBox.shrink();
-                }
-                final labelHeight = MediaQuery.textScalerOf(context).scale(16);
                 final top =
                     ((minute - _startMinute) / 60 * _hourHeight -
                             labelHeight / 2)
-                        .clamp(
-                          _topInset,
-                          gridHeight - labelHeight - _bottomInset,
-                        );
+                        .clamp(firstTop, lastTop);
+                if (minute != _startMinute && minute != _endMinute) {
+                  final skip = compressed
+                      ? minute % labelInterval != 0 ||
+                            top - previousTop < spacing ||
+                            lastTop - top < spacing
+                      : _hourHeight < 22 && (minute ~/ 60).isOdd;
+                  if (skip) return const SizedBox.shrink();
+                } else if (compressed &&
+                    minute == _endMinute &&
+                    top - previousTop < labelHeight) {
+                  return const SizedBox.shrink();
+                }
+                previousTop = top;
                 return Positioned(
                   top: top,
                   right: 9,
@@ -684,13 +808,8 @@ class _CalendarGridState extends State<CalendarGrid>
       child: Listener(
         onPointerCancel: (_) {
           if (_selectionDate == null) return;
-          widget.onInteractionChanged?.call(false);
-          setState(() {
-            _selectionDate = null;
-            _selectionStart = null;
-            _selectionEnd = null;
-            _selectionRawEnd = null;
-          });
+          setState(_clearSelection);
+          _reportInteraction();
         },
         child: Semantics(
           container: widget.touchMode,
@@ -712,12 +831,7 @@ class _CalendarGridState extends State<CalendarGrid>
             onPanEnd: widget.touchMode ? null : (_) => _finishSelection(),
             onPanCancel: widget.touchMode
                 ? null
-                : () => setState(() {
-                    _selectionDate = null;
-                    _selectionStart = null;
-                    _selectionEnd = null;
-                    _selectionRawEnd = null;
-                  }),
+                : () => setState(_clearSelection),
             onLongPressStart: widget.touchMode
                 ? (details) => _beginSelection(date, details.localPosition.dy)
                 : null,
@@ -788,6 +902,7 @@ class _CalendarGridState extends State<CalendarGrid>
     DateTime date,
     List<CalendarEvent> events,
   ) async {
+    if (_pinching) return;
     final selected = await showDialog<CalendarEvent>(
       context: context,
       builder: (context) => GlassAlertDialog(
@@ -833,17 +948,22 @@ class _CalendarGridState extends State<CalendarGrid>
     }
   }
 
-  CalendarDayLayout _dayLayout(DateTime day) => CalendarDayLayout(
-    day: day,
-    events: widget.controller.timedEventsInWindow(day),
-    startMinute: _startMinute,
-    endMinute: _endMinute,
-    scale: _hourHeight / 60,
-    minimumHeight: math.max(
+  CalendarDayLayout _dayLayout(DateTime day) {
+    final comfortableHeight = math.max(
       18.0,
       MediaQuery.textScalerOf(context).scale(12.5) * 1.15 + 3,
-    ),
-  );
+    );
+    return CalendarDayLayout(
+      day: day,
+      events: widget.controller.timedEventsInWindow(day),
+      startMinute: _startMinute,
+      endMinute: _endMinute,
+      scale: _hourHeight / 60,
+      minimumHeight: widget.touchMode && _timeZoom < MobileTimeZoom.normal
+          ? lerpDouble(2, comfortableHeight, _timeZoom)!
+          : comfortableHeight,
+    );
+  }
 
   Widget _buildResizePreview({
     required DateTime date,
@@ -993,6 +1113,7 @@ class _CalendarGridState extends State<CalendarGrid>
               preview: preview,
               selected: selected,
               onTap: () {
+                if (_pinching) return;
                 setState(() => _selectedEventId = event.id);
                 openEventDetails(
                   context,
@@ -1274,8 +1395,7 @@ class _CalendarGridState extends State<CalendarGrid>
   }
 
   void _beginSelection(DateTime date, double y) {
-    if (_settling) return;
-    widget.onInteractionChanged?.call(true);
+    if (_settling || _pinching) return;
     final start = _minuteFromY(y);
     if (widget.touchMode) HapticFeedback.lightImpact();
     _lastHapticTime = _dateAtMinute(date, start + 15);
@@ -1286,6 +1406,7 @@ class _CalendarGridState extends State<CalendarGrid>
       _selectionEnd = math.min(_endMinute, start + 15);
       _selectionRawEnd = _selectionEnd!.toDouble();
     });
+    _reportInteraction();
   }
 
   void _updateSelection(double y) {
@@ -1301,13 +1422,13 @@ class _CalendarGridState extends State<CalendarGrid>
   }
 
   void _finishSelection() {
-    if (_selectionDate == null ||
+    if (_pinching ||
+        _selectionDate == null ||
         _selectionStart == null ||
         _selectionEnd == null) {
       return;
     }
     final date = _selectionDate!;
-    widget.onInteractionChanged?.call(false);
     final startMinute = math.min(_selectionStart!, _selectionEnd!);
     final endMinute = math.max(_selectionStart!, _selectionEnd!);
     final start = _dateAtMinute(date, startMinute);
@@ -1315,12 +1436,8 @@ class _CalendarGridState extends State<CalendarGrid>
       date,
       endMinute <= startMinute ? startMinute + 15 : endMinute,
     );
-    setState(() {
-      _selectionDate = null;
-      _selectionStart = null;
-      _selectionEnd = null;
-      _selectionRawEnd = null;
-    });
+    setState(_clearSelection);
+    _reportInteraction();
     if (end.isAfter(start)) {
       openEventEditor(
         context,
@@ -1330,6 +1447,13 @@ class _CalendarGridState extends State<CalendarGrid>
         end: end,
       );
     }
+  }
+
+  void _clearSelection() {
+    _selectionDate = null;
+    _selectionStart = null;
+    _selectionEnd = null;
+    _selectionRawEnd = null;
   }
 
   int _snapQuarter(num value, {required num minimum, required num maximum}) {
@@ -1393,12 +1517,11 @@ class _CalendarGridState extends State<CalendarGrid>
     int visibleIndex,
     Offset globalPosition,
   ) {
-    if (_settling) return;
+    if (_settling || _pinching) return;
     final box =
         _gridContentKey.currentContext?.findRenderObject() as RenderBox?;
     if (box == null) return;
     final local = box.globalToLocal(globalPosition);
-    widget.onInteractionChanged?.call(true);
     if (widget.touchMode) HapticFeedback.lightImpact();
     _lastHapticTime = event.startLocal;
     _lastHapticFrame = SchedulerBinding.instance.currentSystemFrameTimeStamp;
@@ -1420,6 +1543,7 @@ class _CalendarGridState extends State<CalendarGrid>
       _dragStartVisibleIndex = visibleIndex;
       _selectedEventId = event.id;
     });
+    _reportInteraction();
   }
 
   void _updateEventMove(Offset globalPosition) {
@@ -1504,7 +1628,6 @@ class _CalendarGridState extends State<CalendarGrid>
   }
 
   void _clearGesture() {
-    widget.onInteractionChanged?.call(false);
     _dragOriginal = null;
     _dragPreview = null;
     _dragLanding = null;
@@ -1517,10 +1640,11 @@ class _CalendarGridState extends State<CalendarGrid>
   }
 
   Future<void> _cancelGesture() async {
-    if (_settling) return;
+    if (_settling || _pinching) return;
     final original = _dragOriginal;
     if (!widget.touchMode || original == null || _reduceMotion) {
       setState(_clearGesture);
+      _reportInteraction();
       return;
     }
     // System cancellation must not silently persist the nearest quarter hour.
@@ -1533,13 +1657,16 @@ class _CalendarGridState extends State<CalendarGrid>
       _dragVisualLeft = _dragOriginLeft;
     });
     await _dropClock.forward(from: 0);
-    if (mounted) setState(_clearGesture);
+    if (mounted) {
+      setState(_clearGesture);
+      _reportInteraction();
+    }
   }
 
   Future<void> _finishEventMove() async {
     final original = _dragOriginal;
     final landing = _dragLanding;
-    if (original == null || landing == null || _settling) return;
+    if (original == null || landing == null || _settling || _pinching) return;
     final geometry = _landingGeometry();
     setState(() {
       _settling = true;
@@ -1555,6 +1682,7 @@ class _CalendarGridState extends State<CalendarGrid>
     ]);
     if (!mounted) return;
     setState(_clearGesture);
+    _reportInteraction();
   }
 
   void _beginResize(
@@ -1626,6 +1754,47 @@ class _CalendarGridState extends State<CalendarGrid>
   String _formatTime(int minute) => minute == 1440
       ? '24:00'
       : '${((minute ~/ 60) % 24).toString().padLeft(2, '0')}:${(minute % 60).toString().padLeft(2, '0')}';
+}
+
+class _CalendarTimeScrollController extends ScrollController {
+  _CalendarTimeScrollController({required super.initialScrollOffset});
+
+  double? zoomOffset;
+
+  @override
+  ScrollPosition createScrollPosition(
+    ScrollPhysics physics,
+    ScrollContext context,
+    ScrollPosition? oldPosition,
+  ) => _CalendarTimeScrollPosition(
+    physics: physics,
+    context: context,
+    initialPixels: initialScrollOffset,
+    oldPosition: oldPosition,
+    controller: this,
+  );
+}
+
+class _CalendarTimeScrollPosition extends ScrollPositionWithSingleContext {
+  _CalendarTimeScrollPosition({
+    required super.physics,
+    required super.context,
+    required super.initialPixels,
+    required super.oldPosition,
+    required this.controller,
+  });
+
+  final _CalendarTimeScrollController controller;
+
+  @override
+  bool applyContentDimensions(double minScrollExtent, double maxScrollExtent) {
+    final offset = controller.zoomOffset;
+    if (offset != null) {
+      controller.zoomOffset = null;
+      correctPixels(offset.clamp(minScrollExtent, maxScrollExtent));
+    }
+    return super.applyContentDimensions(minScrollExtent, maxScrollExtent);
+  }
 }
 
 class _ViewportEvent extends StatefulWidget {

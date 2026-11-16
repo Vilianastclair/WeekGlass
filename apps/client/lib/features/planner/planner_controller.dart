@@ -11,6 +11,7 @@ import 'package:weekglass_design_system/weekglass_design_system.dart';
 import '../course_import/teaching_term.dart';
 import '../course_import/school_adapter.dart';
 import '../course_import/whu_timetable.dart';
+import '../mobile/mobile_time_zoom.dart';
 import 'batch_edit_field.dart';
 import 'sidebar_action.dart';
 import '../cloud/cloud_connection.dart';
@@ -64,6 +65,25 @@ class PlannerController extends ChangeNotifier {
   }
 
   final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
+  static const _mobileTimeZoomKey = 'mobile_time_zoom';
+  double _mobileTimeZoom = MobileTimeZoom.normal;
+  Future<void> _mobileTimeZoomWrite = Future<void>.value();
+  double get mobileTimeZoom => _mobileTimeZoom;
+
+  Future<void> saveMobileTimeZoom(double value) async {
+    final zoom = MobileTimeZoom.normalize(value);
+    if (zoom == _mobileTimeZoom) return;
+    _mobileTimeZoom = zoom;
+    final write = _mobileTimeZoomWrite.then(
+      (_) => _preferences.setDouble(_mobileTimeZoomKey, zoom),
+    );
+    // Preserve the order of successive gestures even on slow storage;
+    // the current caller still receives the error from its own write.
+    _mobileTimeZoomWrite = write.catchError((Object _) {});
+    notifyListeners();
+    await write;
+  }
+
   final List<List<_UndoEntry>> _undoStack = [];
   bool _writing = false;
   bool _whuConnected = false;
@@ -256,6 +276,13 @@ class PlannerController extends ChangeNotifier {
     } catch (_) {
       // A malformed local appearance preference never blocks the calendar.
       _skin = WeekGlassSkin.moonstone;
+    }
+    try {
+      _mobileTimeZoom = MobileTimeZoom.normalize(
+        await _preferences.getDouble(_mobileTimeZoomKey),
+      );
+    } catch (_) {
+      _mobileTimeZoom = MobileTimeZoom.normal;
     }
     final savedView = await _preferences.getString('planner_view');
     _view = switch (savedView) {

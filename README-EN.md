@@ -11,6 +11,7 @@ WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointmen
 ## Plan your week
 
 - **Make time by dragging on the calendar.** Open an event to see its notes. Create and edit recurring events as a group.
+- **Pinch the time axis on your phone.** Pinch inward to fit the day or spread vertically for detail. Your display scale is remembered on this device.
 - **Bring in an existing schedule.** Import a Wuhan University timetable or an ICS, CSV, or JSON file. Export a color or black-and-white PDF to print.
 - **Keep your calendar on your device.** To sync across devices, choose the paid WeekGlass Cloud service or [use your own server for free](server/README.md).
 
