@@ -63,6 +63,8 @@ class UpdateSettingsTile extends StatelessWidget {
                       );
                       if (accepted == true) await service.install();
                     }
+                  : service.canRetryAcceptedUpdate
+                  ? service.retryAcceptedUpdate
                   : service.available != null
                   ? service.download
                   : service.check,
@@ -81,6 +83,8 @@ class UpdateSettingsTile extends StatelessWidget {
                                 ? '允许安装更新'
                                 : '打开安装器'
                           : '重启更新'
+                    : service.canRetryAcceptedUpdate
+                    ? '重试更新'
                     : service.available != null
                     ? '下载更新'
                     : '检查更新',

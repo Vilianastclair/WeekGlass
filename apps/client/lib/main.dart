@@ -12,10 +12,12 @@ import 'app/event_reminders.dart';
 import 'features/planner/planner_controller.dart';
 import 'features/planner/planner_screen.dart';
 import 'features/mobile/mobile_planner_screen.dart';
+import 'features/updates/startup_update_prompt.dart';
 import 'features/updates/update_service.dart';
 
 Future<void> main(List<String> args) async {
   UpdateService.launchArguments = args;
+  final updater = UpdateService.instance;
   WidgetsFlutterBinding.ensureInitialized();
   await initializeDateFormatting('zh_CN');
   await LiquidGlass.load();
@@ -45,36 +47,43 @@ Future<void> main(List<String> args) async {
   );
   await controller.initialize();
   services.cloud.refreshPlanner = controller.reloadAfterSync;
-  UpdateService.instance.beforeInstall = () async {
+  updater.beforeInstall = () async {
     await controller.waitForPendingWrites();
     await services.cloud.quiesce();
     await controller.waitForPendingWrites();
     await services.eventRepository.close();
   };
-  UpdateService.instance.afterInstallFailure = services.cloud.resume;
-  UpdateService.instance.beforeAndroidInstall = controller.waitForPendingWrites;
+  updater.afterInstallFailure = services.cloud.resume;
+  updater.beforeAndroidInstall = controller.waitForPendingWrites;
   if (Platform.isWindows) {
     await WindowsReminders(controller).start();
   }
 
-  runApp(WeekGlassApp(controller: controller));
+  runApp(WeekGlassApp(controller: controller, updater: updater));
   WidgetsBinding.instance.addPostFrameCallback((_) {
     unawaited(UpdateService.completePendingUpdateBoot());
-    unawaited(UpdateService.instance.restoreAndroidDownload());
     unawaited(services.cloud.initialize());
+    // The local services and first planner frame are ready. Update metadata and
+    // cloud recovery both run in the background.
+    unawaited(updater.checkOnStartup());
   });
 }
 
 class WeekGlassApp extends StatelessWidget {
-  const WeekGlassApp({super.key, required this.controller});
+  const WeekGlassApp({super.key, required this.controller, this.updater});
 
   final PlannerController controller;
+  final UpdateService? updater;
 
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
+        final planner = Platform.isAndroid
+            ? MobilePlannerScreen(controller: controller)
+            : PlannerScreen(controller: controller);
+        final service = updater;
         return MaterialApp(
           title: "Viliana's WeekGlass",
           debugShowCheckedModeBanner: false,
@@ -102,9 +111,9 @@ class WeekGlassApp extends StatelessWidget {
               : const Duration(milliseconds: 240),
           themeAnimationCurve: Curves.easeOutCubic,
           themeMode: controller.themeMode,
-          home: Platform.isAndroid
-              ? MobilePlannerScreen(controller: controller)
-              : PlannerScreen(controller: controller),
+          home: service != null && service.supportsUpdates
+              ? StartupUpdatePrompt(service: service, child: planner)
+              : planner,
         );
       },
     );

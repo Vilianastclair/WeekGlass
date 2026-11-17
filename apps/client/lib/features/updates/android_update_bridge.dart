@@ -111,7 +111,7 @@ class AndroidUpdateBridge {
     );
   }
 
-  /// Observe the existing OS job; only an explicit user action can start one.
+  /// Observe the exact OS job, or start it for an explicitly accepted update.
   Future<void> downloadObject({
     required String sha256,
     required int size,
