@@ -10,8 +10,10 @@ import 'package:intl/date_symbol_data_local.dart';
 import 'package:path/path.dart' as p;
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
+import 'package:weekglass/app/event_reminders.dart';
 import 'package:weekglass/features/planner/event_editor_dialog.dart';
 import 'package:weekglass/features/planner/planner_controller.dart';
+import 'package:weekglass/features/planner/planner_settings_dialog.dart';
 import 'package:weekglass/features/updates/startup_update_prompt.dart';
 import 'package:weekglass/features/updates/update_service.dart';
 import 'package:weekglass/features/updates/update_settings_tile.dart';
@@ -76,6 +78,7 @@ void main() {
   Future<void> pumpApp(
     WidgetTester tester, {
     bool reducedMotion = false,
+    TargetPlatform? platform,
   }) async {
     tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
     await tester.pumpWidget(
@@ -83,7 +86,7 @@ void main() {
         locale: const Locale('zh', 'CN'),
         supportedLocales: const [Locale('zh', 'CN')],
         localizationsDelegates: GlobalMaterialLocalizations.delegates,
-        theme: WeekGlassTheme.light(),
+        theme: WeekGlassTheme.light().copyWith(platform: platform),
         builder: (context, child) => MediaQuery(
           data: MediaQuery.of(context)
               .copyWith(disableAnimations: reducedMotion),
@@ -116,6 +119,16 @@ void main() {
                         ),
                       ),
                       child: const Text('设置'),
+                    ),
+                  ),
+                  Builder(
+                    builder: (context) => TextButton(
+                      onPressed: () => openPlannerSettings(
+                        context,
+                        controller,
+                        updateService: service,
+                      ),
+                      child: const Text('完整设置'),
                     ),
                   ),
                 ],
@@ -277,6 +290,131 @@ void main() {
     expect(skip.hitTestable(), findsOneWidget);
     await tester.pumpWidget(const SizedBox.shrink());
   });
+
+  testWidgets(
+    'explicit Windows open handles a newer build but focus alone does not',
+    (tester) async {
+      final newBuild = feed.build;
+      feed.build = UpdateService.currentBuild;
+      feed.version = UpdateService.currentVersion;
+      final reads = <String>[];
+      service = client(
+        metadata: (path, limit, {cache}) {
+          reads.add(path);
+          return feed.metadata(path, limit);
+        },
+      );
+      final reminders = WindowsReminders(
+        controller,
+        onAppOpen: service.checkOnWindowsReopen,
+      );
+      await reminders.start();
+      addTearDown(reminders.dispose);
+      await pumpApp(tester);
+      await checkOnLaunch(tester);
+      expect(service.startupOffer, isNull);
+
+      feed.build = newBuild;
+      feed.version = '0.20.21';
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(reads, [WindowsStartupFeed.channelPath]);
+      expect(title, findsNothing);
+
+      const channel = MethodChannel('weekglass/desktop');
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      Future<void> openFromWindows() async {
+        await tester.runAsync(
+          () => messenger.handlePlatformMessage(
+            channel.name,
+            channel.codec.encodeMethodCall(const MethodCall('openApp')),
+            (_) {},
+          ),
+        );
+        await tester.pumpAndSettle();
+      }
+
+      await openFromWindows();
+      final offer = service.startupOffer;
+      expect(offer?.build, newBuild);
+      expect(title, findsOneWidget);
+      await openFromWindows();
+      expect(service.startupOffer, same(offer));
+      expect(title, findsOneWidget);
+      expect(reads, [
+        WindowsStartupFeed.channelPath,
+        WindowsStartupFeed.channelPath,
+      ]);
+      await tester.pumpWidget(const SizedBox.shrink());
+      reminders.dispose();
+    },
+  );
+
+  testWidgets(
+    'a hidden offer waits for focus and a pointer-free Settings dismissal',
+    (tester) async {
+      service = client();
+      await pumpApp(tester);
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      await checkOnLaunch(tester);
+      expect(service.startupOffer, isNotNull);
+      expect(title, findsNothing);
+
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(title, findsNothing);
+      expect(update.hitTestable(), findsOneWidget);
+      expect(skip.hitTestable(), findsOneWidget);
+      Navigator.of(tester.element(find.byType(UpdateSettingsTile))).pop();
+      await tester.pumpAndSettle();
+      expect(title, findsOneWidget);
+      expect(update.hitTestable(), findsOneWidget);
+      expect(skip.hitTestable(), findsOneWidget);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'Settings offers the same startup choice and installs only after it closes',
+    (tester) async {
+      final reads = <String>[];
+      service = client(
+        metadata: (path, limit, {cache}) {
+          reads.add(path);
+          return feed.metadata(path, limit);
+        },
+      );
+      await pumpApp(tester, platform: TargetPlatform.windows);
+      await tester.tap(find.text('完整设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('软件与通知'));
+      await tester.pumpAndSettle();
+      await checkOnLaunch(tester);
+      expect(title, findsNothing);
+      expect(update.hitTestable(), findsOneWidget);
+      expect(skip.hitTestable(), findsOneWidget);
+      expect(find.text('下载更新'), findsNothing);
+      expect(reads, [WindowsStartupFeed.channelPath]);
+
+      await tester.tap(update);
+      await waitFor(tester, () => service.ready && !service.busy);
+      expect(service.startupOffer, isNull);
+      expect(reads, [WindowsStartupFeed.channelPath, feed.manifestPath]);
+      expect(handoff, isEmpty);
+      expect(find.text('更新已就绪，当前操作完成后自动重启更新'), findsOneWidget);
+      Navigator.of(tester.element(find.byType(UpdateSettingsTile))).pop();
+      await waitFor(tester, () => handoff.contains('launch') && !service.busy);
+      expect(title, findsNothing);
+      expect(handoff, ['save: ', 'launch']);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
 
   testWidgets('Settings resumes the accepted job after a connection failure', (
     tester,

@@ -56,7 +56,10 @@ Future<void> main(List<String> args) async {
   updater.afterInstallFailure = services.cloud.resume;
   updater.beforeAndroidInstall = controller.waitForPendingWrites;
   if (Platform.isWindows) {
-    await WindowsReminders(controller).start();
+    await WindowsReminders(
+      controller,
+      onAppOpen: updater.checkOnWindowsReopen,
+    ).start();
   }
 
   runApp(WeekGlassApp(controller: controller, updater: updater));

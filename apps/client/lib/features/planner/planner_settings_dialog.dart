@@ -16,10 +16,14 @@ import 'skin_picker_dialog.dart';
 
 Future<void> openPlannerSettings(
   BuildContext context,
-  PlannerController controller,
-) => showDialog<void>(
+  PlannerController controller, {
+  UpdateService? updateService,
+}) => showDialog<void>(
   context: context,
-  builder: (_) => _SettingsDialog(controller: controller),
+  builder: (_) => _SettingsDialog(
+    controller: controller,
+    updateService: updateService ?? UpdateService.instance,
+  ),
 );
 
 enum _SettingsPage {
@@ -34,8 +38,12 @@ enum _SettingsPage {
 }
 
 class _SettingsDialog extends StatefulWidget {
-  const _SettingsDialog({required this.controller});
+  const _SettingsDialog({
+    required this.controller,
+    required this.updateService,
+  });
   final PlannerController controller;
+  final UpdateService updateService;
 
   @override
   State<_SettingsDialog> createState() => _SettingsDialogState();
@@ -444,7 +452,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
         Text(status, style: Theme.of(context).textTheme.bodySmall),
       const Divider(height: 24),
     ],
-    UpdateSettingsTile(service: UpdateService.instance, showTitle: _windows),
+    UpdateSettingsTile(service: widget.updateService, showTitle: _windows),
   ];
 
   Future<void> _testNotification() async {

@@ -1,4 +1,5 @@
 // Explicit Flutter capture of the startup prompt with synthetic calendar data.
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -16,6 +17,7 @@ import 'package:shared_preferences_platform_interface/shared_preferences_async_p
 import 'package:weekglass/features/mobile/mobile_planner_screen.dart';
 import 'package:weekglass/features/planner/planner_controller.dart';
 import 'package:weekglass/features/planner/planner_screen.dart';
+import 'package:weekglass/features/planner/planner_settings_dialog.dart';
 import 'package:weekglass/features/updates/android_update_bridge.dart';
 import 'package:weekglass/features/updates/startup_update_prompt.dart';
 import 'package:weekglass/features/updates/update_service.dart';
@@ -25,9 +27,12 @@ import 'package:weekglass_domain/weekglass_domain.dart';
 import 'support/windows_startup_feed.dart';
 import 'whu_import_test.dart' show MemoryImportRepo;
 
+const _captureSettings = bool.fromEnvironment('WG_REOPEN_UPDATE_SETTINGS_QA');
 const _output = String.fromEnvironment(
   'WG_STARTUP_UPDATE_QA_DIR',
-  defaultValue: '../../docs/qa/startup-update-20261117',
+  defaultValue: _captureSettings
+      ? '../../docs/qa/reopen-update-20261117'
+      : '../../docs/qa/startup-update-20261117',
 );
 
 void main() {
@@ -64,7 +69,7 @@ void main() {
       return {
         'sourceApk': 'synthetic.apk',
         'arm64': true,
-        'version': '0.20.18',
+        'version': UpdateService.currentVersion,
         'build': UpdateService.currentBuild,
       };
     });
@@ -82,14 +87,15 @@ void main() {
         1.0,
         false,
       ),
-      (
-        'android',
-        TargetPlatform.android,
-        const Size(390, 844),
-        ThemeMode.light,
-        1.0,
-        false,
-      ),
+      if (!_captureSettings)
+        (
+          'android',
+          TargetPlatform.android,
+          const Size(390, 844),
+          ThemeMode.light,
+          1.0,
+          false,
+        ),
       (
         'android-compact',
         TargetPlatform.android,
@@ -112,7 +118,7 @@ void main() {
       final root = (await tester.runAsync(
         () => Directory.systemTemp.createTemp('weekglass-startup-render-'),
       ))!;
-      final feed = WindowsStartupFeed();
+      final feed = WindowsStartupFeed()..version = '0.20.21';
       final service = mobile
           ? UpdateService.androidForTesting(
               updateRoot: root,
@@ -164,10 +170,12 @@ void main() {
           ),
       ]);
       final key = GlobalKey();
+      final navigator = GlobalKey<NavigatorState>();
       await tester.pumpWidget(
         RepaintBoundary(
           key: key,
           child: MaterialApp(
+            navigatorKey: navigator,
             debugShowCheckedModeBanner: false,
             locale: const Locale('zh', 'CN'),
             supportedLocales: const [Locale('zh', 'CN')],
@@ -202,13 +210,33 @@ void main() {
           tester.element(find.byType(Scaffold).first),
         ),
       );
-      await tester.runAsync(() => service.checkOnStartup());
-      await tester.pump();
-      await tester.pump();
-      for (var i = 0; i < 16; i++) {
-        await tester.pump(const Duration(milliseconds: 20));
+      Future<void> advance() async {
+        await tester.pump();
+        await tester.pump();
+        for (var i = 0; i < 16; i++) {
+          await tester.pump(const Duration(milliseconds: 20));
+        }
       }
-      for (final label in ['发现新版本', '跳过此版本', '立即更新']) {
+
+      if (_captureSettings) {
+        unawaited(
+          openPlannerSettings(
+            navigator.currentContext!,
+            controller,
+            updateService: service,
+          ),
+        );
+        await advance();
+        await tester.tap(find.text(mobile ? '软件更新' : '软件与通知'));
+        await advance();
+      }
+      await tester.runAsync(() => service.checkOnStartup());
+      await advance();
+      for (final label in [
+        _captureSettings ? '发现新版本 ${feed.version}' : '发现新版本',
+        '跳过此版本',
+        '立即更新',
+      ]) {
         final finder = find.text(label);
         expect(finder.hitTestable(), findsOneWidget);
         final rect = tester.getRect(finder);
@@ -222,7 +250,8 @@ void main() {
             key.currentContext!.findRenderObject()! as RenderRepaintBoundary;
         final image = await render.toImage();
         final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
-        final file = File('$_output/$name.png');
+        final suffix = _captureSettings ? '-settings' : '';
+        final file = File('$_output/$name$suffix.png');
         await file.parent.create(recursive: true);
         await file.writeAsBytes(bytes!.buffer.asUint8List());
         image.dispose();

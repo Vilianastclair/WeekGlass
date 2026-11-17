@@ -49,7 +49,7 @@ DesktopIntegration::DesktopIntegration(HWND window, flutter::BinaryMessenger* me
   tray_.guidItem = kTrayGuid;
   tray_.uCallbackMessage = kTrayMessage;
   tray_.hIcon = icon_;
-  CopyText(tray_.szTip, L"WeekGlass \u00b7 \u5468\u8ba1\u5212");
+  CopyText(tray_.szTip, L"WeekGlass \u5468\u8ba1\u5212");
   AddTray();
   channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
     messenger, "weekglass/desktop", &flutter::StandardMethodCodec::GetInstance());
@@ -96,6 +96,11 @@ bool DesktopIntegration::Notify(const std::string& title, const std::string& bod
   return true;
 }
 
+void DesktopIntegration::OpenWindow() {
+  SingleInstance::Activate(window_);
+  channel_->InvokeMethod("openApp", nullptr);
+}
+
 void DesktopIntegration::ShowMenu() {
   HMENU menu = CreatePopupMenu();
   if (!menu) return;
@@ -112,7 +117,7 @@ void DesktopIntegration::ShowMenu() {
   if (action == kExit) {
     DestroyWindow(window_);
   } else {
-    if (action == kOpen) SingleInstance::Activate(window_);
+    if (action == kOpen) OpenWindow();
     PostMessageW(window_, WM_NULL, 0, 0);
   }
 }
@@ -128,7 +133,7 @@ std::optional<LRESULT> DesktopIntegration::Handle(UINT message, WPARAM wparam,
     switch (LOWORD(lparam)) {
       case WM_CONTEXTMENU: ShowMenu(); break;
       case NIN_SELECT:
-      case NIN_KEYSELECT: SingleInstance::Activate(window_); break;
+      case NIN_KEYSELECT: OpenWindow(); break;
       case NIN_BALLOONUSERCLICK:
         SingleInstance::Activate(window_);
         channel_->InvokeMethod("openEvent",

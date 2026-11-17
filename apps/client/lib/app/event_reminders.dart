@@ -79,9 +79,10 @@ class ReminderEngine {
 }
 
 class WindowsReminders {
-  WindowsReminders(this.controller, {MethodChannel? channel})
+  WindowsReminders(this.controller, {MethodChannel? channel, this.onAppOpen})
     : _channel = channel ?? const MethodChannel('weekglass/desktop');
   final PlannerController controller;
+  final Future<void> Function()? onAppOpen;
   final MethodChannel _channel;
   final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
   late ReminderEngine _engine;
@@ -98,7 +99,9 @@ class WindowsReminders {
     _enabled = controller.notificationsEnabled;
     controller.addListener(_preferencesChanged);
     _channel.setMethodCallHandler((call) async {
-      if (call.method == 'openEvent' && call.arguments is String) {
+      if (call.method == 'openApp') {
+        await onAppOpen?.call();
+      } else if (call.method == 'openEvent' && call.arguments is String) {
         for (final event in controller.events) {
           if (event.id == call.arguments) {
             controller.setAnchorDate(event.startLocal);

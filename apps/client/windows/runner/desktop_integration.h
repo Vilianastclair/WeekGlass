@@ -13,6 +13,7 @@ class DesktopIntegration {
  public:
   DesktopIntegration(HWND window, flutter::BinaryMessenger* messenger);
   ~DesktopIntegration();
+  void OpenWindow();
   std::optional<LRESULT> Handle(UINT message, WPARAM wparam, LPARAM lparam);
 
  private:

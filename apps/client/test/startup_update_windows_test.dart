@@ -21,12 +21,13 @@ void main() {
   var failHealth = false;
   void Function(HttpRequest)? objectResponse;
 
-  UpdateService client() {
+  UpdateService client({UpdateMetadata? metadata}) {
     final service =
         UpdateService.windowsForTesting(
             updateRoot: root,
             installation: installation,
             origin: 'http://127.0.0.1:${server.port}/',
+            metadata: metadata,
             verifyEnvelope: feed.verify,
             launchInstaller: (helper, job) async {
               sequence.add('launcher');
@@ -133,6 +134,105 @@ void main() {
   );
 
   test(
+    'same Windows process checks on reopen and keeps a choice until resolved',
+    () async {
+      final nextBuild = feed.build;
+      feed.build = UpdateService.currentBuild;
+      feed.version = UpdateService.currentVersion;
+      final app = client();
+      await app.checkOnWindowsReopen();
+      expect(requests, isEmpty);
+      await app.checkOnStartup();
+      expect(app.startupOffer, isNull);
+      final initialTag = feed.tag;
+
+      feed.build = nextBuild;
+      feed.version = '0.20.21';
+      final open = app.checkOnWindowsReopen();
+      await app.checkOnWindowsReopen();
+      await open;
+      final offer = app.startupOffer!;
+      expect(offer.build, nextBuild);
+      expect(offer.version, '0.20.21');
+      await app.checkOnWindowsReopen();
+      expect(app.startupOffer, same(offer));
+      expect(requests, [
+        (WindowsStartupFeed.channelPath, null),
+        (WindowsStartupFeed.channelPath, initialTag),
+      ]);
+      await app.skipStartupVersion(offer);
+      await app.checkOnWindowsReopen();
+      expect(app.startupOffer, isNull);
+      expect(app.available, isNull);
+      expect(requests.last, (WindowsStartupFeed.channelPath, feed.tag));
+
+      await app.check();
+      await app.checkOnWindowsReopen();
+      expect(app.startupOffer, isNull);
+      expect(app.available?['build'], nextBuild);
+      final skippedTag = feed.tag;
+      feed.build++;
+      feed.version = '0.20.22';
+      await app.checkOnWindowsReopen();
+      expect(app.startupOffer?.build, feed.build);
+      expect(requests.last, (WindowsStartupFeed.channelPath, skippedTag));
+      expect(requests.map((request) => request.$1).toSet(), {
+        WindowsStartupFeed.channelPath,
+      });
+    },
+  );
+
+  test(
+    'an open blocked by Settings work runs after it, and a failed open retries',
+    () async {
+      final manualStarted = Completer<void>();
+      final releaseManual = Completer<void>();
+      var reads = 0;
+      var offline = false;
+      final app = client(
+        metadata: (path, limit, {cache}) async {
+          if (++reads == 1) {
+            manualStarted.complete();
+            await releaseManual.future;
+          }
+          if (offline) throw const SocketException('offline');
+          return feed.metadata(path, limit);
+        },
+      );
+      final discoveryFinished = Completer<void>();
+      app.addListener(() {
+        if (!app.busy &&
+            app.startupOffer != null &&
+            !discoveryFinished.isCompleted) {
+          discoveryFinished.complete();
+        }
+      });
+      final manual = app.check();
+      await manualStarted.future;
+      await app.checkOnStartup();
+      await app.checkOnStartup();
+      expect(reads, 1);
+      releaseManual.complete();
+      await manual;
+      await discoveryFinished.future;
+      expect(reads, 2);
+      expect(app.startupOffer?.build, feed.build);
+      await app.skipStartupVersion(app.startupOffer!);
+
+      feed.build++;
+      feed.version = '0.20.22';
+      offline = true;
+      await app.checkOnWindowsReopen();
+      expect(app.startupOffer, isNull);
+      expect(app.message, contains('检查更新失败'));
+      offline = false;
+      await app.checkOnWindowsReopen();
+      expect(app.startupOffer?.build, feed.build);
+      expect(reads, 4);
+    },
+  );
+
+  test(
     'skip is exact to Windows and build, and Settings can still check',
     () async {
       const secure = FlutterSecureStorage();
@@ -223,6 +323,7 @@ void main() {
     await app.checkOnStartup();
     final completion = app.acceptStartupUpdate(app.startupOffer!);
     final response = await began.future;
+    await app.checkOnWindowsReopen();
     editorOpen = true;
     expect(app.startupOffer, isNull);
     expect(app.busy, isTrue);
@@ -233,6 +334,11 @@ void main() {
     await completion;
     expect(app.ready, isTrue);
     expect(sequence, isEmpty);
+    await app.checkOnWindowsReopen();
+    expect(
+      requests.where((r) => r.$1 == WindowsStartupFeed.channelPath),
+      hasLength(1),
+    );
 
     final handoff = Completer<void>();
     app.addListener(() {
@@ -261,6 +367,8 @@ void main() {
       expect(await AcceptedUpdate.read(root), isNull);
       app.resumePendingInstallation();
       expect(app.busy, isFalse);
+      await app.checkOnWindowsReopen();
+      expect(app.message, '更新失败（启动更新安装器），当前版本未改动');
 
       failHealth = false;
       await app.install();

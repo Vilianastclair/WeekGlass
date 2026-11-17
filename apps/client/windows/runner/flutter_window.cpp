@@ -59,7 +59,11 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
                               WPARAM const wparam,
                               LPARAM const lparam) noexcept {
   if (message == SingleInstance::ActivationMessage()) {
-    SingleInstance::Activate(hwnd);
+    if (desktop_) {
+      desktop_->OpenWindow();
+    } else {
+      SingleInstance::Activate(hwnd);
+    }
     return 0;
   }
   if (desktop_) {

@@ -32,7 +32,34 @@ class UpdateSettingsTile extends StatelessWidget {
             padding: const EdgeInsets.only(top: 8),
             child: LinearProgressIndicator(value: service.progress),
           ),
-        if (service.supportsUpdates)
+        if (service.startupOffer case final offer?) ...[
+          const SizedBox(height: 8),
+          Text(
+            service.isAndroid ? '返回日程后，在系统确认安装。' : '下载后，返回日程即可自动保存并重启。',
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            alignment: WrapAlignment.end,
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              TextButton(
+                onPressed: service.busy
+                    ? null
+                    : () => service.skipStartupVersion(offer),
+                child: const Text('跳过此版本'),
+              ),
+              FilledButton(
+                onPressed: service.busy
+                    ? null
+                    : () => service.acceptStartupUpdate(offer),
+                child: const Text('立即更新'),
+              ),
+            ],
+          ),
+          if (!service.isAndroid) const SizedBox(height: 8),
+        ] else if (service.supportsUpdates)
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(

@@ -32,6 +32,8 @@ typedef UpdateEnvelopeVerifier = Future<Map<String, dynamic>> Function(
 
 typedef LaunchWindowsUpdate = Future<void> Function(File helper, File job);
 
+enum _OpenUpdateCheck { startup, reopen }
+
 /// A signed candidate for this launch, never itself permission to install.
 class StartupUpdateOffer {
   const StartupUpdateOffer({required this.version, required this.build});
@@ -82,8 +84,8 @@ class UpdateService extends ChangeNotifier {
        );
 
   static final instance = UpdateService._();
-  static const currentVersion = '0.20.19';
-  static const currentBuild = 45;
+  static const currentVersion = '0.20.20';
+  static const currentBuild = 46;
   Future<void> Function()? beforeInstall;
   Future<void> Function()? beforeAndroidInstall;
   Future<void> Function()? afterInstallFailure;
@@ -96,6 +98,8 @@ class UpdateService extends ChangeNotifier {
   bool _windowsAutoInstallPending = false;
   bool _androidRespectsPlanner = false;
   bool _startupChecked = false;
+  bool _openCheckInProgress = false;
+  _OpenUpdateCheck? _queuedOpenCheck;
   StartupUpdateOffer? _startupOffer;
   StartupUpdateOffer? get startupOffer => _startupOffer;
   List<int>? _checkedChannel;
@@ -224,11 +228,42 @@ class UpdateService extends ChangeNotifier {
   /// the stable channel (ETag and signed cached body), not the manifest or APK.
   Future<void> checkOnStartup() async {
     if (_startupChecked || !supportsUpdates) return;
-    _startupChecked = true;
-    await _runUpdateWork(() => _check(startup: true));
+    _queuedOpenCheck = _OpenUpdateCheck.startup;
+    await _runQueuedOpenCheck();
   }
 
-  Future<void> _check({required bool startup}) async {
+  /// The Windows tray and shortcuts can open the same process again. Check
+  /// again without resuming a job already owned by that process.
+  Future<void> checkOnWindowsReopen() async {
+    // The first planner frame handles activations during startup.
+    if (isAndroid || !_startupChecked || _openCheckInProgress) return;
+    _queuedOpenCheck ??= _OpenUpdateCheck.reopen;
+    await _runQueuedOpenCheck();
+  }
+
+  Future<void> _runQueuedOpenCheck() async {
+    final check = _queuedOpenCheck;
+    if (busy || check == null) return;
+    _queuedOpenCheck = null;
+    final startup = check == _OpenUpdateCheck.startup;
+    if (startup) {
+      _startupChecked = true;
+    } else if (_startupOffer != null || ready || _activeAcceptance != null) {
+      // Keep the displayed choice, staged files, or accepted job intact.
+      return;
+    }
+    await _runUpdateWork(() async {
+      _openCheckInProgress = true;
+      try {
+        await _check(startup: startup, reopening: !startup);
+      } finally {
+        _openCheckInProgress = false;
+      }
+    });
+  }
+
+  Future<void> _check({required bool startup, bool reopening = false}) async {
+    final manuallyAvailableBuild = reopening ? (available?['build']) : null;
     _startupOffer = null;
     _checkedChannel = null;
     progress = null;
@@ -329,12 +364,17 @@ class UpdateService extends ChangeNotifier {
         _clearAndroidArtifact();
       }
       final version = channel['version'] as String;
-      if (startup && available != null && !ready) {
+      if ((startup || reopening) && available != null && !ready) {
         if (await _secure.read(key: _skipKey) == '$build') {
-          _hideSkippedVersion(version);
-          return;
+          // A background reopen must not take away a skipped build that the
+          // user explicitly found again in Settings.
+          if (manuallyAvailableBuild != build) {
+            _hideSkippedVersion(version);
+            return;
+          }
+        } else {
+          _startupOffer = StartupUpdateOffer(version: version, build: build);
         }
-        _startupOffer = StartupUpdateOffer(version: version, build: build);
       }
       _show(available == null ? '已是最新版本 $installedVersion' : '发现新版本 $version');
     } catch (_) {
@@ -755,6 +795,7 @@ class UpdateService extends ChangeNotifier {
     _resumeWhenIdle = false;
     notifyListeners();
     if (retry) resumePendingInstallation();
+    if (_queuedOpenCheck != null) unawaited(_runQueuedOpenCheck());
   }
 
   /// Called by the planner when it has no modal or gesture in progress.
