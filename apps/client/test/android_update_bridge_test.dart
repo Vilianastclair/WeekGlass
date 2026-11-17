@@ -32,7 +32,12 @@ void main() {
       ) async {
         calls.add(call);
         return switch (call.method) {
-          'deviceInfo' => {'sourceApk': '/data/app/base.apk', 'arm64': true},
+          'deviceInfo' => {
+            'sourceApk': '/data/app/base.apk',
+            'arm64': true,
+            'version': '0.20.15',
+            'build': 41,
+          },
           'verifyApk' => true,
           _ => throw StateError('Unexpected installation action'),
         };
@@ -40,11 +45,30 @@ void main() {
       final info = await bridge.info();
       expect(info.arm64, isTrue);
       expect(info.sourceApk.path, '/data/app/base.apk');
+      expect(info.version, '0.20.15');
+      expect(info.build, 41);
       await bridge.verify(artifact);
       expect(calls.map((call) => call.method), ['deviceInfo', 'verifyApk']);
       expect(calls.last.arguments, artifact.arguments);
     },
   );
+
+  test('a background handoff is distinct from an opened installer', () async {
+    messenger.setMockMethodCallHandler(AndroidUpdateBridge.channel, (
+      call,
+    ) async {
+      calls.add(call);
+      return 'deferred';
+    });
+    expect(
+      await bridge.install(artifact, systemPermissionPrompt: true),
+      AndroidInstallResult.deferred,
+    );
+    expect(calls.single.arguments, {
+      ...artifact.arguments,
+      'systemPermissionPrompt': true,
+    });
+  });
 
   test(
     'permission-required result waits for a separate explicit settings action',

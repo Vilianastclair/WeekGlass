@@ -5,10 +5,17 @@ import 'package:flutter/services.dart';
 import 'update_object_download.dart';
 
 class AndroidUpdateInfo {
-  const AndroidUpdateInfo({required this.sourceApk, required this.arm64});
+  const AndroidUpdateInfo({
+    required this.sourceApk,
+    required this.arm64,
+    required this.version,
+    required this.build,
+  });
 
   final File sourceApk;
   final bool arm64;
+  final String version;
+  final int build;
 }
 
 class AndroidUpdateArtifact {
@@ -35,7 +42,7 @@ class AndroidUpdateArtifact {
   };
 }
 
-enum AndroidInstallResult { opened, permissionRequired }
+enum AndroidInstallResult { opened, permissionRequired, deferred }
 
 enum AndroidObjectDownloadState {
   pending,
@@ -89,12 +96,18 @@ class AndroidUpdateBridge {
 
   Future<AndroidUpdateInfo> info() async {
     final value = await channel.invokeMapMethod<String, dynamic>('deviceInfo');
-    if (value == null || value['sourceApk'] is! String) {
+    if (value == null ||
+        value['sourceApk'] is! String ||
+        value['version'] is! String ||
+        value['build'] is! int ||
+        (value['build'] as int) < 1) {
       throw const FormatException('无法读取已安装版本');
     }
     return AndroidUpdateInfo(
       sourceApk: File(value['sourceApk'] as String),
       arm64: value['arm64'] == true,
+      version: value['version'] as String,
+      build: value['build'] as int,
     );
   }
 
@@ -160,14 +173,18 @@ class AndroidUpdateBridge {
     }
   }
 
-  Future<AndroidInstallResult> install(AndroidUpdateArtifact artifact) async {
-    final result = await channel.invokeMethod<String>(
-      'installApk',
-      artifact.arguments,
-    );
+  Future<AndroidInstallResult> install(
+    AndroidUpdateArtifact artifact, {
+    bool systemPermissionPrompt = false,
+  }) async {
+    final result = await channel.invokeMethod<String>('installApk', {
+      ...artifact.arguments,
+      if (systemPermissionPrompt) 'systemPermissionPrompt': true,
+    });
     return switch (result) {
       'opened' => AndroidInstallResult.opened,
       'permission_required' => AndroidInstallResult.permissionRequired,
+      'deferred' => AndroidInstallResult.deferred,
       _ => throw const FormatException('无法打开系统安装器'),
     };
   }
@@ -175,4 +192,10 @@ class AndroidUpdateBridge {
   Future<void> openInstallSettings() async {
     await channel.invokeMethod<void>('openInstallSettings');
   }
+
+  Future<void> requestUpdateNotifications() =>
+      channel.invokeMethod<void>('requestUpdateNotifications');
+
+  Future<void> discardDownload(String? sha256) =>
+      channel.invokeMethod<void>('discardUpdateDownload', {'sha256': sha256});
 }

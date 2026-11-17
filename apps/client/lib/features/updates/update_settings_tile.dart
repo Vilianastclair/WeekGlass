@@ -79,7 +79,7 @@ class UpdateSettingsTile extends StatelessWidget {
                     ? service.isAndroid
                           ? service.needsInstallPermission
                                 ? '允许安装更新'
-                                : '安装更新'
+                                : '打开安装器'
                           : '重启更新'
                     : service.available != null
                     ? '下载更新'

@@ -2,6 +2,7 @@ package com.viliana.weekglass.weekglass
 
 import android.app.DownloadManager
 import android.content.Context
+import android.database.Cursor
 import android.net.Uri
 import android.os.ParcelFileDescriptor
 import io.flutter.plugin.common.MethodCall
@@ -9,19 +10,31 @@ import java.io.File
 import java.io.FileNotFoundException
 import java.io.IOException
 import java.security.MessageDigest
+import java.util.concurrent.Executors
 
 internal class ManagedDownloadFailure(val reason: String) : Exception(reason)
 
 /** DownloadManager owns the transfer. Only verified bytes enter the app's private cache. */
 internal class ManagedUpdateDownloads(private val context: Context) {
+    companion object {
+        // Serialize enqueue, import and completion handling, including after Activity recreation.
+        val worker = Executors.newSingleThreadExecutor()
+        private val hashPattern = Regex("[a-f0-9]{64}")
+        private const val labelPrefix = "weekglass-update:"
+        private const val maximumSize = 256L * 1024 * 1024
+
+        private fun updateUri(hash: String): Uri =
+            Uri.parse("https://cloud.viliana.cn/updates/v1/objects/${hash.take(2)}/$hash")
+    }
+
     fun advance(call: MethodCall): Map<String, Any> {
         val hash = requireNotNull(call.argument<String>("sha256"))
         val size = requireNotNull(call.argument<Number>("size")).toLong()
-        require(Regex("[a-f0-9]{64}").matches(hash) && size in 1..(256L * 1024 * 1024))
+        require(hashPattern.matches(hash) && size in 1..maximumSize)
         val id = call.argument<Number>("id")?.toLong()
         val start = call.argument<Boolean>("start") == true
-        val uri = Uri.parse("https://cloud.viliana.cn/updates/v1/objects/${hash.take(2)}/$hash")
-        val label = "weekglass-update:$hash:$size"
+        val uri = updateUri(hash)
+        val label = "$labelPrefix$hash:$size"
         val manager = context.getSystemService(DownloadManager::class.java)
             ?: throw ManagedDownloadFailure("unavailable")
 
@@ -87,12 +100,56 @@ internal class ManagedUpdateDownloads(private val context: Context) {
                 else -> "waiting_retry"
             }
             DownloadManager.STATUS_SUCCESSFUL -> {
-                importObject(manager, row.id, hash, size)
+                completeManagedUpdate(
+                    importVerified = { importObject(manager, row.id, hash, size) },
+                    publishCompletion = { UpdateNotifications.downloaded(context) },
+                    releaseSystemDownload = { manager.remove(row.id) },
+                )
                 "ready"
             }
             else -> throw ManagedDownloadFailure("unavailable")
         }
         return mapOf("state" to state, "id" to row.id, "received" to row.received.coerceAtLeast(0))
+    }
+
+    // Broadcast data is only a hint: re-read the caller-owned, exact system job.
+    fun completed(id: Long, hash: String): Boolean {
+        if (!hashPattern.matches(hash)) return false
+        val manager = context.getSystemService(DownloadManager::class.java) ?: return false
+        return manager.query(DownloadManager.Query().setFilterById(id))?.use { row ->
+            if (!row.moveToFirst()) return@use false
+            val size = matchingObjectSize(row, hash) ?: return@use false
+            val status = row.getInt(row.getColumnIndexOrThrow(DownloadManager.COLUMN_STATUS))
+            val total = row.getLong(row.getColumnIndexOrThrow(DownloadManager.COLUMN_TOTAL_SIZE_BYTES))
+            val received = row.getLong(row.getColumnIndexOrThrow(DownloadManager.COLUMN_BYTES_DOWNLOADED_SO_FAR))
+            status == DownloadManager.STATUS_SUCCESSFUL && received == size && (total < 0 || total == size)
+        } == true
+    }
+
+    fun discard(hash: String) {
+        if (!hashPattern.matches(hash)) return
+        val manager = context.getSystemService(DownloadManager::class.java) ?: return
+        val ids = ArrayList<Long>()
+        manager.query(DownloadManager.Query())?.use { rows ->
+            while (rows.moveToNext()) {
+                if (matchingObjectSize(rows, hash) != null) {
+                    ids.add(rows.getLong(rows.getColumnIndexOrThrow(DownloadManager.COLUMN_ID)))
+                }
+            }
+        }
+        if (ids.isNotEmpty()) manager.remove(*ids.toLongArray())
+    }
+
+    private fun matchingObjectSize(row: Cursor, hash: String): Long? {
+        val label = row.getString(row.getColumnIndexOrThrow(DownloadManager.COLUMN_DESCRIPTION))
+            ?: return null
+        val prefix = "$labelPrefix$hash:"
+        val size = label.takeIf { it.startsWith(prefix) }?.substring(prefix.length)?.toLongOrNull()
+            ?: return null
+        return size.takeIf {
+            it in 1..maximumSize && label == "$prefix$size" &&
+                row.getString(row.getColumnIndexOrThrow(DownloadManager.COLUMN_URI)) == updateUri(hash).toString()
+        }
     }
 
     private fun importObject(manager: DownloadManager, id: Long, hash: String, size: Long) {
@@ -140,7 +197,6 @@ internal class ManagedUpdateDownloads(private val context: Context) {
             // Keep a successfully transferred job if the private cache cannot be written yet.
             throw ManagedDownloadFailure("storage")
         }
-        manager.remove(id)
     }
 
     private data class DownloadRow(
@@ -150,4 +206,15 @@ internal class ManagedUpdateDownloads(private val context: Context) {
         val received: Long,
         val total: Long,
     )
+}
+
+/** Polling may consume the job before its completion broadcast can query it. */
+internal inline fun completeManagedUpdate(
+    importVerified: () -> Unit,
+    publishCompletion: () -> Unit,
+    releaseSystemDownload: () -> Unit,
+) {
+    importVerified()
+    publishCompletion()
+    releaseSystemDownload()
 }

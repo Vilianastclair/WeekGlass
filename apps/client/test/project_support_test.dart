@@ -10,7 +10,7 @@ import 'package:weekglass_design_system/weekglass_design_system.dart';
 
 import 'whu_import_test.dart' show MemoryImportRepo;
 
-const _githubLabel = '有帮助的话麻烦在 GitHub 点个 Star，这对我真的很重要';
+const _githubLabel = '有帮助的话还请在 GitHub 点个 Star，这对我真的很重要';
 const _sponsorLabel = '友情赞助';
 const _links = {
   _githubLabel: 'https://github.com/Vilianastclair/WeekGlass',

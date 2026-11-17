@@ -15,25 +15,43 @@ import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
 import java.security.MessageDigest
-import java.util.concurrent.Executors
 import java.util.zip.ZipFile
 
 class MainActivity : FlutterActivity() {
-    private companion object {
-        // Serializes query + enqueue even if a new Activity attaches to the same job.
-        val updateDownloadWorker = Executors.newSingleThreadExecutor()
+    private var updateUiResumed = false
+
+    override fun onResume() {
+        super.onResume()
+        updateUiResumed = true
     }
+
+    override fun onPause() {
+        updateUiResumed = false
+        super.onPause()
+    }
+
+    private fun canPresentUpdateUi(): Boolean =
+        updateUiResumed && hasWindowFocus() && !isFinishing && !isDestroyed
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.viliana.weekglass/updates")
             .setMethodCallHandler { call, result ->
                 when (call.method) {
-                    "deviceInfo" -> result.success(mapOf(
-                        "sourceApk" to applicationInfo.sourceDir,
-                        "arm64" to Build.SUPPORTED_ABIS.contains("arm64-v8a"),
-                    ))
-                    "updateObject" -> updateDownloadWorker.execute {
+                    "deviceInfo" -> {
+                        try {
+                            val installed = packageManager.getPackageInfo(packageName, 0)
+                            result.success(mapOf(
+                                "sourceApk" to installed.applicationInfo?.sourceDir,
+                                "arm64" to Build.SUPPORTED_ABIS.contains("arm64-v8a"),
+                                "version" to installed.versionName,
+                                "build" to installedBuild(installed),
+                            ))
+                        } catch (_: PackageManager.NameNotFoundException) {
+                            result.error("device_info", "无法读取已安装版本", null)
+                        }
+                    }
+                    "updateObject" -> ManagedUpdateDownloads.worker.execute {
                         try {
                             val state = ManagedUpdateDownloads(applicationContext).advance(call)
                             runOnUiThread { result.success(state) }
@@ -43,6 +61,22 @@ class MainActivity : FlutterActivity() {
                             runOnUiThread { result.error("managed_download", null, "unavailable") }
                         }
                     }
+                    "requestUpdateNotifications" -> {
+                        if (canPresentUpdateUi()) UpdateNotifications.requestPermission(this)
+                        result.success(null)
+                    }
+                    "discardUpdateDownload" -> ManagedUpdateDownloads.worker.execute {
+                        try {
+                            call.argument<String>("sha256")?.let {
+                                ManagedUpdateDownloads(applicationContext).discard(it)
+                            }
+                            runOnUiThread { result.success(null) }
+                        } catch (_: Exception) {
+                            runOnUiThread { result.error("managed_download", null, "unavailable") }
+                        } finally {
+                            UpdateNotifications.dismiss(applicationContext)
+                        }
+                    }
                     "verifyApk", "installApk" -> Thread {
                         try {
                             val apk = verifiedApk(call)
@@ -50,9 +84,12 @@ class MainActivity : FlutterActivity() {
                                 try {
                                     if (call.method == "verifyApk") {
                                         result.success(true)
+                                    } else if (!canPresentUpdateUi()) {
+                                        UpdateNotifications.ready(applicationContext)
+                                        result.success("deferred")
                                     } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                                        call.argument<Boolean>("systemPermissionPrompt") != true &&
                                         !packageManager.canRequestPackageInstalls()) {
-                                        // Checking or downloading never opens permission settings.
                                         result.success("permission_required")
                                     } else {
                                         val uri = FileProvider.getUriForFile(
@@ -63,7 +100,10 @@ class MainActivity : FlutterActivity() {
                                             addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
                                             clipData = ClipData.newRawUri("WeekGlass update", uri)
                                         }
+                                        // The installer handles both its unknown-source consent
+                                        // and confirmation of the actual update.
                                         startActivity(intent)
+                                        UpdateNotifications.dismiss(applicationContext)
                                         result.success("opened")
                                     }
                                 } catch (_: Exception) {
@@ -72,7 +112,11 @@ class MainActivity : FlutterActivity() {
                             }
                         } catch (failure: ApkVerificationFailure) {
                             runOnUiThread {
-                                result.error("invalid_apk", "安装包校验未通过", failure.reason)
+                                if (failure.reason == "already_installed") {
+                                    result.error("already_installed", null, null)
+                                } else {
+                                    result.error("invalid_apk", "安装包校验未通过", failure.reason)
+                                }
                             }
                         } catch (_: Exception) {
                             runOnUiThread {
@@ -113,6 +157,10 @@ class MainActivity : FlutterActivity() {
         val expectedBuild = requireNotNull(call.argument<Number>("build")).toLong()
         val expectedVersion = requireNotNull(call.argument<String>("version"))
         require(expectedSize in 1..(256L * 1024 * 1024))
+        requireApk(
+            expectedBuild > installedBuild(packageManager.getPackageInfo(packageName, 0)),
+            "already_installed",
+        )
         val apk = File(requireNotNull(call.argument<String>("path"))).canonicalFile
         val allowed = File(filesDir, "updates/android-arm64/apks").canonicalFile
         requireApk(apk.parentFile == allowed && apk.name == "$expectedHash.apk", "file_location")
@@ -138,9 +186,9 @@ class MainActivity : FlutterActivity() {
             ?: throw ApkVerificationFailure("archive_unreadable")
         val installed = packageManager.getPackageInfo(packageName, flags)
         requireApk(incoming.packageName == packageName && packageName == "com.viliana.weekglass", "package_name")
+        requireApk(expectedBuild > installedBuild(installed), "already_installed")
         requireApk(
-            versionCode(incoming) == expectedBuild && expectedBuild > versionCode(installed) &&
-                incoming.versionName == expectedVersion,
+            installedBuild(incoming) == expectedBuild && incoming.versionName == expectedVersion,
             "package_version",
         )
         val installedSigners = currentSigningCertificates(installed)
@@ -168,11 +216,6 @@ class MainActivity : FlutterActivity() {
     }
 
     @Suppress("DEPRECATION")
-    private fun versionCode(info: PackageInfo): Long =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode
-        else info.versionCode.toLong()
-
-    @Suppress("DEPRECATION")
     private fun currentSigningCertificates(info: PackageInfo): Set<String> {
         val signatures = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
             info.signingInfo?.apkContentsSigners
@@ -188,3 +231,8 @@ class MainActivity : FlutterActivity() {
     private fun hex(bytes: ByteArray): String =
         bytes.joinToString("") { "%02x".format(it.toInt() and 0xff) }
 }
+
+@Suppress("DEPRECATION")
+internal fun installedBuild(info: PackageInfo): Long =
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode
+    else info.versionCode.toLong()

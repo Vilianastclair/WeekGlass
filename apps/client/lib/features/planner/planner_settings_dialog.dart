@@ -686,7 +686,7 @@ class _SupportLink extends StatelessWidget {
                   child: star
                       ? Text.rich(
                           TextSpan(
-                            text: '有帮助的话麻烦在 ',
+                            text: '有帮助的话还请在 ',
                             children: [
                               TextSpan(
                                 text: 'GitHub 点个 Star',

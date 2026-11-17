@@ -1,23 +1,57 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
+import 'package:flutter/widgets.dart'
+    show AppLifecycleListener, AppLifecycleState, WidgetsBinding;
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'android_update_bridge.dart';
+import 'android_update_request.dart';
 import 'update_object_download.dart';
 import 'update_protocol.dart';
 import 'update_reconstruction.dart';
 
+typedef UpdateMetadata = Future<List<int>> Function(
+  String path,
+  int limit, {
+  File? cache,
+});
+typedef UpdateEnvelopeVerifier = Future<Map<String, dynamic>> Function(
+  List<int> bytes, {
+  required bool channel,
+  required int floor,
+  required String platform,
+});
+
 class UpdateService extends ChangeNotifier {
-  UpdateService._();
+  UpdateService._({
+    bool? android,
+    this._updateRoot,
+    this._fetchMetadata,
+    this._verifyEnvelope = verifyUpdateEnvelope,
+  }) : isAndroid = android ?? Platform.isAndroid;
+
+  @visibleForTesting
+  UpdateService.androidForTesting({
+    required Directory updateRoot,
+    required UpdateMetadata metadata,
+    required UpdateEnvelopeVerifier verifyEnvelope,
+  }) : this._(
+         android: true,
+         updateRoot: updateRoot,
+         fetchMetadata: metadata,
+         verifyEnvelope: verifyEnvelope,
+       );
+
   static final instance = UpdateService._();
-  static const currentVersion = '0.20.13';
-  static const currentBuild = 37;
+  static const currentVersion = '0.20.16';
+  static const currentBuild = 42;
   Future<void> Function()? beforeInstall;
   Future<void> Function()? beforeAndroidInstall;
   Future<void> Function()? afterInstallFailure;
@@ -29,32 +63,44 @@ class UpdateService extends ChangeNotifier {
   File? _manifestFile;
   Directory? _job;
   AndroidUpdateArtifact? _androidArtifact;
+  AndroidUpdateRequest? _androidRequest;
+  bool _androidHandoffPending = false;
+  AppLifecycleListener? _androidLifecycle;
+  bool _resumedWhileBusy = false;
   bool needsInstallPermission = false;
   bool androidBackgroundDownloadUnavailable = false;
-  bool get supportsUpdates => Platform.isWindows || Platform.isAndroid;
-  bool get isAndroid => Platform.isAndroid;
-  bool get ready =>
-      Platform.isAndroid ? _androidArtifact != null : _stage != null;
-  String get _platform => Platform.isAndroid ? 'android-arm64' : 'windows-x64';
-  String get _floorKey => Platform.isAndroid
+  bool get supportsUpdates => Platform.isWindows || isAndroid;
+  final bool isAndroid;
+  bool get ready => isAndroid ? _androidArtifact != null : _stage != null;
+  String get _platform => isAndroid ? 'android-arm64' : 'windows-x64';
+  String get _floorKey => isAndroid
       ? 'weekglass_update_floor_android_arm64'
       : 'weekglass_update_floor';
   final _android = const AndroidUpdateBridge();
   final _secure = const FlutterSecureStorage();
+  final Directory? _updateRoot;
+  final UpdateMetadata? _fetchMetadata;
+  final UpdateEnvelopeVerifier _verifyEnvelope;
 
-  Future<Directory> _root() async => Directory(
-    p.join(
-      (await getApplicationSupportDirectory()).path,
-      'updates',
-      Platform.isAndroid ? 'android-arm64' : '',
-    ),
-  )..createSync(recursive: true);
+  Future<Directory> _root() async =>
+      (_updateRoot ??
+            Directory(
+              p.join(
+                (await getApplicationSupportDirectory()).path,
+                'updates',
+                isAndroid ? 'android-arm64' : '',
+              ),
+            ))
+        ..createSync(recursive: true);
   void _show(String value) {
     message = value;
     notifyListeners();
   }
 
   Future<List<int>> _metadata(String relative, int limit, {File? cache}) async {
+    if (_fetchMetadata case final fetch?) {
+      return fetch(relative, limit, cache: cache);
+    }
     final http = HttpClient()..connectionTimeout = const Duration(seconds: 20);
     try {
       final request = await http.getUrl(
@@ -106,17 +152,24 @@ class UpdateService extends ChangeNotifier {
     _show('正在检查更新…');
     var step = '读取设备信息';
     try {
-      if (Platform.isAndroid && !(await _android.info()).arm64) {
+      final device = isAndroid ? await _android.info() : null;
+      final installedBuild = device?.build ?? currentBuild;
+      final installedVersion = device?.version ?? currentVersion;
+      if (device != null && !device.arm64) {
         available = null;
-        _show('当前版本 $currentVersion；此设备暂不支持应用内更新');
+        _show('当前版本 $installedVersion；此设备暂不支持应用内更新');
         return;
       }
       step = '读取更新目录';
       final root = await _root();
+      if (device != null) {
+        await _readPendingAndroidRequest(root, device);
+      }
       step = '读取更新记录';
       final floor = max(
-        currentBuild,
-        int.tryParse(await _secure.read(key: _floorKey) ?? '') ?? currentBuild,
+        installedBuild,
+        int.tryParse(await _secure.read(key: _floorKey) ?? '') ??
+            installedBuild,
       );
       step = '下载更新信息';
       final bytes = await _metadata(
@@ -125,7 +178,7 @@ class UpdateService extends ChangeNotifier {
         cache: File(p.join(root.path, 'channel.json')),
       );
       step = '校验更新信息';
-      final channel = await verifyUpdateEnvelope(
+      final channel = await _verifyEnvelope(
         bytes,
         channel: true,
         floor: floor,
@@ -133,26 +186,23 @@ class UpdateService extends ChangeNotifier {
       );
       step = '保存更新记录';
       await _secure.write(key: _floorKey, value: '${channel['build']}');
-      available = (channel['build'] as int) > currentBuild ? channel : null;
-      if (Platform.isAndroid &&
-          _androidArtifact?.build != available?['build']) {
-        _androidArtifact = null;
-        needsInstallPermission = false;
+      available = (channel['build'] as int) > installedBuild ? channel : null;
+      if (device != null && _androidArtifact?.build != available?['build']) {
+        _clearAndroidArtifact();
       }
       _show(
         available == null
-            ? '已是最新版本 $currentVersion'
+            ? '已是最新版本 $installedVersion'
             : '发现新版本 ${channel['version']}',
       );
     } catch (_) {
       _show(
-        Platform.isAndroid
+        isAndroid
             ? '检查更新失败（$step），请稍后重试；版本或签名异常时不会安装'
             : '暂时无法检查更新，请稍后重试；版本或签名异常时不会安装',
       );
     } finally {
-      busy = false;
-      notifyListeners();
+      _finishUpdateWork();
     }
   }
 
@@ -177,7 +227,7 @@ class UpdateService extends ChangeNotifier {
 
   Future<void> download() async {
     if (busy || available == null || !supportsUpdates) return;
-    if (Platform.isAndroid) return _downloadAndroid();
+    if (isAndroid) return _downloadAndroid();
     busy = true;
     progress = 0;
     _show('正在准备增量更新…');
@@ -288,56 +338,209 @@ class UpdateService extends ChangeNotifier {
     }
   }
 
+  /// A startup after package replacement can still see the previous app's
+  /// download receipt. Resolve that receipt before considering any APK.
+  Future<AndroidUpdateRequest?> _readPendingAndroidRequest(
+    Directory root,
+    AndroidUpdateInfo installed,
+  ) async {
+    final marker = await updateChild(root, 'managed-request');
+    if (!await marker.exists()) return null;
+
+    AndroidUpdateRequest? request;
+    try {
+      request = AndroidUpdateRequest.parse(await marker.readAsString());
+      if (request.build == null) {
+        // Older receipts have no build or APK hash. Recover them from the
+        // authenticated manifest, independently of a refreshed channel cache.
+        final file = await updateChild(
+          root,
+          'manifests/${request.manifestHash}.json',
+        );
+        final bytes = await file.readAsBytes();
+        if (sha256(bytes) != request.manifestHash) {
+          throw const FormatException('更新清单不匹配');
+        }
+        final manifest = await _verifyEnvelope(
+          bytes,
+          channel: false,
+          floor: 1,
+          platform: _platform,
+        );
+        final entry =
+            (manifest['files'] as List).single as Map<String, dynamic>;
+        request = request.forArtifact(
+          manifest['build'] as int,
+          entry['sha256'] as String,
+        );
+      }
+    } catch (_) {
+      // A broken local receipt does not turn a fresh update check into an
+      // installation error.
+    }
+    if (request?.build == null || request!.build! <= installed.build) {
+      await _retireAndroidRequest(root, request);
+      return null;
+    }
+    return request;
+  }
+
+  Future<void> _saveAndroidRequest(
+    Directory root,
+    AndroidUpdateRequest request,
+  ) async {
+    final marker = await updateChild(root, 'managed-request');
+    final pending = await updateChild(root, 'managed-request.partial');
+    await pending.writeAsString(request.encode(), flush: true);
+    await pending.rename(marker.path);
+  }
+
+  Future<void> _removeAndroidFile(Directory root, String name) async {
+    try {
+      final file = await updateChild(root, name);
+      if (await file.exists()) await file.delete();
+    } on FileSystemException {
+      // The next check can still compare the actual installed build.
+    } on FormatException {
+      // Never traverse links while cleaning the private update cache.
+    }
+  }
+
+  Future<void> _retireAndroidRequest(
+    Directory root,
+    AndroidUpdateRequest? request, {
+    bool purgeFiles = true,
+  }) async {
+    _clearAndroidArtifact();
+    await _removeAndroidFile(root, 'managed-request');
+    await _removeAndroidFile(root, 'managed-request.partial');
+    await _discardAndroidDownload(purgeFiles ? request?.objectHash : null);
+    if (request == null || !purgeFiles) return;
+    await _removeAndroidFile(root, 'manifests/${request.manifestHash}.json');
+    await _removeAndroidFile(
+      root,
+      'manifests/${request.manifestHash}.json.etag',
+    );
+    if (request.apkHash case final hash?) {
+      await _removeAndroidFile(root, 'apks/$hash.apk');
+      await _removeAndroidFile(root, 'apks/$hash.apk.partial');
+    }
+    for (final hash in {request.objectHash, request.apkHash}.nonNulls) {
+      await _removeAndroidFile(root, 'objects/$hash');
+      await _removeAndroidFile(root, 'objects/$hash.partial');
+      await _removeAndroidFile(root, 'objects/$hash.managed-partial');
+    }
+  }
+
+  Future<void> _discardAndroidDownload(String? hash) async {
+    try {
+      await _android.discardDownload(hash);
+    } on PlatformException {
+      // An unavailable DownloadManager must not block checking for updates.
+    }
+  }
+
+  void _clearAndroidArtifact() {
+    _androidArtifact = null;
+    _androidRequest = null;
+    _manifestFile = null;
+    _androidHandoffPending = false;
+    needsInstallPermission = false;
+  }
+
+  void _watchAndroidForeground() {
+    _androidLifecycle ??= AppLifecycleListener(
+      onResume: () {
+        if (busy) {
+          _resumedWhileBusy = true;
+        } else if (_androidHandoffPending) {
+          unawaited(_installAndroid());
+        }
+      },
+    );
+  }
+
+  void _finishUpdateWork() {
+    busy = false;
+    final retry =
+        _resumedWhileBusy &&
+        _androidHandoffPending &&
+        WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed;
+    _resumedWhileBusy = false;
+    notifyListeners();
+    if (retry) unawaited(_installAndroid());
+  }
+
+  @override
+  void dispose() {
+    _androidLifecycle?.dispose();
+    super.dispose();
+  }
+
   Future<void> restoreAndroidDownload() async {
-    if (!Platform.isAndroid || busy) return;
+    if (!isAndroid || busy) return;
+    _watchAndroidForeground();
     await _downloadAndroid(restoring: true);
   }
 
   Future<void> _downloadAndroid({bool restoring = false}) async {
+    _watchAndroidForeground();
     busy = true;
     progress = null;
     needsInstallPermission = false;
     androidBackgroundDownloadUnavailable = false;
     if (!restoring) _show('正在核对 Android 更新…');
-    var step = '读取更新目录';
+    var step = '读取设备信息';
     var downloadKind = '完整安装包（arm64）';
-    File? marker;
-    var retainMarker = false;
+    Directory? root;
+    AndroidUpdateRequest? request;
+    String? installedVersion;
+    var manifestReady = false;
     try {
-      final root = await _root();
-      final savedRequest = File(p.join(root.path, 'managed-request'));
-      if (restoring && !await savedRequest.exists()) return;
-      marker = savedRequest;
-      final saved = restoring
-          ? (await marker.readAsString()).split('\n')
-          : null;
-      step = '读取设备信息';
       final info = await _android.info();
-      if (!info.arm64) throw const FormatException('不支持此设备架构');
+      installedVersion = info.version;
+      if (!info.arm64) {
+        available = null;
+        _show('当前版本 ${info.version}；此设备暂不支持应用内更新');
+        return;
+      }
+      step = '读取更新目录';
+      final updateRoot = root = await _root();
+      request = await _readPendingAndroidRequest(updateRoot, info);
+      if (restoring && request == null) {
+        if (available == null && !ready) _show('当前版本 ${info.version}');
+        return;
+      }
       step = '读取更新记录';
-      final floor = max(
-        restoring ? currentBuild : currentBuild + 1,
-        int.tryParse(await _secure.read(key: _floorKey) ?? '') ?? currentBuild,
-      );
+      final floor = await _androidFloor(info.build);
       step = '校验更新信息';
-      final channel = await verifyUpdateEnvelope(
-        await File(p.join(root.path, 'channel.json')).readAsBytes(),
+      final channel = await _verifyEnvelope(
+        await (await updateChild(updateRoot, 'channel.json')).readAsBytes(),
         channel: true,
         floor: floor,
         platform: _platform,
       );
-      if (restoring && channel['build'] == currentBuild) return;
-      if (restoring) _show('正在恢复 Android 更新…');
       final descriptor = channel['manifest'] as Map<String, dynamic>;
-      if (saved != null &&
-          (saved.length != 2 || saved.first != descriptor['sha256'])) {
-        throw const AndroidManagedDownloadFailure('missing');
+      final manifestHash = descriptor['sha256'] as String;
+      if (request != null && request.manifestHash != manifestHash) {
+        await _retireAndroidRequest(
+          updateRoot,
+          request,
+          purgeFiles: request.build != channel['build'],
+        );
+        request = null;
       }
-      final manifests = Directory(p.join(root.path, 'manifests'));
-      await manifests.create(recursive: true);
-      final manifestFile = File(
-        p.join(manifests.path, '${descriptor['sha256']}.json'),
+      if (restoring && request == null) {
+        _show('当前版本 ${info.version}');
+        return;
+      }
+      if (restoring) _show('正在恢复 Android 更新…');
+      final manifests = Directory(p.join(updateRoot.path, 'manifests'));
+      final manifestFile = await updateChild(
+        updateRoot,
+        'manifests/$manifestHash.json',
       );
+      await manifests.create(recursive: true);
       step = '下载更新清单';
       final bytes = restoring
           ? await manifestFile.readAsBytes()
@@ -347,11 +550,10 @@ class UpdateService extends ChangeNotifier {
               cache: manifestFile,
             );
       step = '校验更新清单';
-      if (bytes.length != descriptor['size'] ||
-          sha256(bytes) != descriptor['sha256']) {
+      if (bytes.length != descriptor['size'] || sha256(bytes) != manifestHash) {
         throw const FormatException('更新清单不匹配');
       }
-      final manifest = await verifyUpdateEnvelope(
+      final manifest = await _verifyEnvelope(
         bytes,
         channel: false,
         floor: floor,
@@ -362,18 +564,28 @@ class UpdateService extends ChangeNotifier {
         throw const FormatException('更新版本不匹配');
       }
       final entry = (manifest['files'] as List).single as Map<String, dynamic>;
+      final build = manifest['build'] as int;
+      final apkHash = entry['sha256'] as String;
+      var active = (request ?? AndroidUpdateRequest(manifestHash: manifestHash))
+          .forArtifact(build, apkHash);
+      if (!restoring) active = active.copyWith(handedOff: false);
+      await _saveAndroidRequest(updateRoot, active);
+      request = active;
+      manifestReady = true;
+      available = channel;
+      if (!restoring) await _android.requestUpdateNotifications();
+
       step = '准备更新目录';
-      final apks = Directory(p.join(root.path, 'apks'));
-      await apks.create(recursive: true);
-      final apk = await updateChild(apks, '${entry['sha256']}.apk');
-      final cache = Directory(p.join(root.path, 'objects'));
+      final apk = await updateChild(updateRoot, 'apks/$apkHash.apk');
+      await apk.parent.create(recursive: true);
+      final cache = Directory(p.join(updateRoot.path, 'objects'));
       await cache.create(recursive: true);
       AndroidObjectDownloadState? lastState;
       await prepareAndroidUpdateFile(
         entry: entry,
         sourceApkPath: info.sourceApk.path,
         outputApkPath: apk.path,
-        resumeObject: saved?.last,
+        resumeObject: active.objectHash,
         loadObject: (object, {destination, onProgress}) async {
           final hash = object['sha256'] as String;
           final size = object['size'] as int;
@@ -391,17 +603,13 @@ class UpdateService extends ChangeNotifier {
           if (await matches(oldPart)) {
             return oldPart.rename((destination ?? cached).path);
           }
-          if (restoring && saved?.last != hash) {
+          if (restoring && active.objectHash != hash) {
             throw const AndroidManagedDownloadFailure('missing');
           }
-          if (!restoring) {
-            // The app resumes only the signed object the user asked it to download.
-            final nextMarker = File('${savedRequest.path}.partial');
-            await nextMarker.writeAsString(
-              '${descriptor['sha256']}\n$hash',
-              flush: true,
-            );
-            await nextMarker.rename(savedRequest.path);
+          if (active.objectHash != hash) {
+            active = active.copyWith(objectHash: hash);
+            await _saveAndroidRequest(updateRoot, active);
+            request = active;
           }
           await _android.downloadObject(
             sha256: hash,
@@ -415,9 +623,9 @@ class UpdateService extends ChangeNotifier {
                   case AndroidObjectDownloadState.pending:
                     _show('等待系统开始下载…');
                   case AndroidObjectDownloadState.waitingNetwork:
-                    _show('等待网络 · 恢复后继续下载');
+                    _show('网络恢复后继续下载');
                   case AndroidObjectDownloadState.waitingWifi:
-                    _show('等待 Wi‑Fi · 连接后继续下载');
+                    _show('连接 Wi‑Fi 后继续下载');
                   case AndroidObjectDownloadState.waitingRetry:
                     _show('系统暂时暂停下载，稍后继续');
                   case AndroidObjectDownloadState.running:
@@ -470,78 +678,156 @@ class UpdateService extends ChangeNotifier {
           final value = total == 0 ? 1.0 : received / total;
           if (progress == null || value != progress) {
             progress = value;
-            _show('正在后台下载$downloadKind ${(value * 100).floor()}% · 可以离开此页');
+            _show('正在后台下载$downloadKind ${(value * 100).floor()}%，可离开此页');
           }
         },
       );
       final artifact = AndroidUpdateArtifact(
         file: apk,
-        sha256: entry['sha256'] as String,
+        sha256: apkHash,
         size: entry['size'] as int,
-        build: manifest['build'] as int,
+        build: build,
         version: manifest['version'] as String,
       );
-      step = '校验安装包身份与签名';
-      _show('正在由 Android 校验安装包身份与签名…');
-      await _android.verify(artifact);
       _manifestFile = manifestFile;
       _androidArtifact = artifact;
-      retainMarker = true;
+      _androidRequest = active;
       progress = 1;
-      _show('更新已校验，点击安装后由 Android 系统确认');
+      step = '校验安装包身份与签名';
+      if (active.handedOff) {
+        await _android.verify(artifact);
+        _show('更新已就绪，可重新打开安装器');
+      } else {
+        await _handoffAndroid(updateRoot, artifact, active);
+      }
     } catch (error) {
+      if (root != null &&
+          await _resolveInstalledAndroidUpdate(error, root, request)) {
+        return;
+      }
       final packageIssue = androidPackageVerificationIssue(error);
+      final canRetryHandoff =
+          error is PlatformException && error.code == 'installer_unavailable';
+      if (canRetryHandoff && ready) {
+        await _discardAndroidDownload(null);
+        _show('无法打开 Android 安装器，可重试安装');
+        return;
+      }
+      final keepDownload =
+          error is AndroidManagedDownloadFailure && error.reason == 'storage';
       if (error is AndroidManagedDownloadFailure) {
         androidBackgroundDownloadUnavailable = error.reason == 'unavailable';
-        retainMarker = error.reason == 'storage';
       }
-      _androidArtifact = null;
-      _manifestFile = null;
+      if (!keepDownload && request != null && root != null) {
+        await _removeAndroidFile(root, 'managed-request');
+      }
+      _clearAndroidArtifact();
       available = null;
-      _show(
-        error is AndroidManagedDownloadFailure
-            ? error.message
-            : packageIssue == null
-            ? '更新准备失败（$step），请重新检查'
-            : '更新准备失败：$packageIssue',
-      );
-    } finally {
-      if (!retainMarker && marker != null) {
-        try {
-          if (await marker.exists()) await marker.delete();
-        } on FileSystemException {
-          // Stale local bookkeeping cannot block future checks or install.
+      if (restoring && !manifestReady && installedVersion != null) {
+        // A retired channel or expired cached request should not surface as
+        // a failed install on launch. An explicit check reads the live channel.
+        if (root != null && request != null) {
+          await _retireAndroidRequest(root, request);
         }
+        _show('当前版本 $installedVersion');
+      } else {
+        await _discardAndroidDownload(null);
+        _show(
+          error is AndroidManagedDownloadFailure
+              ? error.message
+              : packageIssue == null
+              ? '更新准备失败（$step），请重新检查'
+              : '更新准备失败：$packageIssue',
+        );
       }
-      busy = false;
-      notifyListeners();
+    } finally {
+      _finishUpdateWork();
     }
+  }
+
+  Future<int> _androidFloor(int installedBuild) async => max(
+    installedBuild + 1,
+    int.tryParse(await _secure.read(key: _floorKey) ?? '') ?? installedBuild,
+  );
+
+  Future<void> _handoffAndroid(
+    Directory root,
+    AndroidUpdateArtifact artifact,
+    AndroidUpdateRequest request,
+  ) async {
+    _androidHandoffPending = false;
+    _show('正在校验并打开 Android 安装器…');
+    await beforeAndroidInstall?.call();
+    // A user pressing retry authorizes a new handoff. Remember it before
+    // attempting to launch, in case a deferred attempt outlives this process.
+    if (request.handedOff) {
+      final retry = request.copyWith(handedOff: false);
+      await _saveAndroidRequest(root, retry);
+      _androidRequest = retry;
+    }
+    final result = await _android.install(
+      artifact,
+      systemPermissionPrompt: true,
+    );
+    switch (result) {
+      case AndroidInstallResult.opened:
+        final handedOff = request.copyWith(handedOff: true);
+        _androidRequest = handedOff;
+        await _saveAndroidRequest(root, handedOff);
+        _show('已打开 Android 安装器，请在系统界面确认');
+      case AndroidInstallResult.deferred:
+        _androidHandoffPending = true;
+        _show('更新已就绪，返回 WeekGlass 后自动打开安装器');
+      case AndroidInstallResult.permissionRequired:
+        needsInstallPermission = true;
+        _show('Android 需要授权 WeekGlass 安装更新');
+    }
+  }
+
+  Future<bool> _resolveInstalledAndroidUpdate(
+    Object error,
+    Directory root,
+    AndroidUpdateRequest? request,
+  ) async {
+    if (error is! PlatformException || error.code != 'already_installed') {
+      return false;
+    }
+    await _retireAndroidRequest(root, request);
+    available = null;
+    final installed = await _android.info();
+    _show('当前版本 ${installed.version}');
+    return true;
   }
 
   Future<void> _installAndroid() async {
     final artifact = _androidArtifact;
-    if (busy || artifact == null || _manifestFile == null) return;
+    final request = _androidRequest;
+    final file = _manifestFile;
+    if (busy || artifact == null || request == null || file == null) return;
     busy = true;
     progress = null;
-    var step = '读取更新记录';
+    Directory? root;
     try {
+      root = await _root();
+      final installed = await _android.info();
+      if (artifact.build <= installed.build) {
+        await _retireAndroidRequest(root, request);
+        available = null;
+        _show('当前版本 ${installed.version}');
+        return;
+      }
       if (needsInstallPermission) {
-        step = '打开安装授权设置';
         await _android.openInstallSettings();
         needsInstallPermission = false;
-        _show('允许后返回此处，再点击“安装更新”；也可以选择稍后安装');
+        _androidHandoffPending = true;
+        _show('授权后将继续打开 Android 安装器');
         return;
       }
       _show('正在再次校验安装包…');
-      final floor = max(
-        currentBuild + 1,
-        int.tryParse(await _secure.read(key: _floorKey) ?? '') ?? currentBuild,
-      );
-      step = '重新校验更新清单';
-      final manifest = await verifyUpdateEnvelope(
-        await _manifestFile!.readAsBytes(),
+      final manifest = await _verifyEnvelope(
+        await file.readAsBytes(),
         channel: false,
-        floor: floor,
+        floor: await _androidFloor(installed.build),
         platform: _platform,
       );
       final entry = (manifest['files'] as List).single as Map<String, dynamic>;
@@ -551,38 +837,32 @@ class UpdateService extends ChangeNotifier {
           entry['size'] != artifact.size) {
         throw const FormatException('安装内容与签名版本不一致');
       }
-      step = '保存日程';
-      await beforeAndroidInstall?.call();
-      step = '打开 Android 安装器';
-      final result = await _android.install(artifact);
-      needsInstallPermission =
-          result == AndroidInstallResult.permissionRequired;
-      _show(
-        needsInstallPermission
-            ? 'Android 尚未允许 WeekGlass 安装更新；点击下方按钮可前往系统设置'
-            : '已打开系统安装器；如取消，可再次点击“安装更新”',
-      );
+      await _handoffAndroid(root, artifact, request);
     } catch (error) {
-      if (error is PlatformException) {
-        step = switch (error.code) {
-          'invalid_apk' => androidPackageVerificationIssue(error)!,
-          'installer_unavailable' => '打开 Android 安装器',
-          'settings_unavailable' => '打开安装授权设置',
-          _ => step,
-        };
+      if (root != null &&
+          await _resolveInstalledAndroidUpdate(error, root, request)) {
+        return;
       }
-      _androidArtifact = null;
+      if (error is PlatformException && error.code == 'installer_unavailable') {
+        _show('无法打开 Android 安装器，可重试安装');
+        return;
+      }
+      if (error is PlatformException && error.code == 'settings_unavailable') {
+        _show('无法打开 Android 安装授权设置，可重试');
+        return;
+      }
+      if (root != null) await _retireAndroidRequest(root, request);
+      _clearAndroidArtifact();
       available = null;
-      needsInstallPermission = false;
-      _show('未能开始安装（$step）；请重新检查更新，当前版本保持可用');
+      final issue = androidPackageVerificationIssue(error);
+      _show(issue == null ? '未能开始安装，请重新检查更新' : '未能开始安装：$issue');
     } finally {
-      busy = false;
-      notifyListeners();
+      _finishUpdateWork();
     }
   }
 
   Future<void> install() async {
-    if (Platform.isAndroid) return _installAndroid();
+    if (isAndroid) return _installAndroid();
     if (busy || _stage == null || _job == null) return;
     busy = true;
     _show('正在保存并重启…');
