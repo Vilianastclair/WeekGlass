@@ -3,6 +3,7 @@ import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 
+import '../cloud/cloud_service_button.dart';
 import 'mobile_calendar_pager.dart';
 import 'mobile_glass_backdrop.dart';
 import 'mobile_press_feedback.dart';
@@ -65,8 +66,8 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
       .where(
         (action) =>
             action != SidebarAction.view &&
-            controller.sidebarActions.contains(action) &&
-            (action != SidebarAction.cloud || controller.cloud != null),
+            action != SidebarAction.cloud &&
+            controller.sidebarActions.contains(action),
       )
       .toList();
 
@@ -154,9 +155,6 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
     animation: controller,
     builder: (context, _) {
       final p = WeekGlassPalette.of(context);
-      final actions = _actions;
-      final primary = actions.take(3).toList();
-      final overflow = actions.skip(3).toList();
       return AnnotatedRegion<SystemUiOverlayStyle>(
         value: SystemUiOverlayStyle(
           statusBarColor: Colors.transparent,
@@ -194,55 +192,7 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
                       ),
                     ),
                     const SizedBox(height: 8),
-                    Container(
-                      key: const ValueKey('mobile-action-dock'),
-                      decoration: p.glassDecoration(elevated: true),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 4,
-                        vertical: 4,
-                      ),
-                      child: Row(
-                        children: [
-                          for (final action in primary)
-                            Expanded(
-                              child: _DockButton(
-                                key: ValueKey('mobile-action-${action.name}'),
-                                icon: action.icon,
-                                label: _shortLabel(action),
-                                tooltip: action == SidebarAction.undo
-                                    ? controller.undoLabel
-                                    : action.label,
-                                primary: action == SidebarAction.create,
-                                onPressed:
-                                    action == SidebarAction.undo &&
-                                        !controller.canUndo
-                                    ? null
-                                    : () => _run(context, action),
-                              ),
-                            ),
-                          if (overflow.isNotEmpty)
-                            Expanded(
-                              child: _DockButton(
-                                key: const ValueKey('mobile-action-more'),
-                                icon: Icons.more_horiz_rounded,
-                                label: '更多',
-                                tooltip: '更多快捷操作',
-                                onPressed: () => _more(context, overflow),
-                              ),
-                            ),
-                          Expanded(
-                            child: _DockButton(
-                              key: const ValueKey('mobile-action-settings'),
-                              icon: Icons.tune_rounded,
-                              label: '设置',
-                              tooltip: '设置',
-                              onPressed: () =>
-                                  openPlannerSettings(context, controller),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
+                    _dock(context, p),
                   ],
                 ),
               ),
@@ -252,6 +202,75 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
       );
     },
   );
+
+  Widget _dock(BuildContext context, WeekGlassPalette palette) {
+    final actions = _actions;
+    final showCloud =
+        controller.cloud != null &&
+        controller.sidebarActions.contains(SidebarAction.cloud);
+    return Container(
+      key: const ValueKey('mobile-action-dock'),
+      decoration: palette.glassDecoration(elevated: true),
+      padding: const EdgeInsets.all(4),
+      child: LayoutBuilder(
+        builder: (context, constraints) {
+          // Keep a direct Cloud shortcut beside Settings. The sixth dock slot
+          // (More) needs enough width to keep comfortable touch targets.
+          final primaryCount =
+              showCloud && actions.length > 3 && constraints.maxWidth < 6 * 56
+              ? 2
+              : 3;
+          final overflow = actions.skip(primaryCount).toList();
+          return Row(
+            children: [
+              for (final action in actions.take(primaryCount))
+                Expanded(
+                  child: _DockButton(
+                    key: ValueKey('mobile-action-${action.name}'),
+                    icon: action.icon,
+                    label: _shortLabel(action),
+                    tooltip: action == SidebarAction.undo
+                        ? controller.undoLabel
+                        : action.label,
+                    primary: action == SidebarAction.create,
+                    onPressed:
+                        action == SidebarAction.undo && !controller.canUndo
+                        ? null
+                        : () => _run(context, action),
+                  ),
+                ),
+              if (overflow.isNotEmpty)
+                Expanded(
+                  child: _DockButton(
+                    key: const ValueKey('mobile-action-more'),
+                    icon: Icons.more_horiz_rounded,
+                    label: '更多',
+                    tooltip: '更多快捷操作',
+                    onPressed: () => _more(context, overflow),
+                  ),
+                ),
+              if (showCloud)
+                Expanded(
+                  child: CloudServiceButton.dock(
+                    key: const ValueKey('mobile-action-cloud'),
+                    onPressed: () => _run(context, SidebarAction.cloud),
+                  ),
+                ),
+              Expanded(
+                child: _DockButton(
+                  key: const ValueKey('mobile-action-settings'),
+                  icon: Icons.tune_rounded,
+                  label: '设置',
+                  tooltip: '设置',
+                  onPressed: () => openPlannerSettings(context, controller),
+                ),
+              ),
+            ],
+          );
+        },
+      ),
+    );
+  }
 
   Widget _header(BuildContext context, WeekGlassPalette p) {
     final days = controller.visibleDays;
@@ -369,7 +388,7 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
     SidebarAction.importEvents => '导入',
     SidebarAction.exportEvents => '导出',
     SidebarAction.appearance => '外观',
-    SidebarAction.cloud => '云同步',
+    SidebarAction.cloud => action.label,
     SidebarAction.updates => '更新',
     SidebarAction.view => '视图',
   };

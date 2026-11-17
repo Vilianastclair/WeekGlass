@@ -7,6 +7,7 @@ import 'package:shared_preferences_platform_interface/shared_preferences_async_p
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import 'package:weekglass/features/cloud/cloud_auth_service.dart';
 import 'package:weekglass/features/cloud/cloud_connection.dart';
+import 'package:weekglass/features/cloud/cloud_service_button.dart';
 import 'package:weekglass/features/cloud/cloud_settings_dialog.dart';
 import 'package:weekglass/features/planner/planner_controller.dart';
 import 'package:weekglass/features/planner/planner_settings_dialog.dart';
@@ -23,7 +24,17 @@ void main() {
     ) async {
       _size(tester, size);
       final repository = _repository();
-      final connection = CloudConnection(repository: repository);
+      final launches = <Uri>[];
+      final connection = CloudConnection(
+        repository: repository,
+        auth: CloudAuthService(
+          vault: MemoryVault(),
+          browserLauncher: (uri) async {
+            launches.add(uri);
+            return true;
+          },
+        ),
+      );
       addTearDown(repository.close);
       addTearDown(connection.dispose);
       await tester.pumpWidget(
@@ -33,13 +44,18 @@ void main() {
         ),
       );
       await _tap(tester, '打开');
+      expect(find.text('云服务'), findsOneWidget);
       expect(find.text('WeekGlass 云'), findsOneWidget);
       expect(find.text('在浏览器中登录'), findsOneWidget);
       expect(tester.takeException(), isNull);
+      expect(tester.widget(_cta), isA<CloudServiceButton>());
+      await _tap(tester, '订阅云服务');
+      expect(launches.single, Uri.parse('$officialCloudOrigin/account#plans'));
+      expect(find.text('开通后请在这里登录同一账号。'), findsOneWidget);
       await _tap(tester, '自己的服务器');
       expect(find.text('服务器地址'), findsOneWidget);
       expect(find.text('自托管同步免费，由你的服务器保存日程。'), findsOneWidget);
-      expect(find.text('订阅云服务'), findsNothing);
+      expect(_cta, findsNothing);
       expect(tester.takeException(), isNull);
       await _tap(tester, '完成');
     });
@@ -50,7 +66,7 @@ void main() {
     (TargetPlatform.windows, const Size(1120, 760), legacyOfficialCloudOrigin),
   ]) {
     testWidgets(
-      'direct subscription and browser account handoff on $platform',
+      'cloud service owns subscription and browser account handoff on $platform',
       (tester) async {
         _size(tester, size);
         SharedPreferencesAsyncPlatform.instance =
@@ -107,29 +123,36 @@ void main() {
         );
 
         await _tap(tester, '打开');
-        final cta = find.byKey(const ValueKey('subscribe-cloud-service'));
-        expect(cta.hitTestable(), findsOneWidget);
+        final entry = find.byKey(const ValueKey('cloud-service-entry'));
+        expect(entry.hitTestable(), findsOneWidget);
+        expect(tester.widget(entry), isA<CloudServiceButton>());
         expect(
-          tester.getSize(cta).width,
+          tester.getSize(entry).width,
           greaterThan(size.width < 600 ? 235 : 400),
         );
+        expect(find.text('云同步'), findsNothing);
+        expect(find.text('订阅云服务'), findsNothing);
+        expect(_cta, findsNothing);
         expect(find.text('未开通'), findsOneWidget);
         expect(find.text('开通后才能跨设备同步日程'), findsOneWidget);
-        await _tap(tester, '订阅云服务');
-        expect(
-          launches.single,
-          Uri.parse('$officialCloudOrigin/account#plans'),
-        );
-        expect(find.text('设置'), findsOneWidget);
         expect(requests, ['GET /v1/me/entitlements']);
 
-        await _tap(tester, '云同步');
+        await tester.tap(entry);
+        await tester.pumpAndSettle();
+        expect(launches, isEmpty);
+        expect(find.text('云服务').hitTestable(), findsOneWidget);
         expect(find.text('reader@example.test'), findsOneWidget);
         expect(find.textContaining('不能合并或同步'), findsOneWidget);
         expect(find.text('合并日程'), findsNothing);
         expect(find.text('立即同步'), findsNothing);
         expect(find.text('已连接设备'), findsNothing);
         expect(find.text('账号安全与云端导出'), findsNothing);
+        expect(tester.widget(_cta), isA<CloudServiceButton>());
+        await _tap(tester, '订阅云服务');
+        expect(
+          launches.single,
+          Uri.parse('$officialCloudOrigin/account#plans'),
+        );
         browserWorks = false;
         await _tap(tester, '云服务账号');
         expect(find.text('无法打开链接'), findsOneWidget);
@@ -148,6 +171,7 @@ void main() {
         await tester.ensureVisible(find.text('已到期').last);
         expect(find.text('已到期').last.hitTestable(), findsOneWidget);
         expect(find.text('合并日程'), findsNothing);
+        expect(_cta, findsOneWidget);
         await _tap(tester, '前往网页导出云端日程');
         expect(
           launches.last,
@@ -176,13 +200,72 @@ void main() {
         expect(find.text('已开通').last.hitTestable(), findsOneWidget);
         expect(find.text('合并日程'), findsOneWidget);
         expect(cloud.auth.mergeApproved, isFalse);
+        expect(_cta, findsOneWidget);
+        await _tap(tester, '订阅云服务');
+        expect(launches.last, Uri.parse('$officialCloudOrigin/account#plans'));
         expect(requests.every((r) => r.startsWith('GET /v1/me/')), isTrue);
         expect(launches.every((u) => !u.hasQuery && !u.hasPort), isTrue);
+        await _tap(tester, '完成');
+        expect(entry.hitTestable(), findsOneWidget);
+        expect(_cta, findsNothing);
+        expect(find.text('已开通'), findsOneWidget);
         expect(tester.takeException(), isNull);
       },
     );
   }
+
+  testWidgets('connected self-hosted service does not offer official plans', (
+    tester,
+  ) async {
+    SharedPreferencesAsyncPlatform.instance =
+        InMemorySharedPreferencesAsync.empty();
+    final repository = _repository();
+    final cloud = CloudConnection(
+      repository: repository,
+      auth: CloudAuthService(
+        vault: MemoryVault()
+          ..value = jsonEncode({
+            ...tokens(),
+            'origin': 'https://sync.example.test',
+            'merge_approved': false,
+          }),
+        transport: (uri, method, body, headers, form) async =>
+            switch (uri.path) {
+              '/v1/me/entitlements' => {},
+              '/v1/devices' => {'devices': <Map<String, dynamic>>[]},
+              '/v1/me/account' => {'username': 'self-hosted'},
+              _ => throw StateError('Unexpected request: $method ${uri.path}'),
+            },
+      ),
+    );
+    final controller = PlannerController(
+      repository: MemoryImportRepo(),
+      timeZoneId: 'Asia/Shanghai',
+      cloud: cloud,
+    );
+    addTearDown(repository.close);
+    addTearDown(controller.dispose);
+    await cloud.initialize();
+    await controller.initialize();
+    await tester.pumpWidget(
+      _host(
+        platform: TargetPlatform.windows,
+        open: (context) => openPlannerSettings(context, controller),
+      ),
+    );
+    await _tap(tester, '打开');
+    expect(find.text('已连接自己的服务器'), findsOneWidget);
+    expect(find.text('未连接'), findsNothing);
+    expect(_cta, findsNothing);
+    await _tap(tester, '云服务');
+    expect(find.text('自己的服务器'), findsOneWidget);
+    expect(find.text('合并日程'), findsOneWidget);
+    expect(_cta, findsNothing);
+    expect(find.text('账号安全与云端导出'), findsOneWidget);
+  });
 }
+
+final _cta = find.byKey(const ValueKey('subscribe-cloud-service'));
 
 SqliteEventRepository _repository() => SqliteEventRepository(
   factory: databaseFactoryFfi,

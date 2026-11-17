@@ -59,7 +59,7 @@ $guide = @'
 
 ## 官方云与自托管
 
-在设置中连接独立的 WeekGlass 云账号。账号管理、订单和订阅方案位于 https://cloud.viliana.cn/account 。WeekGlass 账号与 Viliana 主站账号相互独立。
+在「设置 → 云服务」连接独立的 WeekGlass 云账号。账号管理、订单和订阅方案位于 https://cloud.viliana.cn/account 。WeekGlass 账号与 Viliana 主站账号相互独立。
 
 官方云同步 ¥1.00／30 天或 ¥9.99／365 天，微信单次付款，不自动续费。未开通或已到期时，不进行云端上传、下载或合并；本地日历照常可用。有效服务期间首次连接需确认合并，之后自动增量同步。
 
@@ -90,4 +90,3 @@ Windows 支持本机识别课表图片。也可导入 ICS、JSON、CSV 或粘贴
 $guide.Replace('{VERSION}', $version) | Set-Content -LiteralPath (Join-Path $PackageDir '使用说明.md') -Encoding utf8
 Compress-Archive -Path $PackageDir -DestinationPath $ZipPath -CompressionLevel Optimal
 Get-Item -LiteralPath $ZipPath | Select-Object FullName,Length
-Get-FileHash -LiteralPath $ZipPath -Algorithm SHA256

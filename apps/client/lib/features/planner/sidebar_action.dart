@@ -7,12 +7,12 @@ enum SidebarAction {
   importEvents('导入日程', Icons.file_download_outlined),
   exportEvents('导出日程', Icons.ios_share_rounded),
   appearance('皮肤与外观', Icons.water_drop_outlined),
-  cloud('云同步', Icons.cloud_outlined),
+  cloud('云服务', Icons.cloud_outlined),
   updates('软件更新', Icons.system_update_alt_rounded),
   view('切换视图', Icons.view_week_outlined);
 
   const SidebarAction(this.label, this.icon);
   final String label;
   final IconData icon;
-  static const defaults = {create, undo, courses, view};
+  static const defaults = {create, undo, courses, cloud, view};
 }

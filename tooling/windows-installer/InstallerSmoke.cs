@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.Globalization;
 using System.IO;
 using System.IO.Compression;
@@ -15,6 +16,12 @@ namespace WeekGlassSetup
 {
     internal static class InstallerSmoke
     {
+        private const int WM_PAINT = 0x000f, WM_CHANGEUISTATE = 0x0127;
+        private const int UIS_SET = 1, UIS_CLEAR = 2, UISF_HIDEFOCUS = 1;
+
+        [DllImport("user32.dll")]
+        private static extern IntPtr SendMessage(IntPtr window, int message, IntPtr wParam, IntPtr lParam);
+
         private static void Require(bool condition, string message)
         {
             if (!condition) throw new InvalidOperationException(message);
@@ -62,7 +69,7 @@ namespace WeekGlassSetup
             var process = typeof(Form).GetMethod("ProcessDialogKey", BindingFlags.Instance | BindingFlags.NonPublic);
             Require((bool)process.Invoke(window, new object[] { key }), "Setup did not handle the keyboard action " + key);
         }
-        private static void Render(SetupWindow window, string output)
+        private static void ShowOffscreen(SetupWindow window)
         {
             if (!window.Visible)
             {
@@ -72,6 +79,11 @@ namespace WeekGlassSetup
                 window.Show();
                 Application.DoEvents();
             }
+        }
+
+        private static void Render(SetupWindow window, string output)
+        {
+            ShowOffscreen(window);
             using (var screenshot = new Bitmap(window.Width, window.Height))
             {
                 Require(window.Handle != IntPtr.Zero, "Setup window handle missing");
@@ -110,12 +122,122 @@ namespace WeekGlassSetup
                 "Brand wordmark is clipped or overlaps its subtitle");
         }
 
-        private static void VerifyScaledWindow(Version version, string output, string path, Func<string, bool, string> install)
+        private static void CaptureButtonPaint(Button button, string check, Graphics sheet, Point origin)
         {
-            using (var window = new SetupWindow(false, version, path, null, install))
+            using (var pixels = new Bitmap(button.Width, button.Height, PixelFormat.Format32bppRgb))
+            using (var target = Graphics.FromImage(pixels))
             {
-                // Simulate 144 DPI on the 96-DPI runner without changing the user display settings.
-                const float scale = 1.5f;
+                target.Clear(Color.Magenta);
+                // DrawToBitmap uses WM_PRINT and can inherit pixels from the parent.
+                // WM_PAINT into its own DC exercises the native double-buffered path.
+                IntPtr dc = target.GetHdc();
+                try { SendMessage(button.Handle, WM_PAINT, dc, IntPtr.Zero); }
+                finally { target.ReleaseHdc(dc); }
+
+                int background = button.Parent.BackColor.ToArgb();
+                for (int x = 0; x < 2; x++)
+                    for (int y = 0; y < 2; y++)
+                        Require(pixels.GetPixel(x, y).ToArgb() == background &&
+                            pixels.GetPixel(button.Width - 1 - x, y).ToArgb() == background &&
+                            pixels.GetPixel(x, button.Height - 1 - y).ToArgb() == background &&
+                            pixels.GetPixel(button.Width - 1 - x, button.Height - 1 - y).ToArgb() == background,
+                            check + ": button corners do not match the surrounding panel");
+                sheet.DrawImageUnscaled(pixels, origin);
+            }
+        }
+
+        private static void RaiseButtonEvent(Button button, string method, EventArgs args)
+        {
+            button.GetType().GetMethod(method, BindingFlags.Instance | BindingFlags.NonPublic)
+                .Invoke(button, new object[] { args });
+        }
+
+        private static void ShowFocusCues(SetupWindow window, bool visible)
+        {
+            SendMessage(window.Handle, WM_CHANGEUISTATE,
+                new IntPtr((UISF_HIDEFOCUS << 16) | (visible ? UIS_CLEAR : UIS_SET)), IntPtr.Zero);
+        }
+
+        private static void VerifyButtonPainting(SetupWindow window, string output, string zoom)
+        {
+            var buttons = new[] { (Button)window.Controls.Find("browse", true)[0],
+                (Button)window.CancelButton, (Button)window.AcceptButton };
+            Control destination = window.Controls.Find("destination", true)[0];
+            string[] states = { "Normal", "Hover", "Pressed", "Disabled", "Keyboard focus" };
+            const int gap = 16, left = 136, top = 36;
+            int rowHeight = buttons[2].Height + gap;
+            int columnWidth = buttons[2].Width + gap;
+            using (var screenshot = new Bitmap(left + buttons.Length * columnWidth, top + states.Length * rowHeight))
+            using (var sheet = Graphics.FromImage(screenshot))
+            {
+                sheet.Clear(buttons[0].Parent.BackColor);
+                for (int row = 0; row < states.Length; row++)
+                    TextRenderer.DrawText(sheet, states[row], SystemFonts.MessageBoxFont,
+                        new Point(gap, top + row * rowHeight + 9), Color.FromArgb(27, 35, 58));
+                for (int i = 0; i < buttons.Length; i++)
+                {
+                    Button button = buttons[i];
+                    int x = left + i * columnWidth;
+                    using (var panel = new SolidBrush(button.Parent.BackColor))
+                        sheet.FillRectangle(panel, x - gap / 2, 0, columnWidth, screenshot.Height);
+                    TextRenderer.DrawText(sheet, button.Text, SystemFonts.MessageBoxFont,
+                        new Point(x, gap), Color.FromArgb(27, 35, 58));
+                    Action<int> capture = row => CaptureButtonPaint(button,
+                        zoom + " " + button.Text + " " + states[row], sheet, new Point(x, top + row * rowHeight));
+
+                    Require(destination.Focus(), "Could not leave button focus before testing " + button.Text);
+                    ShowFocusCues(window, false);
+                    capture(0);
+                    RaiseButtonEvent(button, "OnMouseEnter", EventArgs.Empty);
+                    capture(1);
+                    RaiseButtonEvent(button, "OnMouseDown", new MouseEventArgs(MouseButtons.Left, 1, button.Width / 2, button.Height / 2, 0));
+                    capture(2);
+                    RaiseButtonEvent(button, "OnMouseLeave", EventArgs.Empty);
+                    RaiseButtonEvent(button, "OnMouseUp", new MouseEventArgs(MouseButtons.Left, 1, -1, -1, 0));
+                    RaiseButtonEvent(button, "OnMouseCaptureChanged", EventArgs.Empty);
+                    button.Enabled = false;
+                    capture(3);
+                    button.Enabled = true;
+                    Require(button.Focus(), "Could not move keyboard focus to " + button.Text);
+                    ShowFocusCues(window, true);
+                    capture(4);
+
+                    int midY = top + button.Height / 2;
+                    int face = x + button.Width / 5;
+                    if (!SystemInformation.HighContrast)
+                        Require(screenshot.GetPixel(face, midY) != screenshot.GetPixel(face, midY + rowHeight) &&
+                            screenshot.GetPixel(face, midY + rowHeight) != screenshot.GetPixel(face, midY + 2 * rowHeight) &&
+                            screenshot.GetPixel(face, midY) != screenshot.GetPixel(face, midY + 3 * rowHeight),
+                            zoom + " " + button.Text + ": hover, press, or disabled state did not repaint");
+                    bool focusPainted = false;
+                    for (int ring = x + 1; ring < x + button.Width / 8; ring++)
+                        focusPainted |= screenshot.GetPixel(ring, midY) != screenshot.GetPixel(ring, midY + 4 * rowHeight);
+                    Require(focusPainted, zoom + " " + button.Text + ": keyboard focus ring did not repaint");
+                }
+                screenshot.Save(Path.Combine(output, "button-paint-" + zoom + ".png"));
+            }
+        }
+
+        private static string ZoomLabel(int dpi)
+        {
+            return (dpi * 100 / 96).ToString(CultureInfo.InvariantCulture) + "pct";
+        }
+
+        private static void VerifyButtonWindow(Version version, string output, string path, int dpi)
+        {
+            using (var window = new SetupWindow(false, version, path, null, (target, shortcut) => {
+                throw new InvalidOperationException("Button painting unexpectedly started installation");
+            }))
+            {
+                // Exercise the scaled pixel geometry without changing the user display settings.
+                float scale = dpi / window.CurrentAutoScaleDimensions.Width;
+                if (scale == 1f)
+                {
+                    ShowOffscreen(window);
+                    VerifyButtonPainting(window, output, ZoomLabel(dpi) + "-native");
+                    return;
+                }
+                string zoom = ZoomLabel(dpi) + "-simulated";
                 var initialFonts = new Dictionary<Control, Font>();
                 CollectFonts(window, initialFonts);
                 window.Scale(new SizeF(scale, scale));
@@ -128,8 +250,9 @@ namespace WeekGlassSetup
                         scaledFonts.Add(font);
                         entry.Key.Font = font;
                     }
-                    Render(window, Path.Combine(output, "setup-window-150pct-simulated.png"));
+                    Render(window, Path.Combine(output, "setup-window-" + zoom + ".png"));
                     VerifyWordmark(window);
+                    VerifyButtonPainting(window, output, zoom);
                 }
                 finally
                 {
@@ -186,7 +309,8 @@ namespace WeekGlassSetup
                 PressDialogKey(window, Keys.Escape);
                 Require(calls == 2 && window.IsDisposed, "Cancel invoked uninstallation");
             }
-            VerifyScaledWindow(version, output, defaultPath, install);
+            foreach (int dpi in new[] { 96, 120, 144 })
+                VerifyButtonWindow(version, output, defaultPath, dpi);
             Thread.CurrentThread.CurrentUICulture = new CultureInfo("en-US");
             using (var window = new SetupWindow(false, version, runtime, runtime, install))
             {
@@ -226,7 +350,7 @@ namespace WeekGlassSetup
                 {
                     Version version = Assembly.GetExecutingAssembly().GetName().Version;
                     VerifyWindows(version, args[1], Path.Combine(Path.GetTempPath(), "WeekGlass", "Programs", "WeekGlass"));
-                    Console.WriteLine("WeekGlass {0}: verified the embedded 512 px brand mark, native-size and simulated 150% rendering, Enter and Escape actions, error retry, and completion.", Copy.Version(version));
+                    Console.WriteLine("WeekGlass {0}: verified the embedded 512 px brand mark, native button painting at 100%, 125%, and 150% geometry, Enter and Escape actions, error retry, and completion.", Copy.Version(version));
                     return 0;
                 }
                 catch (Exception problem) { Console.Error.WriteLine(problem); return 1; }
@@ -344,7 +468,7 @@ namespace WeekGlassSetup
                 Require(File.ReadAllText(settings) == "{}", "Uninstallation changed application settings");
 
                 VerifyWindows(version, args[2], runtime);
-                Console.WriteLine("WeekGlass {0}: verified {1} files at a custom Unicode path, both shortcuts, Installed Apps, in-place upgrade, downgrade guard, relocation rollback and success, desktop opt-out, running-app guard, updater swap, uninstall, settings retention and setup UI, including the embedded 512 px brand mark and native-size and simulated 150% rendering.", Copy.Version(version), count);
+                Console.WriteLine("WeekGlass {0}: verified {1} files at a custom Unicode path, both shortcuts, Installed Apps, in-place upgrade, downgrade guard, relocation rollback and success, desktop opt-out, running-app guard, updater swap, uninstall, settings retention and setup UI, including native button painting at 100%, 125%, and 150% geometry.", Copy.Version(version), count);
                 return 0;
             }
             catch (Exception problem) { Console.Error.WriteLine(problem); return 1; }

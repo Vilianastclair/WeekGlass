@@ -22,7 +22,7 @@ WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointmen
 
 ## Use WeekGlass Cloud
 
-Open **Subscribe to cloud** in Settings to buy a plan in your browser. Then sign in with the same account under Settings → Cloud sync. Sync starts after you confirm the calendar merge. Plans cost ¥1.00 for 30 days or ¥9.99 for 365 days, paid once with WeChat Pay. Neither plan renews automatically.
+Open **Settings → Cloud services → Subscribe to cloud** to buy a plan in your browser. Then return to Cloud services and sign in with the same account. Sync starts after you confirm the calendar merge. Plans cost ¥1.00 for 30 days or ¥9.99 for 365 days, paid once with WeChat Pay. Neither plan renews automatically.
 
 Visit [your cloud account](https://cloud.viliana.cn/account) to manage orders, devices and account security. When your subscription ends, cloud sync pauses and your local calendar keeps working. You can export your cloud calendar from the account site.
 

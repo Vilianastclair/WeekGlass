@@ -237,6 +237,97 @@ class _LiquidMaterial extends InheritedWidget {
       clock != oldWidget.clock;
 }
 
+/// A small prismatic reflection for highlighted controls. Only its paint
+/// layer listens to the same clock as the surrounding glass.
+class IridescentGlass extends StatefulWidget {
+  const IridescentGlass({super.key, required this.child, this.enabled = true});
+
+  final Widget child;
+  final bool enabled;
+
+  @override
+  State<IridescentGlass> createState() => _IridescentGlassState();
+}
+
+class _IridescentGlassState extends State<IridescentGlass> {
+  double? _heldTime;
+
+  @override
+  Widget build(BuildContext context) {
+    final material = context
+        .dependOnInheritedWidgetOfExactType<_LiquidMaterial>();
+    final clock = material?.clock;
+    final moving =
+        widget.enabled &&
+        material?.motion == true &&
+        TickerMode.valuesOf(context).enabled &&
+        !MediaQuery.disableAnimationsOf(context) &&
+        ModalRoute.isCurrentOf(context) != false;
+    if (moving) {
+      _heldTime = null;
+    } else {
+      _heldTime ??= clock?.seconds ?? 0;
+    }
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        if (widget.enabled)
+          Positioned.fill(
+            child: RepaintBoundary(
+              child: CustomPaint(
+                painter: _PrismReflection(
+                  clock: moving ? clock : null,
+                  heldTime: _heldTime ?? 0,
+                ),
+              ),
+            ),
+          ),
+        widget.child,
+      ],
+    );
+  }
+}
+
+class _PrismReflection extends CustomPainter {
+  _PrismReflection({required this.clock, required this.heldTime})
+    : super(repaint: clock);
+
+  final _LakeClock? clock;
+  final double heldTime;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    if (size.isEmpty) return;
+    final rect = Offset.zero & size;
+    final phase =
+        .5 - .5 * math.cos((clock?.seconds ?? heldTime) * math.pi / 2.8 + 1.15);
+    final shift = -1.05 + 2.1 * phase;
+    final gradient = LinearGradient(
+      begin: Alignment(shift - .58, .32),
+      end: Alignment(shift + .58, -.32),
+      colors: const [
+        Color(0x006BEEDC),
+        Color(0x526BEEDC),
+        Color(0xADFFFFFF),
+        Color(0x69FAC7E8),
+        Color(0x00FAC7E8),
+      ],
+      stops: const [0, .30, .46, .66, 1],
+    );
+    canvas.drawRRect(
+      RRect.fromRectAndRadius(
+        rect,
+        const Radius.circular(WeekGlassGeometry.radius),
+      ).deflate(1),
+      Paint()..shader = gradient.createShader(rect),
+    );
+  }
+
+  @override
+  bool shouldRepaint(_PrismReflection oldDelegate) =>
+      clock != oldDelegate.clock || heldTime != oldDelegate.heldTime;
+}
+
 /// Clear body → local flowing color → one stable outline → untouched content.
 /// The optical layer never changes a hit target, size, position or text layout.
 class LiquidGlassSurface extends StatefulWidget {

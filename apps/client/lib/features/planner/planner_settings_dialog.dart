@@ -3,11 +3,10 @@ import 'package:weekglass_domain/weekglass_domain.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 
 import '../../app/event_reminders.dart';
-import '../cloud/cloud_auth_service.dart';
 import '../cloud/cloud_connection.dart';
 import '../cloud/cloud_portal_link.dart';
+import '../cloud/cloud_service_button.dart';
 import '../cloud/cloud_settings_dialog.dart';
-import '../cloud/cloud_subscription_state_chip.dart';
 import '../updates/update_service.dart';
 import '../updates/update_settings_tile.dart';
 import 'planner_actions.dart';
@@ -240,24 +239,26 @@ class _SettingsDialogState extends State<_SettingsDialog> {
       const _SupportLink.star(),
       if (cloud != null) ...[
         const SizedBox(height: 12),
-        AnimatedBuilder(
-          animation: cloud,
-          builder: (context, _) => Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              if (cloudSubscriptionLinksAllowed)
-                _CloudServiceCard(cloud: cloud),
-              const SizedBox(height: 5),
-              _SettingsRow(
-                icon: Icons.sync_rounded,
-                title: '云同步',
-                subtitle: cloud.connected
-                    ? (cloud.auth.official ? '管理此设备的同步' : '已连接自己的服务器')
-                    : '连接官方云或自己的服务器',
-                onTap: () => openCloudSettings(context, cloud),
-              ),
-            ],
-          ),
+        ListenableBuilder(
+          listenable: cloud,
+          builder: (context, _) {
+            final selfHosted = cloud.connected && !cloud.auth.official;
+            final state = cloud.subscriptionState;
+            return CloudServiceButton.entry(
+              key: const ValueKey('cloud-service-entry'),
+              state: selfHosted ? null : state,
+              detail: selfHosted
+                  ? '已连接自己的服务器'
+                  : switch (state) {
+                      CloudSubscriptionState.signedOut => '连接官方云或自托管',
+                      CloudSubscriptionState.checking => '确认服务状态后才能同步日程',
+                      CloudSubscriptionState.notSubscribed => '开通后才能跨设备同步日程',
+                      CloudSubscriptionState.active => '管理此设备的同步',
+                      CloudSubscriptionState.expired => '同步已暂停，本机日程照常使用',
+                    },
+              onPressed: () => openCloudSettings(context, cloud),
+            );
+          },
         ),
       ],
       const SizedBox(height: 12),
@@ -514,124 +515,6 @@ class _SettingsRow extends StatelessWidget {
                   color: palette.muted,
                 ),
               ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CloudServiceCard extends StatelessWidget {
-  const _CloudServiceCard({required this.cloud});
-  final CloudConnection cloud;
-
-  @override
-  Widget build(BuildContext context) {
-    final palette = WeekGlassPalette.of(context);
-    final text = Theme.of(context).textTheme;
-    final middle = Color.lerp(const Color(0xFFDAEBFF), palette.accent, .13)!;
-    final far = Color.lerp(const Color(0xFFD7CFFF), palette.accent, .15)!;
-    final corners = BorderRadius.circular(16);
-    final state = cloud.subscriptionState;
-    const ink = Color(0xFF172A4B);
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        borderRadius: corners,
-        boxShadow: [
-          BoxShadow(
-            color: palette.accent.withValues(alpha: .22),
-            blurRadius: 17,
-            offset: const Offset(0, 5),
-          ),
-        ],
-      ),
-      child: Material(
-        type: MaterialType.transparency,
-        borderRadius: corners,
-        clipBehavior: Clip.antiAlias,
-        child: Ink(
-          decoration: BoxDecoration(
-            borderRadius: corners,
-            border: Border.all(color: const Color(0xECF7FBFF)),
-            gradient: LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [const Color(0xFFF6FCFF), middle, far],
-              stops: const [0, .55, 1],
-            ),
-          ),
-          child: InkWell(
-            key: const ValueKey('subscribe-cloud-service'),
-            onTap: () =>
-                openCloudPortal(context, cloud.auth, CloudPortalPage.plans),
-            borderRadius: corners,
-            focusColor: const Color(0x254761A7),
-            hoverColor: const Color(0x277A99E6),
-            splashColor: const Color(0x366484C7),
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(13, 12, 13, 12),
-              child: Row(
-                children: [
-                  Container(
-                    width: 39,
-                    height: 39,
-                    decoration: BoxDecoration(
-                      color: const Color(0xABFFFFFF),
-                      border: Border.all(color: Colors.white),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    alignment: Alignment.center,
-                    child: const Icon(
-                      Icons.cloud_outlined,
-                      color: ink,
-                      size: 23,
-                    ),
-                  ),
-                  const SizedBox(width: 11),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Wrap(
-                          spacing: 9,
-                          runSpacing: 3,
-                          crossAxisAlignment: WrapCrossAlignment.center,
-                          children: [
-                            Text(
-                              '订阅云服务',
-                              style: text.titleMedium?.copyWith(
-                                color: ink,
-                                fontWeight: FontWeight.w800,
-                                fontSize: 18,
-                              ),
-                            ),
-                            CloudSubscriptionStateChip(
-                              state: state,
-                              onLight: true,
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 3),
-                        Text(
-                          switch (state) {
-                            CloudSubscriptionState.notSubscribed =>
-                              '开通后才能跨设备同步日程',
-                            CloudSubscriptionState.expired => '同步已暂停，本机日程照常使用',
-                            CloudSubscriptionState.checking => '确认服务状态后才能同步日程',
-                            _ => '跨设备同步日程',
-                          },
-                          style: text.bodySmall?.copyWith(
-                            color: const Color(0xFF394D73),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(width: 5),
-                  const Icon(Icons.arrow_outward_rounded, color: ink, size: 19),
-                ],
-              ),
             ),
           ),
         ),

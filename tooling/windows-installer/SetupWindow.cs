@@ -185,6 +185,9 @@ namespace WeekGlassSetup
                 UseVisualStyleBackColor = false;
                 SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer |
                     ControlStyles.ResizeRedraw | ControlStyles.SupportsTransparentBackColor, true);
+                // ButtonBase is opaque by default. Paint the parent into the buffer before
+                // blending the rounded outline, or untouched corner pixels can show through.
+                SetStyle(ControlStyles.Opaque, false);
                 BackColor = Color.Transparent;
             }
 

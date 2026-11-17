@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 
+import '../cloud/cloud_service_button.dart';
 import '../course_import/course_import_dialog.dart';
 import 'calendar_grid.dart';
 import 'event_editor_dialog.dart';
@@ -93,17 +94,16 @@ class PlannerScreen extends StatelessWidget {
                                         children: [
                                           for (final action
                                               in SidebarAction.values)
-                                            if (controller.sidebarActions
-                                                .contains(action))
+                                            if (action != SidebarAction.cloud &&
+                                                controller.sidebarActions
+                                                    .contains(action))
                                               if (action ==
                                                   SidebarAction.view) ...[
                                                 if (!Platform.isWindows)
                                                   _ViewMenu(
                                                     controller: controller,
                                                   ),
-                                              ] else if (action !=
-                                                      SidebarAction.cloud ||
-                                                  controller.cloud != null)
+                                              ] else
                                                 _RailButton(
                                                   icon: action.icon,
                                                   label: action.label,
@@ -131,6 +131,18 @@ class PlannerScreen extends StatelessWidget {
                                       ),
                                     ),
                                   ),
+                                  if (controller.cloud != null &&
+                                      controller.sidebarActions.contains(
+                                        SidebarAction.cloud,
+                                      ))
+                                    CloudServiceButton.rail(
+                                      key: const ValueKey('rail-cloud-service'),
+                                      onPressed: () => openPlannerAction(
+                                        context,
+                                        controller,
+                                        SidebarAction.cloud,
+                                      ),
+                                    ),
                                   _RailButton(
                                     icon: Icons.tune_rounded,
                                     label: '设置',

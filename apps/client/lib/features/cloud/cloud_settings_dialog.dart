@@ -11,6 +11,7 @@ import 'cloud_account_dialog.dart';
 import 'cloud_auth_service.dart';
 import 'cloud_connection.dart';
 import 'cloud_portal_link.dart';
+import 'cloud_service_button.dart';
 import 'cloud_subscription_state_chip.dart';
 import 'cloud_sync_engine.dart';
 
@@ -212,7 +213,7 @@ class _CloudDialogState extends State<_CloudDialog> {
       },
       child: GlassAlertDialog(
         insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 22),
-        title: const Text('云同步'),
+        title: const Text(CloudServiceButton.label),
         contentPadding: const EdgeInsets.fromLTRB(24, 14, 24, 8),
         actionsPadding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
         content: SizedBox(
@@ -315,14 +316,13 @@ class _CloudDialogState extends State<_CloudDialog> {
       if (hosted &&
           cloudSubscriptionLinksAllowed &&
           cloud.loginPhase == null) ...[
-        TextButton(
-          onPressed: cloud.working
-              ? null
-              : () => _openPortal(CloudPortalPage.plans),
-          child: const Text('订阅云服务'),
-        ),
+        const SizedBox(height: 10),
+        _subscribeButton(),
         if (_browserOpened)
-          Text('开通后请在这里登录同一账号。', style: theme.textTheme.bodySmall),
+          Padding(
+            padding: const EdgeInsets.only(top: 8),
+            child: Text('开通后请在这里登录同一账号。', style: theme.textTheme.bodySmall),
+          ),
       ],
       if (cloud.loginPhase case final phase?) ...[
         const SizedBox(height: 12),
@@ -390,13 +390,7 @@ class _CloudDialogState extends State<_CloudDialog> {
           ),
         if (!canSync && cloudSubscriptionLinksAllowed) ...[
           const SizedBox(height: 12),
-          FilledButton.icon(
-            onPressed: cloud.working
-                ? null
-                : () => _openPortal(CloudPortalPage.plans),
-            icon: const Icon(Icons.open_in_new_rounded, size: 18),
-            label: const Text('订阅云服务'),
-          ),
+          _subscribeButton(),
         ],
         if (_browserOpened && !canSync)
           Padding(
@@ -461,6 +455,10 @@ class _CloudDialogState extends State<_CloudDialog> {
           ),
         ),
       ],
+      if (official && canSync && cloudSubscriptionLinksAllowed) ...[
+        const SizedBox(height: 12),
+        _subscribeButton(),
+      ],
       const Divider(height: 24),
       if (official)
         ListTile(
@@ -491,6 +489,11 @@ class _CloudDialogState extends State<_CloudDialog> {
       ),
     ];
   }
+
+  Widget _subscribeButton() => CloudServiceButton.subscription(
+    key: const ValueKey('subscribe-cloud-service'),
+    onPressed: cloud.working ? null : () => _openPortal(CloudPortalPage.plans),
+  );
 
   Widget _conflict(BuildContext context, CloudConflict conflict) => Padding(
     padding: const EdgeInsets.only(top: 8),

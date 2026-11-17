@@ -8,7 +8,8 @@ param(
   [Parameter(Mandatory)][string]$PackageDirectory,
   [string]$OutputDirectory,
   [string]$SmokeArtifactDirectory,
-  [string]$LegacyInstaller
+  [string]$LegacyInstaller,
+  [ValidateRange(2, [int]::MaxValue)][int]$InstallerRevision
 )
 $ErrorActionPreference = 'Stop'
 $project = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '../..')).Path
@@ -49,7 +50,11 @@ if ($packageItems | Where-Object { ($_.Attributes -band [IO.FileAttributes]::Rep
 }
 
 $output = (New-Item -ItemType Directory -Path $OutputDirectory -Force).FullName
-$filename = "WeekGlass-Setup-$version-Windows-x64.exe"
+$filename = if ($InstallerRevision) {
+  "WeekGlass-Setup-$version-Windows-x64-r$InstallerRevision.exe"
+} else {
+  "WeekGlass-Setup-$version-Windows-x64.exe"
+}
 $destination = Join-Path $output $filename
 if (Test-Path -LiteralPath $destination) { throw "Installer exists: $destination. Choose a fresh output directory." }
 $tempRoot = [IO.Path]::GetFullPath([IO.Path]::GetTempPath()).TrimEnd('\', '/')
