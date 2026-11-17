@@ -4,12 +4,14 @@
 
 WeekGlass 是一款面向 Windows 和 Android 的周日历。把课表、约会和专注时间放进同一张日历。无需账号，离线也能排日程。
 
-- [下载 Windows x64 安装包](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Setup-0.20.13-Windows-x64.exe)
-- [下载 Android ARM64 APK](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.13/WeekGlass-Android-0.20.13-arm64.apk)
+- [下载 Windows x64 安装包](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.16/WeekGlass-Setup-0.20.16-Windows-x64.exe)
+- [下载 Android ARM64 APK](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.16/WeekGlass-Android-0.20.16-arm64.apk)
 
 [GitHub 发行页](https://github.com/Vilianastclair/WeekGlass/releases) | [官网](https://cloud.viliana.cn/) | [English](README-EN.md)
 
-**Windows**：打开 EXE 安装。**Android**：打开 APK 安装。首次安装后，可在「设置 → 软件更新」检查可用版本。
+**Windows**：运行 EXE 安装，在「设置 → 软件与通知」检查更新。
+
+**Android**：打开 APK 安装，在「设置 → 软件更新」升级。下载并校验后，WeekGlass 会在前台打开系统安装器，按提示确认即可。
 
 ## 排好你的一周
 
