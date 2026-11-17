@@ -134,7 +134,7 @@ class _GlassEventCardState extends State<GlassEventCard> {
                             blurRadius: 18,
                           ),
                       ],
-                      child: LiquidGlassSurface(
+                      child: LiquidGlassSurface.event(
                         active: widget.materialActive,
                         colorKey: widget.event.color.key,
                         child: LayoutBuilder(

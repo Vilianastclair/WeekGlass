@@ -39,7 +39,7 @@ SPEC = '''# 流光玻璃
 
 月光冰蓝、雾紫水晶、玫瑰石英、香槟琥珀、冰川青、曜石银，各有浅深两套。
 
-内容类别色为雾蓝、鸢尾紫、冰青、暮杏、蔷薇、琥珀、月灰，与全局皮肤独立。完整色值见同目录 design-tokens.json，编码为 #AARRGGBB。
+内容类别色为雾蓝、鸢尾紫、冰青、暮杏、蔷薇、琥珀、月灰，与全局皮肤独立。浅色日程减少冰白混色，以更鲜明的分类色参与流动透光；透明底层、文字、轮廓和全局面板保持原样，月灰仍为中性色。daylightFlowTint 对应浅色日程，flowTint 保留深色和原材质用途。完整色值见同目录 design-tokens.json，编码为 #AARRGGBB。
 
 ## 动态
 
@@ -135,7 +135,7 @@ def main():
             copy(path, '02界面样张/账号/' + path.name)
 
     sys.path.insert(0, str(ROOT / 'server/runtime'))
-    for folder in ('commercial-settings', 'mobile-time-zoom', 'commercial-website', 'startup-update'):
+    for folder in ('commercial-settings', 'mobile-time-zoom', 'commercial-website', 'startup-update', 'event-color'):
         for path in sorted((ROOT / 'design-reference/previews' / folder).rglob('*')):
             if path.is_file() and path.suffix.lower() in ('.png', '.jpg', '.webp'):
                 copy(path, '02界面样张/' + folder + '/' + path.relative_to(ROOT / 'design-reference/previews' / folder).as_posix())
@@ -181,7 +181,8 @@ def main():
         raise ValueError('Review changed preview dependency licenses before exporting.')
     put('04玻璃组件/Web/LICENSE.txt',
         ('React / React DOM / Scheduler\n\n' + licenses[0]).encode('utf-8'))
-    entry = app + '\nimport {createRoot} from "react-dom/client"; createRoot(document.getElementById("root")).render(<App/>);'
+    event_tokens = json.dumps(tokens["events"], ensure_ascii=False)
+    entry = app + '\nimport {createRoot} from "react-dom/client"; const archivedEventTokens=' + event_tokens + '; createRoot(document.getElementById("root")).render(<App eventTokens={archivedEventTokens}/>);'
     esbuild = prototype / 'node_modules/@esbuild/win32-x64/esbuild.exe'
     compiled = subprocess.run([str(esbuild), '--bundle', '--format=iife', '--minify',
                                '--loader=jsx', '--define:process.env.NODE_ENV="production"',

@@ -30,7 +30,7 @@ Widget _host({
                 child: SizedBox(
                   width: 220,
                   height: 160,
-                  child: LiquidGlassSurface(
+                  child: LiquidGlassSurface.event(
                     key: _surfaceKeys[i],
                     active: active[i],
                     colorKey: 'mist_blue',

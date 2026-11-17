@@ -264,7 +264,7 @@ class _LightControls extends StatelessWidget {
               ]) ...[
                 if (sample.$1 != 'mist_blue') const SizedBox(width: 10),
                 Expanded(
-                  child: LiquidGlassSurface(
+                  child: LiquidGlassSurface.event(
                     colorKey: sample.$1,
                     child: Center(
                       child: Text(

@@ -15,6 +15,7 @@ uniform float background;
 uniform vec2 press;
 uniform float pressAge;
 uniform vec2 wake;
+uniform float daylightEvent;
 out vec4 fragColor;
 
 void main() {
@@ -48,10 +49,20 @@ void main() {
   sheen *= sheen;
 
   vec3 ice = mix(vec3(.76, .89, 1.), vec3(.65, .81, 1.), night);
-  vec3 color = mix(tint * mix(.80, 1., night), ice, .14 + .30 * pool);
-  color = mix(color, vec3(1.), ribbon * mix(.08, .29, night) + sheen * .10);
-  float alpha = .019 + pool * mix(.059, .139, night)
-      + ribbon * mix(.146, .082, night) + sheen * .018 + ripple * .042;
-  alpha = max(0., alpha) * strength * mix(1., 1.12, night) * mix(1., .58, background);
+  vec3 color;
+  float alpha;
+  if (daylightEvent > .5) {
+    // Use the same two currents, with less ice mixed into the category light.
+    color = mix(tint, ice, .06 + .08 * (1. - pool));
+    color = mix(color, vec3(1.), ribbon * .075 + sheen * .09);
+    alpha = .026 + pool * .148 + ribbon * .182 + sheen * .019 + ripple * .042;
+    alpha = max(0., alpha) * strength;
+  } else {
+    color = mix(tint * mix(.80, 1., night), ice, .14 + .30 * pool);
+    color = mix(color, vec3(1.), ribbon * mix(.08, .29, night) + sheen * .10);
+    alpha = .019 + pool * mix(.059, .139, night)
+        + ribbon * mix(.146, .082, night) + sheen * .018 + ripple * .042;
+    alpha = max(0., alpha) * strength * mix(1., 1.12, night) * mix(1., .58, background);
+  }
   fragColor = vec4(color * alpha, alpha);
 }

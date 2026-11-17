@@ -82,8 +82,8 @@ class UpdateService extends ChangeNotifier {
        );
 
   static final instance = UpdateService._();
-  static const currentVersion = '0.20.18';
-  static const currentBuild = 44;
+  static const currentVersion = '0.20.19';
+  static const currentBuild = 45;
   Future<void> Function()? beforeInstall;
   Future<void> Function()? beforeAndroidInstall;
   Future<void> Function()? afterInstallFailure;

@@ -82,6 +82,18 @@ abstract final class LiquidGlass {
     _ => const Color.fromRGBO(107, 166, 250, 1),
   };
 
+  /// Pigments for daylight event glass, before mixing with the lake light.
+  /// The dark material keeps its original palette.
+  static Color daylightEventTint(String key) => switch (key) {
+    'lavender' => const Color(0xFFA34FED),
+    'sage_green' => const Color(0xFF29A9A5),
+    'soft_peach' => const Color(0xFFF67B4E),
+    'rose' => const Color(0xFFE14E89),
+    'warm_sand' => const Color(0xFFDEAB32),
+    'slate' => const Color(0xFF798598),
+    _ => const Color(0xFF3F87F4),
+  };
+
   static double phase(String key) => switch (key) {
     'lavender' => 7.3,
     'sage_green' => 14.6,
@@ -337,8 +349,19 @@ class LiquidGlassSurface extends StatefulWidget {
     required this.child,
     this.background = false,
     this.active = true,
-  });
+  }) : _event = false;
+
+  /// A calendar card or a swatch of its category glass.
+  const LiquidGlassSurface.event({
+    super.key,
+    required this.colorKey,
+    required this.child,
+    this.active = true,
+  }) : background = false,
+       _event = true;
+
   final bool background;
+  final bool _event;
 
   /// Whether this surface listens to the shared material clock. Offscreen
   /// callers can retain its content and gestures without repainting its optics.
@@ -380,6 +403,7 @@ class _LiquidGlassSurfaceState extends State<LiquidGlassSurface> {
       }
     }
     final dark = Theme.of(context).brightness == Brightness.dark;
+    final daylightEvent = widget._event && !dark;
     final motion = widget.active && (material?.motion ?? false);
     if (widget.active) {
       inactiveTime = null;
@@ -443,8 +467,11 @@ class _LiquidGlassSurfaceState extends State<LiquidGlassSurface> {
                           inactiveTime: inactiveTime,
                           shader: shader,
                           dark: dark,
+                          daylightEvent: daylightEvent,
                           tint: widget.background
                               ? Theme.of(context).colorScheme.primary
+                              : daylightEvent
+                              ? LiquidGlass.daylightEventTint(widget.colorKey)
                               : LiquidGlass.tint(widget.colorKey),
                           phase: LiquidGlass.phase(widget.colorKey),
                           strength:
@@ -512,6 +539,7 @@ class _LakePainter extends CustomPainter {
     required this.inactiveTime,
     required this.shader,
     required this.dark,
+    required this.daylightEvent,
     required this.tint,
     required this.phase,
     required this.strength,
@@ -524,7 +552,7 @@ class _LakePainter extends CustomPainter {
   final bool active;
   final double? inactiveTime;
   final ui.FragmentShader? shader;
-  final bool dark, motion, background, mobile;
+  final bool dark, motion, background, mobile, daylightEvent;
   final Color tint;
   final double phase, strength;
   final _LakePointer pointer;
@@ -578,6 +606,7 @@ class _LakePainter extends CustomPainter {
         motion ? time - pointer.pressTime : 100.0,
         motion ? pointer.target.dx - pointer.current.dx : 0.0,
         motion ? pointer.target.dy - pointer.current.dy : 0.0,
+        daylightEvent ? 1.0 : 0.0,
       ];
       for (var i = 0; i < values.length; i++) {
         effect.setFloat(i, values[i]);
@@ -591,8 +620,8 @@ class _LakePainter extends CustomPainter {
             center: const Alignment(-.3, -.2),
             radius: 1.1,
             colors: [
-              tint.withValues(alpha: .13 * strength),
-              tint.withValues(alpha: .025 * strength),
+              tint.withValues(alpha: (daylightEvent ? .27 : .13) * strength),
+              tint.withValues(alpha: (daylightEvent ? .04 : .025) * strength),
             ],
           ).createShader(rect),
       );
@@ -616,6 +645,7 @@ class _LakePainter extends CustomPainter {
       background != oldDelegate.background ||
       shader != oldDelegate.shader ||
       dark != oldDelegate.dark ||
+      daylightEvent != oldDelegate.daylightEvent ||
       tint != oldDelegate.tint ||
       phase != oldDelegate.phase ||
       strength != oldDelegate.strength ||

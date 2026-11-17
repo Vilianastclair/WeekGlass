@@ -13,6 +13,7 @@ uniform float background;
 uniform vec2 press;
 uniform float pressAge;
 uniform vec2 wake;
+uniform float daylightEvent;
 uniform sampler2D lattice;
 out vec4 fragColor;
 
@@ -49,9 +50,8 @@ void main() {
         max(0., 1. - pressAge / 1.15);
     p += fromPress / max(distance, 1.) * ripple * .065;
   }
-  // The old field moved only .13 lattice cells in two seconds. Keep the same
-  // eight cached-lattice samples, but let the two currents visibly pass each
-  // other instead of leaving a nearly uniform category fill on light glass.
+  // Let the two currents visibly pass each other; the cached lattice keeps
+  // that motion inexpensive.
   float flow = time * 2.8 + phase;
   vec2 drift = vec2(flow * .055, -flow * .034);
   vec2 warp = vec2(field(p * 1.15 + drift), field(p * 1.2 - drift * .85 + 7.));
@@ -61,12 +61,20 @@ void main() {
   float colorPool = smoothstep(.36, .66, lake);
   float sheen = pow(max(sin(uv.x * 2.8 - uv.y * 4. + lake * 3. + time * .38), 0.), 8.);
   vec3 ice = mix(vec3(.76, .89, 1.), vec3(.65, .81, 1.), night);
-  vec3 color = mix(tint * mix(.80, 1., night), ice, .16 + .32 * field(p + drift * .6));
-  color = mix(color, vec3(1.), reflected * mix(.08, .34, night) + sheen * .16 + max(ripple, 0.) * .13);
-  // Redistribute opacity from the flat pool into broad passing reflections;
-  // peak opacity remains below the original .275 (before touch/strength).
-  float alpha = (.018 + colorPool * mix(.055, .16, night) + reflected * mix(.175, .07, night) + sheen * .025 + max(ripple, 0.) * .05) * strength;
-  alpha *= mix(1., 1.12, night);
-  alpha *= mix(1., .58, background);
+  vec3 color;
+  float alpha;
+  if (daylightEvent > .5) {
+    // Carry more pigment in the moving pool and ribbon, not in a flat coat.
+    // Reuse the existing field; no additional lattice sample or paint pass.
+    color = mix(tint, ice, .06 + .08 * (1. - colorPool));
+    color = mix(color, vec3(1.), reflected * .075 + sheen * .09 + max(ripple, 0.) * .13);
+    alpha = (.026 + colorPool * .155 + reflected * .184 + sheen * .021 + max(ripple, 0.) * .05) * strength;
+  } else {
+    color = mix(tint * mix(.80, 1., night), ice, .16 + .32 * field(p + drift * .6));
+    color = mix(color, vec3(1.), reflected * mix(.08, .34, night) + sheen * .16 + max(ripple, 0.) * .13);
+    alpha = (.018 + colorPool * mix(.055, .16, night) + reflected * mix(.175, .07, night) + sheen * .025 + max(ripple, 0.) * .05) * strength;
+    alpha *= mix(1., 1.12, night);
+    alpha *= mix(1., .58, background);
+  }
   fragColor = vec4(color * alpha, alpha); // Flutter requires premultiplied RGB.
 }
