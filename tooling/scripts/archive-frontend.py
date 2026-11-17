@@ -55,7 +55,7 @@ SPEC = '''# 流光玻璃
 
 ## 账号页面
 
-沿用月光冰蓝浅深色、连续亮边、顶部受光及悬浮投影，品牌使用同一透明 W 标记。网页主要矩形使用 22 像素圆角，桌面和手机原生组件保持 12 逻辑像素。网页中文字体采用本机 Noto Sans SC、苹方或微软雅黑回退，避免额外下载整套字体。设置首页以流光「云服务」入口显示服务状态，订阅按钮收在云服务内。桌面云快捷图标固定在侧栏设置上方，手机固定在底栏设置旁；都可隐藏，新安装默认显示。三个入口共用轻量虹彩反射层，背景静止或减少动态时停下，文字不随色光变化。账号管理留在网页。账号与官网样式见 Web 目录；登录预览仅为本地视觉样张，不会登录或提交账号。
+沿用月光冰蓝浅深色、连续亮边、顶部受光及悬浮投影，品牌使用同一透明 W 标记。账号网页默认浅色，不随系统自动变暗；右上角的外观选择可切换深浅并记住选择，登录、账号与管理后台共用。网页主要矩形使用 22 像素圆角，桌面和手机原生组件保持 12 逻辑像素。网页中文字体采用本机 Noto Sans SC、苹方或微软雅黑回退，避免额外下载整套字体。设置首页以流光「云服务」入口显示服务状态，订阅按钮收在云服务内。桌面云快捷图标固定在侧栏设置上方，手机固定在底栏设置旁；都可隐藏，新安装默认显示。三个入口共用轻量虹彩反射层，背景静止或减少动态时停下，文字不随色光变化。账号管理留在网页。账号与官网样式见 Web 目录；登录预览仅为本地视觉样张，不会登录或提交账号。
 '''
 
 
@@ -135,22 +135,23 @@ def main():
             copy(path, '02界面样张/账号/' + path.name)
 
     sys.path.insert(0, str(ROOT / 'server/runtime'))
-    for folder in ('commercial-settings', 'mobile-time-zoom', 'commercial-website', 'startup-update', 'event-color'):
+    for folder in ('commercial-settings', 'mobile-time-zoom', 'commercial-website', 'startup-update', 'event-color', 'web-account-theme', 'admin-console'):
         for path in sorted((ROOT / 'design-reference/previews' / folder).rglob('*')):
             if path.is_file() and path.suffix.lower() in ('.png', '.jpg', '.webp'):
                 copy(path, '02界面样张/' + folder + '/' + path.relative_to(ROOT / 'design-reference/previews' / folder).as_posix())
 
-    from weekglass_server.auth_styles import AUTH_STYLE, PORTAL_AUTH_STYLE
     from weekglass_server.console_style import CSS as CONSOLE_STYLE
+    from weekglass_server.web_theme import THEME_STYLE, THEME_SCRIPT
     from weekglass_server.auth_pages import page
-    put('04玻璃组件/Web/account.css', (AUTH_STYLE + PORTAL_AUTH_STYLE).encode('utf-8'))
-    put('04玻璃组件/Web/console.css', CONSOLE_STYLE.encode('utf-8'))
-    copy(ROOT / 'infra/weekglass/public-site/assets/weekglass.css', '04玻璃组件/Web/website.css')
     account_preview = page('design-preview-only', portal=True)
-    account_preview = re.sub(r'<style>.*?</style>',
-        '<link rel="stylesheet" href="04玻璃组件/Web/account.css">', account_preview, flags=re.S)
-    account_preview = account_preview.replace('<style>' + AUTH_STYLE + '</style>',
-        '<link rel="stylesheet" href="04玻璃组件/Web/account.css">')
+    account_styles = re.findall(r'<style>(.*?)</style>', account_preview, flags=re.S)
+    put('04玻璃组件/Web/account.css', '\n'.join(account_styles).encode('utf-8'))
+    put('04玻璃组件/Web/console.css', (THEME_STYLE + CONSOLE_STYLE).encode('utf-8'))
+    put('04玻璃组件/Web/theme.js', THEME_SCRIPT.encode('utf-8'))
+    copy(ROOT / 'infra/weekglass/public-site/assets/weekglass.css', '04玻璃组件/Web/website.css')
+    account_preview = re.sub(r'<style>.*?</style>', '', account_preview, flags=re.S)
+    account_preview = account_preview.replace('</head>',
+        '<link rel="stylesheet" href="04玻璃组件/Web/account.css"></head>')
     account_preview = re.sub(r'src="data:image/png;base64,[^"]+"',
         'src="03视觉资产/brand/mark.png"', account_preview)
     account_preview = re.sub(r'<input type="hidden"[^>]+>', '', account_preview)

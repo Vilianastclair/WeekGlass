@@ -10,7 +10,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import billing
 from .db import connect
-from .migrations import migrate_provider_checkout, migrate_provider_reconcile
+from .migrations import migrate_operator_order_checks, migrate_provider_checkout, migrate_provider_reconcile
 from .protocol import now
 from .settings import settings
 from .waffo import BridgeError
@@ -74,27 +74,40 @@ def install_schema():
         conn.execute("SELECT pg_advisory_xact_lock(hashtext('weekglass_schema'))")
         migrate_provider_checkout(conn)
         migrate_provider_reconcile(conn)
+        migrate_operator_order_checks(conn)
 
 
 def reconcile_one(config, checkout_id=None):
     """Lease one due order across worker/browser races before consulting the provider."""
+    return _reconcile(config, checkout_id) != 'not_due'
+
+
+def reconcile_for_operator(config, checkout_id):
+    """Allow a manual check of a submitted order after the shared cooldown."""
+    return _reconcile(config, checkout_id, operator=True)
+
+
+def _reconcile(config, checkout_id, *, operator=False):
     instant = now()
     with connect() as conn:
         row = conn.execute("""SELECT * FROM billing_orders
           WHERE provider=%s AND merchant_id=%s AND app_id=%s
-            AND status IN ('submitting','processing') AND provider_next_check_at<=%s
+            AND status IN ('submitting','processing') AND provider_next_check_at IS NOT NULL
+            AND (provider_next_check_at<=%s OR (%s AND status='processing'
+              AND coalesce(provider_last_check_at,provider_checkout_expires_at-interval '15 minutes',created_at)<=%s))
             AND (%s::uuid IS NULL OR checkout_id=%s::uuid)
           ORDER BY provider_next_check_at
-          LIMIT 1 FOR UPDATE SKIP LOCKED""", (*config.scope, instant, checkout_id, checkout_id)).fetchone()
+          LIMIT 1 FOR UPDATE SKIP LOCKED""",
+           (*config.scope, instant, operator, instant-timedelta(minutes=1), checkout_id, checkout_id)).fetchone()
         if not row:
-            return False
+            return 'not_due'
         age = instant - (row['provider_checkout_expires_at'] - timedelta(minutes=15)
                          if row['provider_checkout_expires_at'] else row['created_at'])
         delay = (timedelta(seconds=30) if age < timedelta(minutes=2) else
                  timedelta(minutes=2) if age < timedelta(minutes=30) else
                  timedelta(minutes=15) if age < timedelta(hours=24) else timedelta(days=1))
-        conn.execute('UPDATE billing_orders SET provider_next_check_at=%s WHERE checkout_id=%s',
-                     (instant + delay, row['checkout_id']))
+        conn.execute('''UPDATE billing_orders SET provider_next_check_at=%s,provider_last_check_at=%s
+          WHERE checkout_id=%s''', (instant + delay, instant, row['checkout_id']))
         refund_candidates = conn.execute('''SELECT event_data FROM billing_events
           WHERE (provider,merchant_id,app_id)=(%s,%s,%s) AND related_id=%s AND status='deferred'
             AND event_data->>'kind'='refund_succeeded' ORDER BY received_at,event_id''',
@@ -125,15 +138,18 @@ def reconcile_one(config, checkout_id=None):
                 # the submitting->processing transaction. This state change also
                 # fences out a slow original request before it can publish its URL.
                 billing._close_order(conn, current, 'failed')
-                return True
+                return 'no_link'
+    rejected = False
     try:
         for event in config.adapter.query_events(row):
             if billing.apply_verified_event(config.adapter, event) == 'rejected':
+                rejected = True
                 LOGGER.warning('Waffo rejected a reconciled event for order %s', row['checkout_id'])
     except BridgeError:
         # A network or verification failure isn't evidence of unpaid status.
         LOGGER.warning('Waffo could not reconcile order %s; it remains queued', row['checkout_id'])
-    return True
+        return 'unavailable'
+    return 'unverified' if rejected else 'checked'
 
 
 async def reconcile_loop(config):

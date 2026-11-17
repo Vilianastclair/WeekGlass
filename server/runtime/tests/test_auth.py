@@ -64,14 +64,21 @@ def begin(client, device_id=None, *, origin=''):
     return params, verifier, csrf
 
 
+def _script_sources(scripts):
+    return ' '.join("'sha256-" + base64.b64encode(hashlib.sha256(script.encode()).digest()).decode() + "'"
+                    for script in scripts)
+
+
 def test_login_reveal_is_csp_hashed_and_account_scope_is_clear():
     from weekglass_server.auth_pages import FORM_SCRIPT, PASSWORD_SCRIPT
+    from weekglass_server.web_theme import THEME_SCRIPT
     response = auth.html_response('synthetic-csrf')
     html = response.body.decode()
-    script = re.search(r'<script>(.*?)</script>', html, re.S).group(1)
-    assert script == FORM_SCRIPT and PASSWORD_SCRIPT in script
-    digest = base64.b64encode(hashlib.sha256(script.encode()).digest()).decode()
-    assert "script-src 'sha256-" + digest + "'" in response.headers['content-security-policy']
+    scripts = re.findall(r'<script>(.*?)</script>', html, re.S)
+    assert scripts == [THEME_SCRIPT, FORM_SCRIPT]
+    assert PASSWORD_SCRIPT in FORM_SCRIPT
+    assert html.index(THEME_SCRIPT) < html.index('<style>')
+    assert f'script-src {_script_sources(scripts)};' in response.headers['content-security-policy']
     assert "script-src 'unsafe-inline'" not in response.headers['content-security-policy']
     assert "style-src 'unsafe-inline'" in response.headers['content-security-policy']
     assert 'img-src data:;' in response.headers['content-security-policy']
@@ -82,9 +89,24 @@ def test_login_reveal_is_csp_hashed_and_account_scope_is_clear():
     assert 'method="post" action="/v1/auth/authorize"' in html
     assert 'data-auth-form' in html and 'data-submit-status' in html
     assert 'role="status" aria-live="polite" hidden' in html
+    assert '服务端源代码' not in html
+
+
+@pytest.mark.parametrize(('action', 'title'), [('login', '登录 WeekGlass'), ('register', '创建 WeekGlass 账号'),
+                                             ('recover', '找回密码')])
+def test_portal_auth_retains_account_scope_without_source_download(action, title, monkeypatch):
+    monkeypatch.setattr(settings, 'registration_enabled', True)
+    if action == 'register' and auth.email_signup_uses_address():
+        action = 'email_register'
+    response = auth.html_response('synthetic-csrf', action=action, portal=True)
+    html = response.body.decode()
+    assert f'<h1>{title}</h1>' in html
+    assert '与 Viliana 主站及学校账号分开' in html
+    assert '服务端源代码' not in html and '/v1/source/' not in html
 
 
 def test_expired_page_has_no_credential_fields_or_automatic_retry():
+    from weekglass_server.web_theme import THEME_SCRIPT_SOURCE
     response = auth.html_response('', status=403, expired=True)
     html = response.body.decode()
     assert response.status_code == 403
@@ -93,6 +115,7 @@ def test_expired_page_has_no_credential_fields_or_automatic_retry():
     assert 'http-equiv="refresh"' not in html
     assert response.headers['cache-control'] == 'no-store'
     assert response.headers['referrer-policy'] == 'same-origin'
+    assert f'script-src {THEME_SCRIPT_SOURCE};' in response.headers['content-security-policy']
 
 
 class HandoffParser(HTMLParser):
@@ -122,6 +145,7 @@ def callback_from(response):
 
 def test_success_handoff_is_an_escaped_document_with_a_fixed_csp_script():
     from weekglass_server.auth_pages import HANDOFF_SCRIPT
+    from weekglass_server.web_theme import THEME_SCRIPT
     code, state = 'c' * 43, 'synthetic-state-<script>"&injected=true</script>'
     response = auth.handoff_response('http://127.0.0.1:54321/oauth/callback', code, state)
     html = response.body.decode()
@@ -138,11 +162,10 @@ def test_success_handoff_is_an_escaped_document_with_a_fixed_csp_script():
     assert target.path == '/oauth/callback'
     assert parse_qs(target.query) == {'code': [code], 'state': [state]}
     scripts = re.findall(r'<script>(.*?)</script>', html, re.S)
-    assert scripts == [HANDOFF_SCRIPT]
+    assert scripts == [THEME_SCRIPT, HANDOFF_SCRIPT]
     assert code not in HANDOFF_SCRIPT and state not in HANDOFF_SCRIPT
-    digest = base64.b64encode(hashlib.sha256(HANDOFF_SCRIPT.encode()).digest()).decode()
     csp = response.headers['content-security-policy']
-    assert "script-src 'sha256-" + digest + "';" in csp
+    assert f'script-src {_script_sources(scripts)};' in csp
     assert "form-action 'self';" in csp and '127.0.0.1' not in csp
     assert "script-src 'unsafe-inline'" not in csp
     assert response.headers['referrer-policy'] == 'no-referrer'

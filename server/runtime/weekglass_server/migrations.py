@@ -15,6 +15,7 @@ def migrate_auth(conn):
     migrate_email_identity(conn)
     migrate_paid_email_identity(conn)
     migrate_account_console(conn)
+    migrate_owner_console(conn)
 
 
 def migrate_account_console(conn):
@@ -62,6 +63,36 @@ def migrate_account_console(conn):
         completed_at timestamptz CHECK (completed_at IS NULL OR delivered_at IS NOT NULL),
         PRIMARY KEY (account_id,ended_at)
       );
+    ''')
+    conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
+
+
+def migrate_owner_console(conn):
+    name = '20261117_owner_console_v1'
+    if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
+        return
+    conn.execute('''
+      ALTER TABLE auth_accounts ADD COLUMN recovery_generation bigint NOT NULL DEFAULT 0;
+      ALTER TABLE web_sessions ADD COLUMN session_id uuid NOT NULL DEFAULT gen_random_uuid() UNIQUE,
+        ADD COLUMN created_at timestamptz;
+      UPDATE web_sessions SET created_at=expires_at-interval '12 hours';
+      ALTER TABLE web_sessions ALTER COLUMN created_at SET DEFAULT now(),
+        ALTER COLUMN created_at SET NOT NULL;
+
+      -- Keep new action names out of the legacy table; the old console
+      -- renders its fixed set of action names if an API rollback is needed.
+      CREATE TABLE web_owner_operations (
+        action_id bigint GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+        actor_id uuid NOT NULL, subject_id uuid NOT NULL,
+        subject_kind text NOT NULL CHECK (subject_kind IN ('account','order')),
+        action text NOT NULL CHECK (action IN (
+          'suspend','resume','revoke_devices','revoke_device','change_grant','revoke_grant',
+          'revoke_session','create_account','issue_recovery','close_order','reconcile_order')),
+        reason text NOT NULL CHECK (length(reason) BETWEEN 3 AND 240),
+        details jsonb NOT NULL CHECK (jsonb_typeof(details)='object'),
+        occurred_at timestamptz NOT NULL DEFAULT now()
+      );
+      CREATE INDEX web_owner_operations_time ON web_owner_operations(occurred_at DESC,action_id DESC);
     ''')
     conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
 
@@ -270,6 +301,14 @@ def migrate_provider_reconcile(conn):
     conn.execute('''ALTER TABLE billing_orders ADD COLUMN provider_next_check_at timestamptz;
       CREATE INDEX billing_provider_check_due ON billing_orders(provider,merchant_id,app_id,provider_next_check_at)
         WHERE status IN ('submitting','processing')''')
+    conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
+
+
+def migrate_operator_order_checks(conn):
+    name = '20261117_operator_order_checks_v1'
+    if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
+        return
+    conn.execute('ALTER TABLE billing_orders ADD COLUMN provider_last_check_at timestamptz')
     conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
 
 

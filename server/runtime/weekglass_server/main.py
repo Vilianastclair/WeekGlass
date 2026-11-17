@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from starlette.middleware.gzip import GZipMiddleware
 from uuid import uuid4
-from . import account, auth, billing_routes, console, db, sync, waffo_routes, waffo_runtime
+from . import account, auth, billing_routes, console, db, owner, sync, waffo_routes, waffo_runtime
 from .settings import settings
 
 
@@ -21,7 +21,6 @@ async def lifespan(app):
     if not live:
         yield
         return
-    await anyio.to_thread.run_sync(waffo_runtime.install_schema)
     app.state.billing = live
     reconcile = asyncio.create_task(waffo_runtime.reconcile_loop(live))
     try:
@@ -41,6 +40,7 @@ app.state.billing = None
 app.include_router(auth.router)
 app.include_router(account.router)
 app.include_router(console.router)
+app.include_router(owner.router)
 app.include_router(sync.router)
 app.include_router(billing_routes.router)
 waffo_routes.mount_routes(app)

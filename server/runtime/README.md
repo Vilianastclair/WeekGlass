@@ -29,6 +29,8 @@ DOCKER_BUILDKIT=1 docker build --platform linux/amd64 \
 
 The Dockerfile checks the Node archive against the pinned release digest and installs the SDK from its lockfile. No configuration, credentials, database data, or build downloads belong in the source checkout's commits.
 
+For a Python-only image that installs dependencies from the local wheel cache, prepare the same locked wheels and run `DOCKER_BUILDKIT=1 docker build -f server/runtime/Dockerfile.offline -t weekglass-api:offline server`.
+
 ### Configure the hosted service
 
 Use the database, persistent server identity, trusted HTTPS proxy, and API container configuration in the [server guide](../README.md). Set `WEEKGLASS_MODE=hosted` to enable the hosted account console. Route both `/account` and `/account/…` to the API on the same HTTPS origin, as shown in the [WeekGlass edge configuration](../../infra/weekglass/nginx.tls.conf). This console uses browser sessions; the app keeps using the native bearer-token API.
@@ -60,12 +62,22 @@ live up -d --no-deps --wait --wait-timeout 90 api
 
 The SMTP check uses TLS and authenticates without sending a message. Before enabling new purchases, inspect the Live catalog with `WaffoLive.load()` and `catalog_amount()` (100 fen monthly, 999 fen annually); this creates no orders. After switching, verify `/healthz`, `/v1/server-info`, existing account login, and the intended checkout and email routes. If mail is unavailable after email registration has opened, keep the new image and Waffo overlay, remove only the SMTP overlay, and replace only `api`. Existing logins, email-password registration, and purchased sync continue to work. Do not switch to an image that cannot sign in users who have registered with email.
 
+### Manage hosted accounts
+
+In the configured API container, run `python -m weekglass_server.admin set-owner <account-uuid>` with an enabled account. Sign in as that account and open `/account/admin`. Use `clear-owner` to remove the role without removing the account.
+
+The owner can manage accounts and sessions, check unsettled orders with Waffo, and review audit history and service status. To extend sync access, open **用户**, select the account, then choose **设置或延长赠送** under **服务权益**. Enter the end time in Beijing time. Changing a gift does not change paid dates or payment records. If the paid period starts later, sync pauses until it begins.
+
+Each change requires the current owner password and a reason. Use a ticket number or describe the reason without including credentials. When creating an account or issuing a new recovery code, give the code to the person through a secure channel so they can set their own password. The console shows account usage, not calendar contents. Transfer the owner role before deleting its account.
+
+On rollout, the API adds browser session identifiers, recovery generations, operator check timestamps and a separate owner audit table. New operations leave the older audit table unchanged; the current console shows both histories. An API rollback does not need to undo these additive migrations.
+
 ### Run scoped account tests
 
 Use a disposable PostgreSQL database for server integration tests. Set `DB_NAME` to a name ending in `_test`, configure `DB_HOST`, `DB_PORT`, `DB_USER`, `DB_PASSWORD_FILE`, and provide a test server UUID and signing key file as in the server guide. Leave `DATABASE_URL` unset. Install `requirements-test.txt`, then run from `server/runtime`:
 
 ```sh
-python -m pytest tests/test_console.py tests/test_email_delivery.py tests/test_email_identity.py tests/test_waffo_runtime.py
+python -m pytest tests/test_console.py tests/test_owner.py tests/test_email_delivery.py tests/test_email_identity.py tests/test_waffo_runtime.py
 ```
 
 The browser fixture tests also require Playwright and Chromium. From a disposable test workspace with Playwright resolvable by Node, run `node --test tests/auth_email_browser.test.cjs tests/checkout_email_browser.test.cjs` from `server/runtime`. The fixtures render local pages and do not send mail or contact Waffo. From `apps/client`, run `flutter test test/cloud_account_test.dart test/cloud_auth_test.dart test/cloud_settings_test.dart` for the account panels and payment handoff.

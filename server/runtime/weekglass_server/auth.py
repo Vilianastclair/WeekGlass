@@ -30,6 +30,7 @@ from .settings import settings, request_origin
 from .protocol import body as validated_body
 from .auth_pages import page, FORM_SCRIPT_SOURCE, HANDOFF_SCRIPT_SOURCE
 from .migrations import migrate_auth
+from .web_theme import THEME_SCRIPT_SOURCE
 
 router = APIRouter()
 _hasher = PasswordHasher(time_cost=3, memory_cost=32768, parallelism=1)
@@ -168,16 +169,20 @@ def init_schema(conn):
 
 
 def create_account(username: str, password: str):
+    with connect() as conn:
+        return str(insert_account(conn, username, password))
+
+
+def insert_account(conn, username: str, password: str, *, recovery_hash=None):
     username = username.strip().casefold()
     if not re.fullmatch(r'[a-z0-9][a-z0-9_.@+-]{2,79}', username):
         raise ValueError('Username must contain 3–80 ASCII letters, numbers or _.@+-')
     password_hash = hash_password(password)
-    account_id = str(uuid4())
-    with connect() as conn:
-        conn.execute('INSERT INTO accounts(account_id,dataset_id,sync_epoch) VALUES (%s,%s,%s)',
-                     (account_id, str(uuid4()), str(uuid4())))
-        conn.execute('INSERT INTO auth_accounts(account_id,username,password_hash) VALUES (%s,%s,%s)',
-                     (account_id, username, password_hash))
+    account_id = uuid4()
+    conn.execute('INSERT INTO accounts(account_id,dataset_id,sync_epoch) VALUES (%s,%s,%s)',
+                 (account_id, uuid4(), uuid4()))
+    conn.execute('INSERT INTO auth_accounts(account_id,username,password_hash,recovery_hash) VALUES (%s,%s,%s,%s)',
+                 (account_id, username, password_hash, recovery_hash))
     return account_id
 
 
@@ -269,8 +274,11 @@ def html_response(csrf, message='', status=200, *, action='login', recovery_key=
                   notice=None, resend_after=None, pending_email=None, email_paid=False, email_pending_editable=False,
                   management_only=False, management_done=False, backup_username=None, portal=False,
                   portal_bound=False):
-    script_source = HANDOFF_SCRIPT_SOURCE if handoff_url else (
-        "'none'" if expired or error_message else FORM_SCRIPT_SOURCE)
+    script_sources = [THEME_SCRIPT_SOURCE]
+    if handoff_url:
+        script_sources.append(HANDOFF_SCRIPT_SOURCE)
+    elif not (expired or error_message or management_done):
+        script_sources.append(FORM_SCRIPT_SOURCE)
     mail_enabled = mail_available()
     email_signup_enabled = email_signup_uses_address()
     manage = settings.mode == 'hosted' and (email_signup_enabled or mail_enabled or email_login_enabled or management_only)
@@ -285,7 +293,7 @@ def html_response(csrf, message='', status=200, *, action='login', recovery_key=
                              portal=portal, portal_bound=portal_bound),
                         status_code=status, headers={
         'Cache-Control': 'no-store', 'Pragma': 'no-cache',
-        'Content-Security-Policy': "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src " + script_source + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+        'Content-Security-Policy': "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src " + ' '.join(script_sources) + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
         # no-referrer causes browsers to send Origin:null on form POSTs.
         # same-origin preserves CSRF validation without leaking the PKCE URL to
         # the cross-origin loopback callback (which also uses no-referrer).

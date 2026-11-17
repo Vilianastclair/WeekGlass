@@ -4,7 +4,8 @@ from pathlib import Path
 from threading import BoundedSemaphore
 import psycopg
 from psycopg.rows import dict_row
-from .migrations import migrate_billing, migrate_billing_plan_periods
+from .migrations import (migrate_billing, migrate_billing_plan_periods, migrate_operator_order_checks,
+                         migrate_provider_checkout, migrate_provider_reconcile)
 from .settings import settings
 
 _slots = BoundedSemaphore(7)
@@ -66,3 +67,6 @@ def init_schema():
         ''')
         migrate_billing(conn)
         migrate_billing_plan_periods(conn)
+        migrate_provider_checkout(conn)
+        migrate_provider_reconcile(conn)
+        migrate_operator_order_checks(conn)

@@ -1,7 +1,6 @@
 """Rendered account pages with progressive, same-origin forms."""
 from datetime import datetime, timedelta, timezone
 from html import escape
-from urllib.parse import urlencode
 from uuid import uuid4
 
 from fastapi.responses import HTMLResponse
@@ -9,6 +8,7 @@ from fastapi.responses import HTMLResponse
 from . import billing, waffo_runtime
 from .account import visible_username
 from .auth_styles import AUTH_BRAND, CLOUD_SOURCE_URL
+from .web_theme import THEME_SCRIPT_SOURCE, THEME_STYLE_SOURCE, theme_head, theme_toggle
 
 _MARK = AUTH_BRAND.split('src="', 1)[1].split('"', 1)[0]
 _CN = timezone(timedelta(hours=8))
@@ -24,7 +24,8 @@ _ICONS = {
     'search': '<circle cx="10.5" cy="10.5" r="5.5"/><path d="m15 15 4 4"/>',
 }
 _HEADER = {
-    'Content-Security-Policy': "default-src 'none'; style-src 'self'; script-src 'self'; img-src data:; "
+    'Content-Security-Policy': f"default-src 'none'; style-src 'self' {THEME_STYLE_SOURCE}; "
+                                f"script-src 'self' {THEME_SCRIPT_SOURCE}; img-src data:; "
                                "connect-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
     'Referrer-Policy': 'same-origin', 'Cache-Control': 'no-store',
 }
@@ -38,11 +39,6 @@ LOGIN_MESSAGES = {'1': '密码已更新。请使用新密码登录。', 'email':
                   'deleted': 'WeekGlass 云账号已删除。本机日历不受影响。'}
 ORDER_MESSAGES = {'closed': '未付款订单已关闭。'}
 SECURITY_MESSAGES = {'revoked': '其他网页登录和应用设备已退出。', 'device': '该设备已断开云同步。'}
-ADMIN_MESSAGES = {'suspend': '账号已暂停，原会话已撤销。', 'resume': '账号已恢复，可重新登录。',
-                  'revoke_devices': '已撤销该账号的会话和设备。', 'revoke_device': '设备已断开云同步。',
-                  'change_grant': '限时授权已更新。'}
-_ADMIN_ACTIONS = {'suspend': '暂停账号', 'resume': '恢复账号', 'revoke_devices': '撤销会话',
-                  'revoke_device': '断开设备', 'change_grant': '更新限时授权'}
 _ERRORS = {
     'invalid_csrf': '页面已失效，请返回后重新操作。',
     'subscription_required': '云同步已暂停。请在控制台开通权益，或查看到期导出资格。',
@@ -57,6 +53,7 @@ _ERRORS = {
     'invalid_changepasswordrequest': '新密码不符合此账号的密码要求，请按页面提示重试。',
     'rate_limited': '操作过于频繁，请稍后重试。',
     'export_busy': '当前下载较多，请过几秒再试。',
+    'owner_account_protected': '当前账号是唯一所有者，请先由运维转移所有者权限。',
     'not_found': '找不到此项记录。',
 }
 
@@ -114,10 +111,11 @@ def _shell(title, content, *, profile=None, csrf=None, section=None, script=Fals
     links = ''
     logout = ''
     if profile:
-        items = [('home', '/account', '概览'), ('orders', '/account/orders', '订单'),
+        items = [('home', '/account', '我的账号' if section == 'admin' else '概览'),
+                 ('orders', '/account/orders', '我的订单' if section == 'admin' else '订单'),
                  ('security', '/account/security', '安全')]
         if profile['is_owner']:
-            items.append(('admin', '/account/admin', '所有者'))
+            items.append(('admin', '/account/admin', '管理后台'))
         links = '<nav class="nav-links" aria-label="账号导航">' + ''.join(
             f'<a href="{href}"' + (' aria-current="page"' if key == section else '') + f'>{label}</a>'
             for key, href, label in items) + '</nav>'
@@ -125,10 +123,10 @@ def _shell(title, content, *, profile=None, csrf=None, section=None, script=Fals
     js = '<script src="/account/assets/calendar.js" defer></script>' if script else ''
     return HTMLResponse(f'''<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">
       <meta name="viewport" content="width=device-width, initial-scale=1"><title>{e(title)}</title>
-      <link rel="stylesheet" href="/account/assets/console.css">{js}</head><body>
+      {theme_head()}<link rel="stylesheet" href="/account/assets/console.css?v=2">{js}</head><body>
       <a class="skip" href="#content">跳至主要内容</a><div class="wrap">
       <header class="top"><a class="brand" href="/account"><img src="{_MARK}" alt="" width="34" height="34">
-      <span>WeekGlass<small>账号控制台</small></span></a>{links}{logout}</header>
+      <span>WeekGlass<small>账号控制台</small></span></a>{links}<div class="top-controls">{theme_toggle()}{logout}</div></header>
       <main id="content">{content}</main>
       <footer><span>WeekGlass</span><nav aria-label="服务链接"><a href="/">云同步首页</a><a href="/terms">服务条款</a><a href="/privacy">隐私说明</a><a href="{CLOUD_SOURCE_URL}">服务端源代码</a></nav></footer>
       </div></body></html>''', status_code=status, headers={**_HEADER, **(headers or {})})
@@ -302,10 +300,11 @@ def security(profile, csrf, devices, paid, mail, notice):
                 _form('/account/security/revoke', csrf, '退出其他登录', fields=_password())),
     ]
     connected = _device_rows(devices, '/account/security/device', csrf)
-    deletion = _detail('删除云账号', '这会永久删除云端日程、设备和登录信息；本机已保存的日历不受影响。',
+    deletion = ('<p>请先由运维转移唯一所有者权限，再删除此账号。</p>' if profile['is_owner'] else
+        _detail('删除云账号', '这会永久删除云端日程、设备和登录信息；本机已保存的日历不受影响。',
         _form('/account/security/delete', csrf, '永久删除云账号', kind='button destructive',
               fields=_password() + f'<label class="field">输入 <code>{e(handle)}</code> 确认'
-                                    '<input name="confirmation" autocomplete="off" required maxlength="254"></label>'), danger=True)
+                                    '<input name="confirmation" autocomplete="off" required maxlength="254"></label>'), danger=True))
     content = _heading('账号管理', '安全设置', '管理登录邮箱、设备和恢复方式。') + _feedback(notice) + f'''
       <div class="bottom-grid settings-grid"><section class="sheet mini"><span class="mini-icon">{icon('shield')}</span>
       <h2>邮箱和账号</h2><div class="inline-meta"><strong class="wrap-text">{e(address)}</strong>{badge}</div>
@@ -321,62 +320,3 @@ def recovery_key(profile, csrf, key):
     return _shell('保存恢复码', f'''<section class="sheet compact-sheet">{_heading('恢复账号', '保存恢复码', '此恢复码只显示一次。请保存在密码管理器或其他安全位置。')}
       <code class="recovery-key">{e(key)}</code><a href="/account/security" class="button primary">我已保存</a></section>''',
       profile=profile, csrf=csrf, section='security')
-
-
-def _user_label(row):
-    return row['verified_email'] or row['pending_email'] or row['username']
-
-
-def admin(profile, csrf, rows, audit, query, page, next_page):
-    content = _heading('所有者控制台', '云端用户', '查看账号和设备状态，管理登录权限与限时授权。')
-    content += f'''<section class="sheet list admin-list"><form class="search" method="get" action="/account/admin">
-      <label><span>查找用户</span><input name="q" value="{e(query)}" placeholder="账号、邮箱或 ID" maxlength="254"></label>
-      <button type="submit" class="button secondary">{icon('search')}搜索</button></form>'''
-    for row in rows:
-        href = f"/account/admin/users/{row['account_id']}"
-        state = _status('可登录', 'success') if row['enabled'] else _status('已暂停', 'warning')
-        content += (f'<article class="admin-row"><div><a href="{href}" class="user-link">{e(_user_label(row))}</a>'
-                    f'<p>{date(row["created_at"])} 注册　{row["active_devices"]} 台设备</p></div>{state}'
-                    f'<a class="button secondary small" href="{href}">管理</a></article>')
-    if not rows:
-        content += '<p class="empty-line">未找到符合条件的用户。</p>'
-    if page > 1 or next_page:
-        nav = ''.join(f'<a href="/account/admin?{e(urlencode({"q": query, "page": p}))}">{label}</a>'
-                      for p, label, exists in ((page-1, '上一页', page > 1), (page+1, '下一页', next_page)) if exists)
-        content += f'<nav class="pagination" aria-label="页码">{nav}</nav>'
-    content += '</section><section class="sheet section settings-list"><h2>最近操作</h2>'
-    for item in audit:
-        subject = str(item['subject_id']) if not item['username'] else item['username']
-        info = f'（{item["days"]} 天）' if item['days'] is not None else ''
-        content += (f'<div class="audit-row"><span>{_ADMIN_ACTIONS[item["action"]]}{info} {e(subject)}</span>'
-                    f'<time>{date(item["occurred_at"], time=True)}</time></div>')
-    content += '</section>' if audit else '<p class="empty-line">还没有管理操作。</p></section>'
-    return _shell('WeekGlass 云端用户', content, profile=profile, csrf=csrf, section='admin')
-
-
-def admin_user(profile, csrf, row, rights, devices, notice):
-    uid = row['account_id']
-    state = _status('可登录', 'success') if row['enabled'] else _status('已暂停', 'warning')
-    back = '<a class="back" href="/account/admin">返回用户列表</a>'
-    content = back + _heading('账号详情', _user_label(row), f'{date(row["created_at"])} 注册') + _feedback(notice)
-    content += f'''<section class="sheet mini"><div class="inline-meta"><h2>服务状态</h2>{state}</div>
-      <dl class="identity-list"><dt>账号 ID</dt><dd><code>{uid}</code></dd><dt>云同步</dt><dd>{_STATES[rights['status']]}</dd>
-      <dt>当前权益到期</dt><dd>{date(rights['current_period_end'])}</dd><dt>限时授权截止</dt><dd>{date(row['grant_until'])}</dd>
-      <dt>已连接设备</dt><dd>{row['active_devices']}</dd></dl></section>'''
-    target = f'/account/admin/users/{uid}'
-    can_manage = uid != profile['account_id']
-    content += ('<section class="sheet mini section"><h2>已连接设备</h2>'
-                + _device_rows(devices, target, csrf, admin=True, may_disconnect=can_manage) + '</section>')
-    if can_manage:
-        action = 'suspend' if row['enabled'] else 'resume'
-        account_help = '暂停将撤销所有登录和链接。本机数据和云端日程都会保留。' if row['enabled'] else '恢复后，用户可以重新登录。'
-        manage = [_detail(_ADMIN_ACTIONS[action], account_help, _form(target, csrf, _ADMIN_ACTIONS[action],
-                          fields=_password(), data={'action': action})),
-                  _detail('撤销会话', '退出该账号的网页登录，并断开所有应用设备。',
-                          _form(target, csrf, '撤销会话', fields=_password(), data={'action': 'revoke_devices'})),
-                  _detail('设置限时授权', '从现在起授权 1 至 366 天，填写 0 移除授权。不会改动订单或已购买的时段。',
-                          _form(target, csrf, '保存授权', fields=(
-                              '<label class="field">授权天数<input name="days" type="number" min="0" max="366" required></label>'
-                              + _password()), data={'action': 'change_grant'}))]
-        content += '<section class="sheet section settings-list"><h2>管理账号</h2>' + ''.join(manage) + '</section>'
-    return _shell('WeekGlass 用户详情', content, profile=profile, csrf=csrf, section='admin')

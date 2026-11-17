@@ -11,6 +11,7 @@ const {chromium} = require('playwright');
 
 const csrf = 'synthetic-csrf';
 const samplePassword = 'test-only-passphrase-273';
+const pendingPassword = 'test-only-unverified-274';
 const signupPasswordAtMinimum = 'Abcd1234';
 const resetPasswordAtMinimum = '1234567!';
 const email = 'reader@example.invalid';
@@ -20,6 +21,7 @@ let server, browser, origin, pages, failures;
 const fixture = String.raw`
 import json, sys
 from weekglass_server.auth_pages import FORM_SCRIPT_SOURCE, HANDOFF_SCRIPT_SOURCE, page
+from weekglass_server.web_theme import THEME_SCRIPT_SOURCE
 
 origin, csrf = sys.argv[1:]
 enabled = dict(email_enabled=True, email_signup_enabled=True, email_manage_enabled=True)
@@ -33,6 +35,9 @@ def step(action, **kwargs):
 
 pages = {
     'default': page(csrf, **enabled),
+    'portal_login': page(csrf, portal=True, **enabled),
+    'portal_register': page(csrf, action='email_register', portal=True, **enabled),
+    'portal_recover': page(csrf, action='recover', portal=True, **enabled),
     'selfhost': page(csrf),
     'mail_off': page(csrf, email_login_enabled=True),
     'signup_without_mail': page(csrf, email_signup_enabled=True, email_manage_enabled=True),
@@ -44,9 +49,7 @@ pages = {
     'reset_verify': step('email_reset_verify', **masked),
     'reset_finish': step('email_reset_finish'),
     'reset_done': step('login', notice='密码已更新，请重新登录。'),
-    'legacy_wrong': step('legacy_login', message='账号或密码不正确。'),
-    'email_wrong': step('email_login', message='邮箱或密码不正确。'),
-    'pending_wrong': step('email_pending_login', message='邮箱或密码不正确。'),
+    'login_wrong': step('login', message='账号、邮箱或密码不正确。'),
     'manage': step('email_manage_begin', **standalone),
     'unpaid': step('email_manage_unverified', **pending, **standalone),
     'pending_saved': step('email_manage_unverified', **(pending | dict(pending_email='corrected@example.invalid')),
@@ -60,15 +63,19 @@ pages = {
     'change_new_verify': step('email_change_new_verify', **masked, **standalone),
     'change_done': step('login', management_done=True, notice='邮箱已更换，请重新登录。', **standalone),
     'handoff': page('', handoff_url=f'{origin}/oauth/callback?code={"C"*43}&state=synthetic-state'),
+    'signup_handoff': page('', handoff_url=f'{origin}/oauth/callback?code={"C"*43}&state=synthetic-state&signup=1'),
 }
-print(json.dumps(dict(pages=pages, form=FORM_SCRIPT_SOURCE, handoff=HANDOFF_SCRIPT_SOURCE)))
+print(json.dumps(dict(pages=pages, theme=THEME_SCRIPT_SOURCE, form=FORM_SCRIPT_SOURCE, handoff=HANDOFF_SCRIPT_SOURCE)))
 `;
+
+const portalViews = {'/account/login':'portal_login', '/account/register':'portal_register', '/account/recover':'portal_recover'};
 
 function respond(res, name, status=200) {
   const csp = "default-src 'none'; img-src data:; style-src 'unsafe-inline'; script-src "
-    + (name === 'handoff' ? pages.handoff : pages.form) + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
+    + pages.theme + ' ' + (name.endsWith('handoff') ? pages.handoff : pages.form)
+    + "; form-action 'self'; frame-ancestors 'none'; base-uri 'none'";
   res.writeHead(status, {'Content-Type':'text/html; charset=utf-8', 'Content-Security-Policy':csp,
-    'Referrer-Policy': name === 'handoff' ? 'no-referrer' : 'same-origin', 'Cache-Control':'no-store'});
+    'Referrer-Policy': name.endsWith('handoff') ? 'no-referrer' : 'same-origin', 'Cache-Control':'no-store'});
   res.end(pages.pages[name]);
 }
 
@@ -83,7 +90,8 @@ before(async () => {
     }
     if (req.method === 'GET') {
       if (url.pathname === '/favicon.ico') { res.writeHead(204); res.end(); return; }
-      respond(res, url.searchParams.get('view') ?? (url.pathname === '/v1/auth/email' ? 'manage' : 'default'));
+      respond(res, url.searchParams.get('view') ?? portalViews[url.pathname]
+        ?? (url.pathname === '/v1/auth/email' ? 'manage' : 'default'));
       return;
     }
     try {
@@ -96,11 +104,11 @@ before(async () => {
       assert.equal(fields.csrf, csrf);
       requests.push(fields);
       const destination = {
-        email_login:'email_wrong', email_register:fields.password === '12345678' ? 'register_weak' : 'handoff',
-        email_pending_login:fields.password === samplePassword ? 'handoff' : 'pending_wrong',
+        email_register:fields.password === '12345678' ? 'register_weak' : 'signup_handoff',
         email_otp_send:'otp_verify', email_otp_verify:fields.code === '123456' ? 'handoff' : 'otp_wrong',
         email_resend:'otp_resent', email_reset_send:'reset_verify',
-        email_reset_verify:'reset_finish', email_reset_finish:'reset_done', login:'legacy_wrong',
+        email_reset_verify:'reset_finish', email_reset_finish:'reset_done',
+        login:fields.username === email && fields.password === pendingPassword ? 'handoff' : 'login_wrong',
         email_manage_begin:fields.identifier?.startsWith('verified-') ? 'change_old_send'
                            : fields.identifier?.startsWith('unpaid-') ? 'unpaid' : 'bind_send',
         email_pending_save:'pending_saved',
@@ -119,7 +127,7 @@ before(async () => {
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   origin = `http://127.0.0.1:${server.address().port}`;
   pages = JSON.parse(execFileSync(process.env.PYTHON || 'python', ['-c', fixture, origin, csrf],
-    {cwd:path.resolve(__dirname, '..'), encoding:'utf8'}));
+    {cwd:path.resolve(__dirname, '..'), encoding:'utf8', maxBuffer:2*1024*1024}));
   browser = await chromium.launch({executablePath:process.env.WG_CHROMIUM, headless:true});
 });
 
@@ -129,9 +137,13 @@ after(async () => {
   assert.deepEqual(failures, []);
 });
 
-async function pageFor(t, {width=1280, height=800, colorScheme='light', javaScriptEnabled=true, view, management=false}={}) {
-  const context = await browser.newContext({viewport:{width, height}, colorScheme,
+async function pageFor(t, {width=1280, height=800, colorScheme='light', javaScriptEnabled=true, view,
+    management=false, route, theme, blockStorage=false}={}) {
+  const context = await browser.newContext({viewport:{width, height}, colorScheme, hasTouch:width<=480,
     javaScriptEnabled, reducedMotion:'reduce'});
+  if (blockStorage) await context.addInitScript(() => {
+    Object.defineProperty(window, 'localStorage', {get() { throw new DOMException('Blocked', 'SecurityError'); }});
+  });
   t.after(() => context.close());
   const page = await context.newPage();
   page.setDefaultTimeout(8000);
@@ -141,7 +153,8 @@ async function pageFor(t, {width=1280, height=800, colorScheme='light', javaScri
     if (m.type() === 'error' && !m.text().match(/status of 40[01]/)) errors.push(m.text());
   });
   t.after(() => assert.deepEqual(errors, []));
-  await page.goto(origin + '/v1/auth/' + (management ? 'email' : 'authorize') + (view ? '?view=' + view : ''));
+  await page.goto(origin + (route ?? '/v1/auth/' + (management ? 'email' : 'authorize') + (view ? '?view=' + view : '')));
+  if (theme) await page.getByRole('combobox', {name:'页面外观'}).selectOption(theme);
   return page;
 }
 
@@ -165,7 +178,7 @@ async function onlyPane(page, id) {
 
 async function fit(page) {
   assert.ok(await page.evaluate(() => document.documentElement.scrollWidth === innerWidth));
-  assert.ok(await page.locator('main .segment:visible a, main button:visible').evaluateAll(elements =>
+  assert.ok(await page.locator('main .segment:visible a, main button:visible, [data-theme-control]:visible').evaluateAll(elements =>
     elements.every(el => el.getBoundingClientRect().left >= 0 && el.getBoundingClientRect().right <= innerWidth)));
 }
 
@@ -177,6 +190,8 @@ test('email registration needs one post and hands directly to PKCE even with ema
   const page = await pageFor(t, {view:'signup_without_mail'});
   await onlyPane(page, 'login');
   assert.equal(await page.getByRole('link', {name:'邮箱验证码'}).count(), 0);
+  await page.keyboard.press('Tab');
+  assert.equal(await page.locator(':focus').getAttribute('aria-label'), '页面外观');
   await page.keyboard.press('Tab');
   await page.keyboard.press('Tab');
   assert.equal(await page.locator(':focus').innerText(), '注册');
@@ -207,7 +222,7 @@ test('email registration needs one post and hands directly to PKCE even with ema
   assert.ok(!(await page.content()).includes(email));
   assert.deepEqual(requests.at(-2), {action:'email_register', csrf, email,
     password:signupPasswordAtMinimum, confirm_password:signupPasswordAtMinimum});
-  assert.deepEqual(requests.at(-1), {code:'C'.repeat(43), state:'synthetic-state'});
+  assert.deepEqual(requests.at(-1), {code:'C'.repeat(43), state:'synthetic-state', signup:'1'});
 });
 
 test('signup guidance explains the password classes and keeps the error in the signup pane', async t => {
@@ -222,14 +237,9 @@ test('signup guidance explains the password classes and keeps the error in the s
   assert.match(await page.getByRole('alert').innerText(), /空白不算特殊字符/);
 });
 
-test('email OTP shows cooldown, sends resend alone, and keeps errors on the verify page', async t => {
-  const page = await pageFor(t, {width:320, height:700, colorScheme:'dark'});
-  await click(page, 'link', '邮箱验证码');
-  await onlyPane(page, 'otp');
-  await page.locator('#otp-email').fill(email);
-  await click(page, 'button', '发送验证码');
+test('a previously started OTP flow still supports cooldown and errors', async t => {
+  const page = await pageFor(t, {width:320, height:700, theme:'dark', view:'otp_verify'});
   await page.getByRole('heading', {name:'输入验证码'}).waitFor();
-  last({action:'email_otp_send', email});
   const resend = page.getByRole('button', {name:/重新发送/});
   assert.ok(await resend.isDisabled());
   await fit(page);
@@ -265,19 +275,18 @@ test('email recovery for eligible accounts posts only the inputs for each step',
     action:'email_reset_finish', password:resetPasswordAtMinimum, confirm_password:resetPasswordAtMinimum});
 });
 
-async function manage(page, identity_kind, identifier, heading) {
-  await page.getByLabel('账号类型', {exact:true}).selectOption(identity_kind);
+async function manage(page, identifier, heading) {
   await page.locator('#manage-identifier').fill(identifier);
   await page.locator('#manage-password').fill(samplePassword);
   await click(page, 'button', '确认身份');
   await page.getByRole('heading', {name:heading, exact:true}).waitFor();
-  last({action:'email_manage_begin', identity_kind, identifier, password:samplePassword});
+  last({action:'email_manage_begin', identity_kind:'unified', identifier, password:samplePassword});
 }
 
 test('standalone verification accepts the current or replacement address for paid accounts without PKCE', async t => {
-  const page = await pageFor(t, {width:320, height:700, colorScheme:'dark', management:true});
+  const page = await pageFor(t, {width:320, height:700, theme:'dark', management:true});
   assert.equal(await page.getByRole('link', {name:'注册', exact:true}).count(), 0);
-  await manage(page, 'pending_email', email, '验证邮箱');
+  await manage(page, email, '验证邮箱');
   assert.equal(await page.locator('#bind-email').inputValue(), email);
   assert.equal(await page.getByRole('button', {name:'跳过并连接'}).count(), 0);
   await fit(page);
@@ -305,7 +314,7 @@ test('a verified account proves its old and new addresses to replace a verified 
     last(expected);
     await fit(page);
   };
-  await manage(page, 'email', 'verified-reader@example.invalid', '验证原邮箱');
+  await manage(page, 'verified-reader@example.invalid', '验证原邮箱');
   await next('发送验证码', '验证原邮箱', {action:'email_change_old_send'});
   await fill('#verify-code', '123456');
   await next('验证原邮箱', '输入新邮箱', {action:'email_change_old_verify', code:'123456'});
@@ -319,7 +328,7 @@ test('a verified account proves its old and new addresses to replace a verified 
 
 test('an unpaid account can correct a pending address, with no verification controls or mail', async t => {
   const page = await pageFor(t, {width:320, height:700, management:true});
-  await manage(page, 'username', 'unpaid-legacy-fallback', '邮箱尚未验证');
+  await manage(page, 'unpaid-legacy-fallback', '邮箱尚未验证');
   assert.equal(await page.getByRole('button', {name:'发送验证码'}).count(), 0);
   assert.equal(await page.locator('[aria-label="备用账号标识"]').innerText(), 'wg-0123456789abcdef0123456789abcdef');
   await fit(page);
@@ -349,59 +358,102 @@ test('legacy account and recovery remain reachable without mail or JavaScript', 
 
   await page.goto(origin + '/v1/auth/authorize?view=registration_closed');
   assert.equal(await page.getByRole('link', {name:'注册', exact:true}).count(), 0);
-  await click(page, 'link', '使用原账号');
-  await onlyPane(page, 'legacy');
-  await page.locator('#legacy-username').fill('email-shaped@example.invalid');
-  await page.locator('#legacy-password').fill(samplePassword);
+  await onlyPane(page, 'login');
+  await page.locator('#login-username').fill('email-shaped@example.invalid');
+  await page.locator('#login-password').fill(samplePassword);
   await click(page, 'button', '登录并连接');
   last({action:'login', username:'email-shaped@example.invalid', password:samplePassword});
-  await onlyPane(page, 'legacy');
+  await onlyPane(page, 'login');
   await page.getByRole('alert').waitFor();
 
   await page.goto(origin + '/v1/auth/authorize?view=mail_off');
   assert.equal(await page.getByRole('link', {name:'邮箱验证码'}).count(), 0);
   assert.equal(await page.getByRole('link', {name:'验证或更换邮箱'}).count(), 0);
   assert.equal(await page.locator('#login-password').getAttribute('minlength'), null);
-  await page.locator('#login-email').fill(email);
+  await page.locator('#login-username').fill(email);
   await page.locator('#login-password').fill(samplePassword);
   await click(page, 'button', '登录并连接');
-  last({action:'email_login', email, password:samplePassword});
+  last({action:'login', username:email, password:samplePassword});
   await onlyPane(page, 'login');
   await page.getByRole('alert').waitFor();
   await page.goto(origin + '/v1/auth/authorize?view=mail_off');
   await click(page, 'link', '忘记密码');
-  assert.equal(await page.getByLabel('WeekGlass 账号或邮箱').getAttribute('maxlength'), '254');
+  assert.equal(await page.locator('#recover').getByLabel('WeekGlass 账号或邮箱').getAttribute('maxlength'), '254');
   assert.equal(await page.locator('#recover-password').getAttribute('minlength'), '8');
   assert.equal(await page.locator('#recover-password').getAttribute('maxlength'), '1024');
   assert.match(await page.locator('#recover-password-help').innerText(), /原账号：至少 16 个字符/);
 });
 
-test('pending email password login is explicit and never uses the ordinary email action', async t => {
+test('pending email uses the same password login form as usernames', async t => {
   const page = await pageFor(t, {width:320, height:700, view:'mail_off'});
-  await click(page, 'link', '使用未验证邮箱');
-  await onlyPane(page, 'pending-login');
+  await onlyPane(page, 'login');
   await fit(page);
   await capture(page, 'pending-email-mobile-light');
   async function signIn(password) {
-    await page.getByLabel('未验证邮箱', {exact:true}).fill(email);
-    await page.locator('#pending-login-password').fill(password);
+    await page.locator('#login').getByLabel('WeekGlass 账号或邮箱', {exact:true}).fill(email);
+    await page.locator('#login-password').fill(password);
     await click(page, 'button', '登录并连接');
   }
   const wrong = 'a-different-test-password';
   await signIn(wrong);
   await page.getByRole('alert').waitFor();
-  await onlyPane(page, 'pending-login');
-  last({action:'email_pending_login', email, password:wrong});
-  await signIn(samplePassword);
+  await onlyPane(page, 'login');
+  last({action:'login', username:email, password:wrong});
+  await signIn(pendingPassword);
   await page.waitForURL('**/oauth/callback?**');
-  assert.deepEqual(requests.at(-2), {action:'email_pending_login', csrf, email, password:samplePassword});
+  assert.deepEqual(requests.at(-2), {action:'login', csrf, username:email, password:pendingPassword});
 });
 
 test('registration data entry remains legible on a 320px screen', async t => {
-  const page = await pageFor(t, {width:320, height:700, colorScheme:'dark'});
+  const page = await pageFor(t, {width:320, height:700, theme:'dark'});
   await click(page, 'link', '注册');
   await fit(page);
   await capture(page, 'registration-mobile-dark');
   const desktop = await pageFor(t);
   await capture(desktop, 'login-light');
+});
+
+const appearance = page => page.getByRole('combobox', {name:'页面外观'});
+const colorSchemeOf = page => page.locator('html').evaluate(root => getComputedStyle(root).colorScheme);
+
+test('the explicit appearance overrides the system and follows portal and device pages', async t => {
+  const page = await pageFor(t, {route:'/account/login', colorScheme:'dark'});
+  assert.equal(await colorSchemeOf(page), 'light');
+  assert.equal(await appearance(page).inputValue(), 'light');
+  assert.equal(await page.getByRole('link', {name:'服务端源代码'}).count(), 0);
+  await capture(page, 'portal-login-desktop-light');
+  await appearance(page).selectOption('dark');
+  assert.equal(await colorSchemeOf(page), 'dark');
+  await capture(page, 'portal-login-desktop-dark');
+  assert.deepEqual(await page.evaluate(() => Object.entries(localStorage)), [['weekglass-theme', 'dark']]);
+  await click(page, 'link', '忘记密码');
+  assert.equal(await appearance(page).inputValue(), 'dark');
+  assert.equal(await colorSchemeOf(page), 'dark');
+  await page.goto(origin + '/v1/auth/authorize');
+  assert.equal(await appearance(page).inputValue(), 'dark');
+  await appearance(page).selectOption('light');
+  await page.goto(origin + '/account/register');
+  assert.equal(await appearance(page).inputValue(), 'light');
+  assert.equal(await colorSchemeOf(page), 'light');
+});
+
+test('without storage or scripts the small screen can still use the light form', async t => {
+  const options = {route:'/account/login', width:320, height:700, colorScheme:'dark'};
+  const blocked = await pageFor(t, {...options, blockStorage:true});
+  assert.equal(await colorSchemeOf(blocked), 'light');
+  const box = await appearance(blocked).boundingBox();
+  assert.ok(box.width >= 44 && box.height >= 44);
+  assert.equal(await appearance(blocked).evaluate(control => getComputedStyle(control).transitionDuration), '0s');
+  assert.equal(await blocked.locator('body').evaluate(body => getComputedStyle(body,'::before').animationName), 'none');
+  await fit(blocked);
+  await capture(blocked, 'portal-login-mobile-light');
+  await appearance(blocked).selectOption('dark');
+  assert.equal(await colorSchemeOf(blocked), 'dark');
+  await click(blocked, 'link', '创建账号');
+  assert.equal(await colorSchemeOf(blocked), 'light');
+  const noScript = await pageFor(t, {...options, javaScriptEnabled:false});
+  assert.equal(await colorSchemeOf(noScript), 'light');
+  assert.equal(await appearance(noScript).count(), 0);
+  assert.equal(await noScript.getByRole('button', {name:'登录', exact:true}).isEnabled(), true);
+  await fit(noScript);
 });

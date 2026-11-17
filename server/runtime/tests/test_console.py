@@ -15,13 +15,13 @@ from test_email_identity import address, delivery
 from test_sync import batch, event
 from test_waffo_runtime import MONTHLY, ANNUAL, ORIGIN, checkout, official
 from weekglass_server import admin, auth, calendar_export, console_sessions as sessions
+from weekglass_server.auth_styles import CLOUD_SOURCE_URL
 from weekglass_server.db import connect
 from weekglass_server.entitlements import set_grant
-from weekglass_server.protocol import now, validate
+from weekglass_server.protocol import now, stamp, validate
 from weekglass_server.settings import settings
 
 PASSWORD = 'Local-fixture-password-123'
-SOURCE_URL = '/v1/source/weekglass-cloud-20261116.tar.gz'
 
 
 def csrf(response):
@@ -37,6 +37,10 @@ def authorize(client, action, token, *, next='', **fields):
 
 def submit(client, path, token, **fields):
     return client.post(path, headers={'Origin': settings.public_origin}, data={'csrf': token, **fields})
+
+
+def owner_submit(client, path, token, action, password=PASSWORD, reason='隔离测试账号支持', **extra):
+    return submit(client, path, token, action=action, current_password=password, reason=reason, **extra)
 
 
 def sign_in(client, name, password=PASSWORD, *, next='', expected=303):
@@ -60,7 +64,7 @@ def hosted_console(monkeypatch):
 def test_portal_signup_unverified_login_and_paid_verification(client, delivery, address):
     email = address()
     page = client.get('/account/register')
-    assert SOURCE_URL in page.text and '用邮箱和密码即可创建账号' in page.text
+    assert CLOUD_SOURCE_URL not in page.text and '用邮箱和密码即可创建账号' in page.text
     assert '邀请码' not in page.text and '验证码' not in page.text
     registered = authorize(client, 'email_register', csrf(page), email=email, password=PASSWORD,
                            confirm_password=PASSWORD)
@@ -71,7 +75,7 @@ def test_portal_signup_unverified_login_and_paid_verification(client, delivery, 
     assert not delivery
     home = client.get('/account')
     assert home.status_code == 200
-    assert all(item in home.text for item in ('未开通', '1.00', '9.99', '365 天', '微信单次支付', SOURCE_URL))
+    assert all(item in home.text for item in ('未开通', '1.00', '9.99', '365 天', '微信单次支付', CLOUD_SOURCE_URL))
     assert client.get('/v1/me/entitlements').status_code == 401  # cookie is not a bearer token
     assert client.get('/account/admin').status_code == 403
     with connect() as conn:
@@ -141,7 +145,8 @@ def test_owner_controls_are_scoped_and_revoke_pending_device_codes(client, accou
         sign_in(client, username)
         unauthorized = csrf(client.get('/account'))
         assert client.get('/account/admin').status_code == 403
-        assert submit(client, target, unauthorized, action='change_grant', current_password=PASSWORD, days='30').status_code == 403
+        assert owner_submit(client, target, unauthorized, 'change_grant', expected='',
+                            until='2040-11-17T12:00').status_code == 403
         tokens = tokens_for(client, (uid, username, PASSWORD))
         did = tokens['device_id']
         flow = csrf(unfinished.get('/account/login'))
@@ -150,7 +155,7 @@ def test_owner_controls_are_scoped_and_revoke_pending_device_codes(client, accou
         assert 'value="email_manage_connect"' in pending.text
         with connect() as conn:
             assert set_grant(conn, uid, 0, now())['grant_until'] is None
-            set_grant(conn, uid, 1, now())
+            grant = set_grant(conn, uid, 1, now())['grant_until']
             row = conn.execute('SELECT * FROM accounts WHERE account_id=%s', (uid,)).fetchone()
         data = batch(SimpleNamespace(identity=tokens, account=row), [event()])
         data['mutations'][0]['event']['title'] = 'private synthetic calendar title'
@@ -162,44 +167,46 @@ def test_owner_controls_are_scoped_and_revoke_pending_device_codes(client, accou
         monkeypatch.setattr('sys.argv', ['admin', 'set-owner', owner])
         admin.main()
         sign_in(client, owner_name, owner_password)
-        home = client.get('/account/admin', params={'q': username})
+        home = client.get('/account/admin/users', params={'q': username})
         assert username in home.text and 'private synthetic calendar title' not in home.text
         detail = client.get(target)
         assert detail.status_code == 200 and did in detail.text and 'private synthetic calendar title' not in detail.text
         token = csrf(detail)
         evil = client.post(target, headers={'Origin': 'https://viliana.cn'},
-                           data={'csrf': token, 'action': 'suspend', 'current_password': owner_password})
+                           data={'csrf': token, 'action': 'suspend', 'current_password': owner_password,
+                                 'reason': '隔离测试账号支持', 'expected': '1'})
         assert evil.status_code == 403
-        assert submit(client, target, 'bad csrf', action='suspend', current_password=owner_password).status_code == 403
-        assert submit(client, target, token, action='suspend', current_password='wrong').status_code == 403
-        assert submit(client, target, token, action='revoke_device', current_password=owner_password,
+        assert owner_submit(client, target, 'bad csrf', 'suspend', owner_password, expected='1').status_code == 403
+        assert owner_submit(client, target, token, 'suspend', 'wrong', expected='1').status_code == 403
+        assert owner_submit(client, target, token, 'revoke_device', owner_password,
                       device_id=str(uuid4())).status_code == 404
-        assert submit(client, target, token, action='revoke_device', current_password=owner_password,
+        assert owner_submit(client, target, token, 'revoke_device', owner_password,
                       device_id=did).status_code == 303
         assert client.get('/v1/devices', headers=headers(tokens)).status_code == 401
         assert client.post('/v1/auth/token', data=proof).status_code == 400
-        assert submit(client, target, token, action='revoke_devices', current_password=owner_password).status_code == 303
+        assert owner_submit(client, target, token, 'revoke_devices', owner_password).status_code == 303
         assert authorize(unfinished, 'email_manage_connect', flow).status_code == 400
         assert unfinished.get('/account').status_code == 303
         # A fresh proof using the same password still works.
         sign_in(unfinished, username)
         remembered_cookie = unfinished.cookies.get('__Host-wg-account')
-        assert submit(client, target, token, action='change_grant', current_password=owner_password, days='0').status_code == 303
+        assert owner_submit(client, target, token, 'revoke_grant', owner_password, expected=stamp(grant)).status_code == 303
         assert '已到期' in client.get(target).text
-        assert submit(client, target, token, action='suspend', current_password=owner_password).status_code == 303
+        assert owner_submit(client, target, token, 'suspend', owner_password, expected='1').status_code == 303
         with TestClient(client.app, base_url=settings.public_origin, follow_redirects=False) as other:
             other.cookies.set('__Host-wg-account', remembered_cookie)
             assert other.get('/account').headers['location'] == '/account/login'
             sign_in(other, username, expected=401)
-        assert submit(client, target, token, action='resume', current_password=owner_password).status_code == 303
-        assert submit(client, f'/account/admin/users/{owner}', token, action='suspend', current_password=owner_password).status_code == 400
+        assert owner_submit(client, target, token, 'resume', owner_password, expected='0').status_code == 303
+        assert owner_submit(client, f'/account/admin/users/{owner}', token, 'suspend', owner_password,
+                            expected='1').status_code == 400
         monkeypatch.setattr('sys.argv', ['admin', 'clear-owner'])
         admin.main()
         assert client.get('/account/admin').status_code == 403
     finally:
         unfinished.close()
         with connect() as conn:
-            conn.execute('DELETE FROM web_owner_actions WHERE actor_id=%s OR subject_id=%s', (owner, uid))
+            conn.execute('DELETE FROM web_owner_operations WHERE actor_id=%s OR subject_id=%s', (owner, uid))
             conn.execute('DELETE FROM accounts WHERE account_id=%s', (uid,))
 
 

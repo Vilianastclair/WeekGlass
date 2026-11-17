@@ -47,12 +47,16 @@ def last_service_end(conn, account, instant):
 
 
 def set_grant(conn, account_id, days, instant):
+    return set_grant_until(conn, account_id, instant + timedelta(days=days) if days else None, instant)
+
+
+def set_grant_until(conn, account_id, until, instant):
     # When a live grant is removed, keep its actual end as the export boundary.
     # Removing a grant that never existed must not create an export allowance.
-    return conn.execute('''UPDATE accounts SET grant_until=CASE
-      WHEN %s>0 THEN %s WHEN grant_until>%s THEN %s ELSE grant_until END
+    return conn.execute('''UPDATE accounts SET grant_until=COALESCE(%s,
+      CASE WHEN grant_until>%s THEN %s ELSE grant_until END)
       WHERE account_id=%s RETURNING grant_until''',
-      (days, instant + timedelta(days=days), instant, instant, account_id)).fetchone()
+      (until, instant, instant, account_id)).fetchone()
 
 
 def export_claim(conn, account_id, ended_at):

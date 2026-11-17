@@ -8,7 +8,7 @@ from starlette.concurrency import run_in_threadpool
 
 from . import account, auth, billing, calendar_export, console_pages as pages, console_sessions as sessions
 from .db import connect
-from .entitlements import allow_sync, entitlement, export_claim, last_service_end, set_grant
+from .entitlements import allow_sync, entitlement, export_claim, last_service_end
 from .protocol import now, problem
 from .settings import settings
 
@@ -382,103 +382,6 @@ def export_complete(export_id: UUID, request: Request):
         if not claim['completed_at']:
             conn.execute('UPDATE calendar_export_claims SET completed_at=now() WHERE export_id=%s', (export_id,))
     return Response(status_code=204)
-
-
-_USER_SQL = '''SELECT a.account_id,a.grant_until,a.created_at,u.username,u.pending_email,u.verified_email,u.enabled,
-  (SELECT count(*) FROM devices d WHERE d.account_id=a.account_id AND d.revoked_at IS NULL) AS active_devices
-  FROM accounts a JOIN auth_accounts u USING(account_id)'''
-_ADMIN_PAGE_SIZE = 24
-
-
-def _admin_identity(conn, request, *, csrf=None):
-    if request.method == 'GET':
-        identity = _read(conn, request)
-    else:
-        identity = _write_identity(conn, request, csrf)
-    if identity and not sessions.is_owner(conn, identity['account_id'], lock=request.method != 'GET'):
-        auth.fail(403, 'owner_required', '只有 WeekGlass 所有者可以管理云端用户。')
-    return identity
-
-
-@router.get('/admin')
-def admin(request: Request, q: str = '', page: int = 1):
-    try:
-        with connect() as conn:
-            identity = _admin_identity(conn, request)
-            if not identity:
-                return _signed_out('admin')
-            profile = _profile(conn, identity)
-            query = q.strip().lower()[:254]
-            page = min(max(1, page), 10000)
-            rows = conn.execute(_USER_SQL + ''' WHERE %s='' OR strpos(u.username,%s)>0 OR
-              strpos(coalesce(u.pending_email,u.verified_email,''),%s)>0 OR strpos(a.account_id::text,%s)>0
-              ORDER BY a.created_at DESC,a.account_id DESC LIMIT %s OFFSET %s''',
-              (query, query, query, query, _ADMIN_PAGE_SIZE+1, (page-1)*_ADMIN_PAGE_SIZE)).fetchall()
-            audit = conn.execute('''SELECT subject_id,action,days,occurred_at,username FROM web_owner_actions
-              LEFT JOIN auth_accounts ON account_id=subject_id ORDER BY action_id DESC LIMIT 8''').fetchall()
-        return pages.admin(profile, identity['csrf'], rows[:_ADMIN_PAGE_SIZE], audit, query, page, len(rows)>_ADMIN_PAGE_SIZE)
-    except HTTPException as exc:
-        return pages.problem_page('无法打开所有者控制台', pages.error_message(exc.detail), status=exc.status_code)
-
-
-@router.get('/admin/users/{account_id}')
-def admin_user(account_id: UUID, request: Request):
-    try:
-        with connect() as conn:
-            identity = _admin_identity(conn, request)
-            if not identity:
-                return _signed_out('admin')
-            profile = _profile(conn, identity)
-            row = conn.execute(_USER_SQL + ' WHERE a.account_id=%s', (account_id,)).fetchone()
-            if not row:
-                problem(404, 'not_found')
-            rights, _ = entitlement(conn, row)
-            devices = _devices(conn, account_id)
-        return pages.admin_user(profile, identity['csrf'], row, rights, devices,
-                                pages.ADMIN_MESSAGES.get(request.query_params.get('notice')))
-    except HTTPException as exc:
-        return pages.problem_page('无法打开账号', pages.error_message(exc.detail), status=exc.status_code,
-                                  href='/account/admin', button='返回用户列表')
-
-
-@router.post('/admin/users/{account_id}')
-async def admin_update(account_id: UUID, request: Request):
-    return await _form_action(request, _admin_update, account_id, back=f'/account/admin/users/{account_id}')
-
-
-def _admin_update(request, form, account_id):
-    action = form.get('action')
-    extra = {'suspend': (), 'resume': (), 'revoke_devices': (), 'revoke_device': ('device_id',), 'change_grant': ('days',)}
-    if action not in extra:
-        problem(400, 'invalid_request')
-    _form_data(form, ('action', 'current_password', *extra[action]))
-    days = None
-    if action == 'change_grant':
-        if not re.fullmatch(r'[0-9]{1,3}', form['days']) or not 0 <= (days := int(form['days'])) <= 366:
-            auth.fail(422, 'invalid_grant_days', '请输入 0 至 366 天。')
-    auth.rate_limit(request, 'owner-admin', 12)
-    with connect() as conn:
-        identity = _admin_identity(conn, request, csrf=form['csrf'])
-        aid = identity['account_id']
-        if aid == account_id:
-            auth.fail(400, 'owner_self_change', '不能通过所有者控制台修改自己的账号。')
-        credentials = conn.execute('SELECT * FROM auth_accounts WHERE account_id=%s', (aid,)).fetchone()
-        if not auth.password_matches(credentials, form['current_password']):
-            auth.fail(403, 'incorrect_password', '所有者密码不正确。')
-        if not auth.locked_credentials(conn, account_id):
-            problem(404, 'not_found')
-        if action in ('suspend', 'resume'):
-            conn.execute('''UPDATE auth_accounts SET enabled=%s,credential_version=credential_version+1
-              WHERE account_id=%s''', (action == 'resume', account_id))
-        if action in ('suspend', 'revoke_devices'):
-            account.revoke_sessions(conn, account_id, credentials_changed=(action == 'suspend'))
-        if action == 'revoke_device':
-            auth.disconnect_device(conn, account_id, auth.valid_uuid(form['device_id']))
-        if action == 'change_grant':
-            set_grant(conn, account_id, days, now())
-        conn.execute('INSERT INTO web_owner_actions(actor_id,subject_id,action,days) VALUES (%s,%s,%s,%s)',
-                     (aid, account_id, action, days))
-    return _go(f'/account/admin/users/{account_id}?notice={action}')
 
 
 @router.get('/assets/console.css')

@@ -204,11 +204,15 @@ def update_password(conn, account, password):
 
 def rotate_recovery(conn, account_id):
     key = recovery_key()
-    conn.execute('UPDATE auth_accounts SET recovery_hash=%s WHERE account_id=%s', (auth.hashed(key), account_id))
+    conn.execute('''UPDATE auth_accounts SET recovery_hash=%s,recovery_generation=recovery_generation+1
+      WHERE account_id=%s''', (auth.hashed(key), account_id))
     return key
 
 
 def delete_account_data(conn, account):
+    from .console_sessions import is_owner
+    if is_owner(conn, account['account_id']):
+        auth.fail(409, 'owner_account_protected', '当前账号是唯一所有者，请先由运维转移所有者权限。')
     billing.detach_account(conn, account['account_id'])
     conn.execute('DELETE FROM accounts WHERE account_id=%s', (account['account_id'],))
 

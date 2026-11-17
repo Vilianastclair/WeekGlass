@@ -43,7 +43,7 @@ def identity(conn, request, *, lock=False):
     session_hash = auth.hashed(token)
 
     def find():
-        return conn.execute('''SELECT s.session_hash,s.account_id,u.credential_version
+        return conn.execute('''SELECT s.session_hash,s.session_id,s.account_id,u.credential_version
           FROM web_sessions s JOIN auth_accounts u USING(account_id)
           WHERE s.session_hash=%s AND s.expires_at>now() AND u.enabled
             AND u.credential_version=s.credential_version''', (session_hash,)).fetchone()
@@ -90,3 +90,9 @@ def refresh_credential(conn, grant, account_id):
 def is_owner(conn, account_id, *, lock=False):
     return bool(conn.execute('SELECT 1 FROM web_owner WHERE account_id=%s' + (' FOR SHARE' if lock else ''),
                              (account_id,)).fetchone())
+
+
+def lock_owner_changes(conn):
+    # Role assignment and privileged mutations both acquire this before locking
+    # any account, so an owner switch cannot race a protected operation.
+    conn.execute("SELECT pg_advisory_xact_lock(hashtext('weekglass_owner_changes'))")

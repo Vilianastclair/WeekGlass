@@ -3,7 +3,8 @@ import html
 import base64
 import hashlib
 
-from .auth_styles import AUTH_BRAND, AUTH_STYLE, CLOUD_SOURCE_URL, PORTAL_AUTH_STYLE
+from .auth_styles import AUTH_BRAND, AUTH_STYLE, PORTAL_AUTH_STYLE
+from .web_theme import theme_head, theme_toggle
 
 
 # A fixed, CSP-hashed script; no remote code or inline event handlers.
@@ -431,12 +432,13 @@ def page(csrf, message='', *, action='login', registration=True, recovery_key=No
                  '创建 WeekGlass 账号' if action in ('register', 'email_register') and registration else '登录 WeekGlass')
     else:
         title = '连接 WeekGlass'
-    panel_head = AUTH_BRAND + ('<p class="auth-eyebrow">账号控制台</p>' if portal else '') + '<h1>' + title + '</h1>'
+    panel_head = ('<div class="auth-header">' + AUTH_BRAND + theme_toggle() + '</div>'
+                  + ('<p class="auth-eyebrow">账号控制台</p>' if portal else '') + '<h1>' + title + '</h1>')
     main_open = ('<main class="auth-stage">' + _AUTH_ART + '<section class="panel auth-panel">' if portal else
                  '<main class="panel">')
     head = ('<!doctype html><html lang="zh-CN"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1">'
-            '<title>' + title + '</title><style>' + AUTH_STYLE + (PORTAL_AUTH_STYLE if portal else '')
+            '<title>' + title + '</title>' + theme_head() + '<style>' + AUTH_STYLE + (PORTAL_AUTH_STYLE if portal else '')
             + '</style></head><body' + (' class="portal-auth"' if portal else '') + '>' + main_open + panel_head)
     if handoff_url:
         content = ('<p class="handoff-success">账号验证通过。</p>'
@@ -478,8 +480,7 @@ def page(csrf, message='', *, action='login', registration=True, recovery_key=No
     elif portal:
         content = (_portal_entry(csrf, action, registration=registration, email_enabled=email_enabled,
                                  email_signup_enabled=email_signup_enabled, message=message, notice=notice)
-                   + '<p class="connection-note">使用独立的 WeekGlass 账号，与 Viliana 主站及学校账号分开。'
-                     f'<br><a href="{CLOUD_SOURCE_URL}">服务端源代码</a></p>')
+                   + '<p class="connection-note">使用独立的 WeekGlass 账号，与 Viliana 主站及学校账号分开。</p>')
     else:
         email_password = email_signup_enabled or email_login_enabled or email_enabled
         content = ('<p class="scope">使用独立的 WeekGlass 账号，与主网站及学校账号分开。</p>'
