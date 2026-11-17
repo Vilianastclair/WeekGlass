@@ -4,8 +4,8 @@
 
 WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointments, and focus time in one view. Plan offline without an account.
 
-- [Download the Windows x64 installer](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.16/WeekGlass-Setup-0.20.16-Windows-x64.exe)
-- [Download the Android ARM64 APK](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.16/WeekGlass-Android-0.20.16-arm64.apk)
+- [Download the Windows x64 installer](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.17/WeekGlass-Setup-0.20.17-Windows-x64.exe)
+- [Download the Android ARM64 APK](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.20.17/WeekGlass-Android-0.20.17-arm64.apk)
 
 [GitHub releases](https://github.com/Vilianastclair/WeekGlass/releases) | [Website](https://cloud.viliana.cn/) | [简体中文](README.md)
 
