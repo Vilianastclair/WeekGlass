@@ -4,7 +4,7 @@ No remote assets. The embedded brand is the unmodified application mark.
 Only two compositor transforms move the ambient light; reduced motion is static.
 """
 
-CLOUD_SOURCE_URL = '/v1/source/weekglass-cloud-20261117-admin.tar.gz'
+CLOUD_SOURCE_URL = '/v1/source/weekglass-cloud-20261118-schedule.tar.gz'
 
 PORTAL_AUTH_STYLE = r'''
 body.portal-auth{--surface-radius:22px;padding:clamp(22px,5vw,72px);background:
