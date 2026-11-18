@@ -1,7 +1,7 @@
 name: weekglass
 description: A calm, local-first weekly time planner.
 publish_to: none
-version: 0.21.0+47
+version: 0.21.1+48
 
 environment:
   sdk: ^3.13.7
@@ -59,6 +59,8 @@ flutter:
     - assets/brand/
     - assets/fonts/OFL.txt
     - assets/licenses/CourseAdapter.txt
+    - assets/licenses/SchoolDirectory.txt
+    - assets/school_portal/read_timetable.js
 
   fonts:
     - family: WeekGlassSans

@@ -36,6 +36,16 @@ abstract class WhuPortal extends ChangeNotifier {
 class NativeWhuPortal extends WhuPortal {
   NativeWhuPortal({this.school = SchoolAdapter.whu});
   final SchoolAdapter school;
+  // WebView2 has one process-wide environment. Keep the existing WHU data
+  // directory so a user can use either school reader first.
+  static Future<void> initializeWindowsEnvironment() =>
+      _environment ??= () async {
+        final support = await getApplicationSupportDirectory();
+        await win.WebviewController.initializeEnvironment(
+          userDataPath: path.join(support.path, 'whu_webview'),
+        );
+      }();
+
   static const entry = 'https://jwgl.whu.edu.cn/';
   static Future<void>? _environment;
   win.WebviewController? _windows;
@@ -84,13 +94,7 @@ class NativeWhuPortal extends WhuPortal {
         if (await win.WebviewController.getWebViewVersion() == null) {
           throw StateError('需要安装 Microsoft Edge WebView2 Runtime 后才能打开学校登录。');
         }
-        _environment ??= () async {
-          final support = await getApplicationSupportDirectory();
-          await win.WebviewController.initializeEnvironment(
-            userDataPath: path.join(support.path, 'whu_webview'),
-          );
-        }();
-        await _environment;
+        await initializeWindowsEnvironment();
         if (_closed) return;
         final w = _windows = win.WebviewController();
         await w.initialize();

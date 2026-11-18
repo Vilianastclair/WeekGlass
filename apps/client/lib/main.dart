@@ -25,6 +25,9 @@ Future<void> main(List<String> args) async {
     yield LicenseEntryWithLineBreaks([
       'WakeUp CourseAdapter',
     ], await rootBundle.loadString('assets/licenses/CourseAdapter.txt'));
+    yield LicenseEntryWithLineBreaks([
+      'School directory (baoozak/timetable)',
+    ], await rootBundle.loadString('assets/licenses/SchoolDirectory.txt'));
   });
   await initializeDateFormatting('zh_CN');
   await LiquidGlass.load();

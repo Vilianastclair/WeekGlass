@@ -1,4 +1,5 @@
 import 'school_html_format.dart';
+import 'school_portal_timetable.dart';
 import 'whu_timetable.dart';
 
 /// A reviewed official school origin, not a user supplied script or URL.
@@ -87,7 +88,8 @@ class SchoolAdapter {
 
   static bool acceptsImportSource(String? source) =>
       source != null &&
-      (all.any((school) => source.startsWith('${school.id}:')) ||
+      (source.startsWith('${SchoolPortalTimetable.sourceId}:') ||
+          all.any((school) => source.startsWith('${school.id}:')) ||
           SchoolHtmlFormat.values.any(
             (format) => source.startsWith('${format.sourceId}:'),
           ));
