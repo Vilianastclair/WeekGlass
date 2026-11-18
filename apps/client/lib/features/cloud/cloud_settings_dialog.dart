@@ -101,7 +101,7 @@ class _CloudDialogState extends State<_CloudDialog> {
         content: SizedBox(
           width: 390,
           child: Text(
-            '将本机所有日程（包括曾从其他账号下载的日程）与${cloud.displayName}中的日程合并。之后两端会同步修改；遇到冲突时由你选择保留的版本。',
+            '将本机所有日程（包括曾从其他账号下载的日程）与${cloud.displayName}中的日程合并。服务器支持时也会同步睡眠时段；遇到冲突时由你选择保留的版本。',
           ),
         ),
         actions: [
@@ -430,6 +430,19 @@ class _CloudDialogState extends State<_CloudDialog> {
             icon: const Icon(Icons.sync_rounded, size: 18),
             label: const Text('立即同步'),
           ),
+          if (!cloud.auth.sleepScheduleApproved) ...[
+            const SizedBox(height: 12),
+            const Text('在同一账号的设备之间同步睡眠和起床时间。'),
+            Align(
+              alignment: AlignmentDirectional.centerStart,
+              child: TextButton(
+                onPressed: cloud.busy
+                    ? null
+                    : () => _run(cloud.approveSleepSchedule),
+                child: const Text('同步作息'),
+              ),
+            ),
+          ],
           if (cloud.engine.conflicts.isNotEmpty) ...[
             const SizedBox(height: 16),
             Text(
@@ -439,6 +452,20 @@ class _CloudDialogState extends State<_CloudDialog> {
             for (final conflict in cloud.engine.conflicts)
               _conflict(context, conflict),
           ],
+          if (cloud.engine.sleepScheduleConflict case final conflict?) ...[
+            const SizedBox(height: 16),
+            Text('请选择要保留的睡眠时段', style: theme.textTheme.titleSmall),
+            _conflictChoices(
+              context,
+              local: _sleepSummary(conflict.local),
+              remote: _sleepSummary(conflict.remote),
+              resolve: (useLocal) => cloud.engine.resolveSleepScheduleConflict(
+                conflict,
+                useLocal: useLocal,
+              ),
+            ),
+          ] else if (cloud.engine.sleepScheduleSupported == false)
+            Text('此服务器尚不支持同步睡眠时段。', style: theme.textTheme.bodySmall),
         ] else ...[
           const Text('确认合并后才会开始同步本机日程。'),
           const SizedBox(height: 10),
@@ -450,7 +477,9 @@ class _CloudDialogState extends State<_CloudDialog> {
         Padding(
           padding: const EdgeInsets.only(top: 10),
           child: Text(
-            '仅同步日程，不会上传学校登录凭据或本机设置。',
+            cloud.auth.sleepScheduleApproved
+                ? '同步日程和睡眠时段，不上传学校登录凭据或其他本机设置。'
+                : '不上传学校登录凭据或其他本机设置。',
             style: theme.textTheme.bodySmall,
           ),
         ),
@@ -495,7 +524,28 @@ class _CloudDialogState extends State<_CloudDialog> {
     onPressed: cloud.working ? null : () => _openPortal(CloudPortalPage.plans),
   );
 
-  Widget _conflict(BuildContext context, CloudConflict conflict) => Padding(
+  Widget _conflict(BuildContext context, CloudConflict conflict) =>
+      _conflictChoices(
+        context,
+        local: _summary(conflict.local),
+        remote: _summary(conflict.remote),
+        resolve: (useLocal) =>
+            cloud.engine.resolveConflict(conflict.id, useLocal: useLocal),
+      );
+
+  String _sleepSummary(SleepSchedule schedule) {
+    String clock(int minute) =>
+        '${(minute ~/ 60).toString().padLeft(2, '0')}:${(minute % 60).toString().padLeft(2, '0')}';
+    final status = schedule.enabled ? '' : '（未启用）';
+    return '睡眠 ${clock(schedule.sleepMinute)}，起床 ${clock(schedule.wakeMinute)}$status';
+  }
+
+  Widget _conflictChoices(
+    BuildContext context, {
+    required String local,
+    required String remote,
+    required Future<void> Function(bool useLocal) resolve,
+  }) => Padding(
     padding: const EdgeInsets.only(top: 8),
     child: DecoratedBox(
       decoration: BoxDecoration(
@@ -507,9 +557,9 @@ class _CloudDialogState extends State<_CloudDialog> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text('本机：${_summary(conflict.local)}'),
+            Text('本机：$local'),
             const SizedBox(height: 8),
-            Text('云端：${_summary(conflict.remote)}'),
+            Text('云端：$remote'),
             Wrap(
               spacing: 8,
               children: [
@@ -520,12 +570,7 @@ class _CloudDialogState extends State<_CloudDialog> {
                   TextButton(
                     onPressed: cloud.busy
                         ? null
-                        : () => _run(
-                            () => cloud.engine.resolveConflict(
-                              conflict.id,
-                              useLocal: useLocal,
-                            ),
-                          ),
+                        : () => _run(() => resolve(useLocal)),
                     child: Text(label),
                   ),
               ],

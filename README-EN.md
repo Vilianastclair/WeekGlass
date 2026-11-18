@@ -17,8 +17,11 @@ WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointmen
 
 - **Make time by dragging on the calendar.** Open an event to see its notes. Create and edit recurring events as a group.
 - **Pinch the time axis on your phone.** Pinch inward to fit the day or spread vertically for detail. Your display scale is remembered on this device.
-- **Bring in an existing schedule.** Import a Wuhan University timetable or an ICS, CSV, or JSON file. Export a color or black-and-white PDF to print.
+- **Set your visible hours.** Changing wake and sleep times clips the calendar view without modifying saved events. Both times can sync between devices after you agree to share the schedule with a compatible server.
+- **Bring in an existing schedule.** Connect to Wuhan University online, or preview a saved timetable page in a supported HTML layout from Peking University, Huazhong University of Science and Technology, or Sun Yat-sen University. Import ICS, CSV, or JSON; export a color or black-and-white PDF to print.
 - **Keep your calendar on your device.** To sync across devices, choose the paid WeekGlass Cloud service or [use your own server for free](server/README.md).
+
+Already using WakeUp Schedule? [Export your timetable as a calendar file](https://www.wakeup.fun/doc/export_schedule.html), choose the `.ics` file in WeekGlass’s **Import events** dialog, and review the dates and times before saving. No school login is needed for this route.
 
 ## Use WeekGlass Cloud
 
@@ -27,6 +30,8 @@ Open **Settings → Cloud services → Subscribe to cloud** to buy a plan in you
 Visit [your cloud account](https://cloud.viliana.cn/account) to manage orders, devices and account security. When your subscription ends, cloud sync pauses and your local calendar keeps working. You can export your cloud calendar from the account site.
 
 ## Build from source
+
+The current source version is 0.21.0 (build 47), with a sleep-aware calendar view, sleep schedule sync and local HTML timetable import. [What changed (Chinese)](docs/releases/0.21.0.md).
 
 Use Flutter 3.47.9 (Dart 3.13.7). From the repository root:
 

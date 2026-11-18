@@ -1,7 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:typed_data';
 import 'dart:ui';
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
@@ -16,6 +18,8 @@ import 'whu_portal.dart';
 import 'whu_timetable.dart';
 import 'teaching_term.dart';
 import 'school_adapter.dart';
+import 'school_html_format.dart';
+import 'school_html_import.dart';
 import 'course_holidays.dart';
 
 Future<void> openCourseImport(
@@ -69,13 +73,20 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   Set<String> holidayRemovalCandidates = {};
   bool awaitingSchool = false;
   WhuTimetable? timetable;
+  bool fileMode = false;
+  SchoolHtmlFormat? fileFormat;
   Set<String> selected = {};
   CourseImportPlan? plan;
   String? error;
   int sleepConflicts = 0, overlaps = 0, previewGeneration = 0;
   WhuTerm get term => WhuTerm(year, semester);
   bool get busy => reading || saving;
-  String get settingsKey => '${school.id}_schedule_${term.key}';
+  String get sourceId => fileFormat?.sourceId ?? school.id;
+  String? get settingsKey => fileMode && fileFormat == null
+      ? null
+      : '${sourceId}_schedule_${term.key}';
+  String get accountKey =>
+      fileMode ? SchoolHtmlImport.fileAccountKey : account.text;
   @override
   void initState() {
     super.initState();
@@ -94,6 +105,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
 
   Future<void> _loadSettings() async {
     final key = settingsKey;
+    if (key == null) return;
     try {
       final saved = await preferences.getString(key);
       if (!mounted || key != settingsKey) return;
@@ -112,7 +124,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
         setState(() {
           firstMonday = date;
           clock = periods;
-          confirmed = true;
+          confirmed = !fileMode;
           excludeHolidays = value['excludeHolidays'] == true;
           holidays = savedHolidays;
         });
@@ -124,7 +136,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   }
 
   void _portalChanged() {
-    if (!mounted) return;
+    if (!mounted || fileMode) return;
     setState(() {});
     if (portal.hasTimetable(term) && !reading && !saving) {
       unawaited(_read());
@@ -151,7 +163,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   }
 
   Future<void> _read() async {
-    if (busy) return;
+    if (busy || fileMode) return;
     setState(() {
       reading = true;
       error = null;
@@ -194,6 +206,76 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
     }
   }
 
+  void _resetSourceSettings() {
+    firstMonday = fileMode ? null : school.firstMonday(term);
+    if (fileMode) clock = [];
+    holidays = [];
+    excludeHolidays = false;
+    confirmed = false;
+  }
+
+  void _changeMode(bool fromFile) {
+    setState(() {
+      fileMode = fromFile;
+      fileFormat = null;
+      clock = [...ClassPeriod.standard];
+      _resetSourceSettings();
+      error = null;
+      removeMissing = false;
+      restoreDeleted = false;
+      removeImportedHolidays = false;
+      holidayRemovalCandidates = {};
+    });
+    unawaited(_loadSettings());
+  }
+
+  Future<void> _readFile() async {
+    final format = fileFormat;
+    if (busy || format == null) return;
+    setState(() {
+      reading = true;
+      error = null;
+    });
+    try {
+      final file = await FilePicker.pickFile(
+        dialogTitle: '选择教务课表网页文件',
+        type: FileType.custom,
+        allowedExtensions: ['html', 'htm'],
+        windowsOptions: const WindowsOptions(lockParentWindow: true),
+      );
+      if (file == null || !mounted) return;
+      if (!const {'html', 'htm'}.contains(file.extension?.toLowerCase())) {
+        throw const FormatException('请选择另存为 HTML 或 HTM 的个人课表。');
+      }
+      const tooLarge = FormatException('课表文件超过 4 MB，请另存为仅包含课表的 HTML 文件。');
+      if ((await file.length() ?? 0) > SchoolHtmlImport.maxBytes) {
+        throw tooLarge;
+      }
+      final bytes = BytesBuilder(copy: false);
+      await for (final chunk in file.readAsByteStream()) {
+        if (bytes.length + chunk.length > SchoolHtmlImport.maxBytes) {
+          throw tooLarge;
+        }
+        bytes.add(chunk);
+      }
+      final data = await compute(SchoolHtmlImport.read, (
+        format: format,
+        bytes: bytes.takeBytes(),
+      ));
+      if (!mounted) return;
+      setState(() {
+        timetable = data;
+        selected = data.courseKeys;
+        confirmed = false;
+      });
+      await _preview();
+    } catch (e) {
+      if (mounted) setState(() => error = _message(e));
+    } finally {
+      if (mounted) setState(() => reading = false);
+    }
+  }
+
   String _message(Object e) => switch (e) {
     ArgumentError() => e.message.toString(),
     FormatException() => e.message,
@@ -201,7 +283,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
     _ => '操作未完成，请重试。原有日程已保留。',
   };
   Future<void> _rememberTeachingCalendar() async {
-    if (firstMonday == null || timetable == null) return;
+    if (fileMode || firstMonday == null || timetable == null) return;
     final lastWeek = timetable!.meetings
         .expand((m) => m.weeks)
         .fold<int>(1, (a, b) => a > b ? a : b);
@@ -231,17 +313,18 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
     });
     if (timetable == null ||
         firstMonday == null ||
-        account.text.trim().isEmpty) {
+        clock.isEmpty ||
+        accountKey.trim().isEmpty) {
       return;
     }
     try {
       final expanded = timetable!.expand(
         term: term,
-        accountKey: account.text,
+        accountKey: accountKey,
         firstMonday: firstMonday!,
         clock: clock,
         selectedCourses: selected,
-        schoolId: school.id,
+        schoolId: sourceId,
       );
       final holidayPreview = CourseHolidayPreview.apply(
         events: expanded,
@@ -250,8 +333,8 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
       );
       final source = WhuTimetable.scopeFor(
         term,
-        account.text,
-        schoolId: school.id,
+        accountKey,
+        schoolId: sourceId,
       );
       final repo = widget.controller.repository;
       final previous = repo is ImportedEventRepository
@@ -276,6 +359,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
         previous: previous,
         allActive: widget.controller.events,
         removeMissing:
+            !fileMode &&
             removeMissing &&
             timetable!.warnings.isEmpty &&
             selected.length == timetable!.courseKeys.length,
@@ -330,7 +414,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
           firstMonday ??
           mondayOf(
             DateTime(
-              year,
+              semester == 3 ? year : year + 1,
               semester == 3
                   ? 9
                   : semester == 12
@@ -373,6 +457,27 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
     }
   }
 
+  Future<void> _editFileClock() async {
+    final lastPeriod = timetable!.meetings
+        .where((meeting) => selected.contains(meeting.courseKey))
+        .fold(
+          0,
+          (last, meeting) =>
+              meeting.periods.last > last ? meeting.periods.last : last,
+        );
+    final result = await showDialog<List<ClassPeriod>>(
+      context: context,
+      builder: (_) => _FileClockEditor(initial: clock, lastPeriod: lastPeriod),
+    );
+    if (result != null && mounted) {
+      setState(() {
+        clock = result;
+        confirmed = false;
+      });
+      await _preview();
+    }
+  }
+
   Future<void> _save() async {
     if (busy ||
         plan == null ||
@@ -391,7 +496,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
       await _rememberTeachingCalendar();
       try {
         await preferences.setString(
-          settingsKey,
+          settingsKey!,
           jsonEncode({
             'firstMonday': firstMonday!.toIso8601String(),
             'periods': clock.map((p) => [p.start, p.end]).toList(),
@@ -427,6 +532,11 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   Widget build(BuildContext context) {
     final p = WeekGlassPalette.of(context);
     final preview = timetable != null;
+    final choosingFile = fileMode && !preview;
+    final dialogHeight = MediaQuery.sizeOf(context).height * .88;
+    final fileDialogHeight =
+        460 +
+        (MediaQuery.textScalerOf(context).scale(13) - 13).clamp(0, 20) * 12;
     return PopScope(
       canPop: !saving,
       child: Dialog(
@@ -437,8 +547,10 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
           child: BackdropFilter(
             filter: ImageFilter.blur(sigmaX: 22, sigmaY: 22),
             child: Container(
-              width: 980,
-              height: MediaQuery.sizeOf(context).height * .88,
+              width: choosingFile ? 590 : 980,
+              height: choosingFile
+                  ? dialogHeight.clamp(0, fileDialogHeight).toDouble()
+                  : dialogHeight,
               decoration: p.glassDecoration(elevated: true),
               child: LiquidGlassSurface(
                 colorKey: "mist_blue",
@@ -460,7 +572,11 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  preview ? '核对课程，再放进一周' : '导入学校课表',
+                                  preview
+                                      ? '核对课程，再放进一周'
+                                      : fileMode
+                                      ? '导入教务网页文件'
+                                      : '导入学校课表',
                                   style: TextStyle(
                                     fontSize: 21,
                                     fontWeight: FontWeight.w600,
@@ -470,8 +586,10 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                                 const SizedBox(height: 4),
                                 Text(
                                   preview
-                                      ? '${school.name} · ${term.label}'
-                                      : '${school.name} · ${school.loginDescription}',
+                                      ? '${fileFormat?.school ?? school.name} ${term.label}'
+                                      : fileMode
+                                      ? '读取本机保存的个人课表'
+                                      : '${school.name} ${school.loginDescription}',
                                   style: TextStyle(
                                     fontSize: 12,
                                     color: p.muted,
@@ -491,12 +609,13 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                       ),
                       const SizedBox(height: 16),
                       if (!preview) _termRow(p),
-                      if (reading || portal.loading)
+                      if (reading || (!fileMode && portal.loading))
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 8),
                           child: LinearProgressIndicator(minHeight: 2),
                         ),
-                      if (error != null || (!preview && portal.error != null))
+                      if (error != null ||
+                          (!preview && !fileMode && portal.error != null))
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           child: Text(
@@ -510,19 +629,36 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                           ),
                         ),
                       Expanded(
-                        child: preview ? _previewBody(p) : _connectionBody(p),
+                        child: preview
+                            ? _previewBody(p)
+                            : fileMode
+                            ? _fileBody(p)
+                            : _connectionBody(p),
                       ),
                       const SizedBox(height: 12),
                       Divider(color: p.line, height: 1),
                       const SizedBox(height: 14),
                       if (preview)
                         _footer(p)
+                      else if (fileMode)
+                        _fileActions()
                       else
                         Wrap(
                           alignment: WrapAlignment.end,
                           spacing: 10,
                           runSpacing: 8,
                           children: [
+                            if (!connecting)
+                              TextButton.icon(
+                                onPressed: busy
+                                    ? null
+                                    : () => _changeMode(true),
+                                icon: const Icon(
+                                  Icons.description_outlined,
+                                  size: 17,
+                                ),
+                                label: const Text('从教务网页文件导入'),
+                              ),
                             if (connecting && portal.canRead)
                               TextButton(
                                 onPressed: busy
@@ -765,10 +901,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
               : (v) {
                   setState(() {
                     year = v!;
-                    firstMonday = school.firstMonday(term);
-                    holidays = [];
-                    excludeHolidays = false;
-                    confirmed = false;
+                    _resetSourceSettings();
                     attempted = true;
                   });
                   unawaited(_loadSettings());
@@ -794,10 +927,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
               : (v) {
                   setState(() {
                     semester = v!;
-                    firstMonday = school.firstMonday(term);
-                    holidays = [];
-                    excludeHolidays = false;
-                    confirmed = false;
+                    _resetSourceSettings();
                     attempted = true;
                   });
                   unawaited(_loadSettings());
@@ -806,6 +936,82 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
       ),
     ],
   );
+
+  Widget _fileBody(WeekGlassPalette p) => Center(
+    child: SingleChildScrollView(
+      padding: const EdgeInsets.symmetric(vertical: 10),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 440),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            DropdownButtonFormField<SchoolHtmlFormat>(
+              key: const ValueKey('course-html-format'),
+              initialValue: fileFormat,
+              isExpanded: true,
+              borderRadius: WeekGlassGeometry.corners,
+              dropdownColor: p.surface.withValues(alpha: .98),
+              decoration: const InputDecoration(labelText: '网页格式'),
+              hint: const Text('选择课表所属学校'),
+              items: [
+                for (final format in SchoolHtmlFormat.values)
+                  DropdownMenuItem(value: format, child: Text(format.school)),
+              ],
+              onChanged: busy
+                  ? null
+                  : (value) {
+                      setState(() {
+                        fileFormat = value;
+                        _resetSourceSettings();
+                        error = null;
+                      });
+                      unawaited(_loadSettings());
+                    },
+            ),
+            const SizedBox(height: 12),
+            if (fileFormat != null) ...[
+              Text(
+                '适用页面：${fileFormat!.page}',
+                style: TextStyle(color: p.text, fontWeight: FontWeight.w600),
+              ),
+              const SizedBox(height: 6),
+            ],
+            Text(
+              '在浏览器打开已显示课程的个人课表，另存为 HTML 或 HTM。手机可直接选择已保存的文件。',
+              style: TextStyle(color: p.muted, fontSize: 13, height: 1.65),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              '兼容历史页面格式。文件只在本机读取。',
+              style: TextStyle(color: p.muted, fontSize: 12, height: 1.6),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+
+  Widget _fileActions() => Wrap(
+    alignment: WrapAlignment.end,
+    spacing: 10,
+    runSpacing: 8,
+    children: [
+      TextButton(
+        onPressed: busy ? null : () => _changeMode(false),
+        child: const Text('返回学校导入'),
+      ),
+      FilledButton.icon(
+        key: const ValueKey('choose-course-html'),
+        onPressed: busy || fileFormat == null ? null : _readFile,
+        icon: Icon(
+          reading ? Icons.hourglass_top_rounded : Icons.folder_open,
+          size: 17,
+        ),
+        label: Text(reading ? '正在读取…' : '选择网页文件'),
+      ),
+    ],
+  );
+
   Widget _connectionSteps(WeekGlassPalette p) => Wrap(
     alignment: WrapAlignment.center,
     spacing: 10,
@@ -1066,7 +1272,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
           ),
         ),
         const SizedBox(height: 12),
-        if (timetable!.account.isEmpty) ...[
+        if (!fileMode && timetable!.account.isEmpty) ...[
           TextField(
             key: const ValueKey('import-account'),
             controller: account,
@@ -1085,7 +1291,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
           label: Text(
             firstMonday == null
                 ? '选择第一教学周的周一'
-                : '第一周周一 · ${firstMonday!.year}/${firstMonday!.month}/${firstMonday!.day}',
+                : '第一教学周 ${firstMonday!.year}/${firstMonday!.month}/${firstMonday!.day}',
           ),
         ),
         const SizedBox(height: 8),
@@ -1094,63 +1300,71 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
           style: TextStyle(fontSize: 11, color: p.muted, height: 1.6),
         ),
         const SizedBox(height: 8),
-        Material(
-          type: MaterialType.transparency,
-          child: ExpansionTile(
-            tilePadding: EdgeInsets.zero,
-            title: const Text('节次时间', style: TextStyle(fontSize: 13)),
-            subtitle: Text(
-              '首次使用请对照学校课表核对',
-              style: TextStyle(fontSize: 11, color: p.muted),
+        if (fileMode)
+          OutlinedButton.icon(
+            key: const ValueKey('edit-course-html-clock'),
+            onPressed: busy ? null : _editFileClock,
+            icon: const Icon(Icons.schedule_rounded, size: 17),
+            label: Text(clock.isEmpty ? '填写节次时间' : '核对 ${clock.length} 节的时间'),
+          )
+        else
+          Material(
+            type: MaterialType.transparency,
+            child: ExpansionTile(
+              tilePadding: EdgeInsets.zero,
+              title: const Text('节次时间', style: TextStyle(fontSize: 13)),
+              subtitle: Text(
+                '首次使用请对照学校课表核对',
+                style: TextStyle(fontSize: 11, color: p.muted),
+              ),
+              children: [
+                if (clock.length < 24)
+                  TextButton.icon(
+                    onPressed: busy || clock.last.end >= 1390
+                        ? null
+                        : () {
+                            setState(() {
+                              clock.add(
+                                ClassPeriod(
+                                  clock.last.end + 5,
+                                  clock.last.end + 50,
+                                ),
+                              );
+                              confirmed = false;
+                            });
+                            unawaited(_preview());
+                          },
+                    icon: const Icon(Icons.add_rounded, size: 16),
+                    label: const Text('添加节次'),
+                  ),
+                for (var i = 0; i < clock.length; i++)
+                  Row(
+                    children: [
+                      SizedBox(
+                        width: 52,
+                        child: Text(
+                          '第 ${i + 1} 节',
+                          style: const TextStyle(fontSize: 12),
+                        ),
+                      ),
+                      Expanded(
+                        child: TextButton(
+                          onPressed: busy ? null : () => _editPeriod(i, true),
+                          child: Text(ClassPeriod.clock(clock[i].start)),
+                        ),
+                      ),
+                      const Text('—'),
+                      Expanded(
+                        child: TextButton(
+                          onPressed: busy ? null : () => _editPeriod(i, false),
+                          child: Text(ClassPeriod.clock(clock[i].end)),
+                        ),
+                      ),
+                    ],
+                  ),
+              ],
             ),
-            children: [
-              if (clock.length < 24)
-                TextButton.icon(
-                  onPressed: busy || clock.last.end >= 1390
-                      ? null
-                      : () {
-                          setState(() {
-                            clock.add(
-                              ClassPeriod(
-                                clock.last.end + 5,
-                                clock.last.end + 50,
-                              ),
-                            );
-                            confirmed = false;
-                          });
-                          unawaited(_preview());
-                        },
-                  icon: const Icon(Icons.add_rounded, size: 16),
-                  label: const Text('添加节次'),
-                ),
-              for (var i = 0; i < clock.length; i++)
-                Row(
-                  children: [
-                    SizedBox(
-                      width: 52,
-                      child: Text(
-                        '第 ${i + 1} 节',
-                        style: const TextStyle(fontSize: 12),
-                      ),
-                    ),
-                    Expanded(
-                      child: TextButton(
-                        onPressed: busy ? null : () => _editPeriod(i, true),
-                        child: Text(ClassPeriod.clock(clock[i].start)),
-                      ),
-                    ),
-                    const Text('—'),
-                    Expanded(
-                      child: TextButton(
-                        onPressed: busy ? null : () => _editPeriod(i, false),
-                        child: Text(ClassPeriod.clock(clock[i].end)),
-                      ),
-                    ),
-                  ],
-                ),
-            ],
           ),
-        ),
         const SizedBox(height: 10),
         _holidaySettings(p),
         const SizedBox(height: 8),
@@ -1176,21 +1390,25 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                 '自动跳过重复课程，保留手动改过的名称、时间和备注；颜色始终保留。',
                 style: TextStyle(fontSize: 12, height: 1.6),
               ),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                dense: true,
-                value: removeMissing,
-                onChanged:
-                    busy ||
-                        timetable!.warnings.isNotEmpty ||
-                        selected.length != timetable!.courseKeys.length
-                    ? null
-                    : (v) {
-                        setState(() => removeMissing = v!);
-                        unawaited(_preview());
-                      },
-                title: const Text('移除教务已取消的课程', style: TextStyle(fontSize: 12)),
-              ),
+              if (!fileMode)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  dense: true,
+                  value: removeMissing,
+                  onChanged:
+                      busy ||
+                          timetable!.warnings.isNotEmpty ||
+                          selected.length != timetable!.courseKeys.length
+                      ? null
+                      : (v) {
+                          setState(() => removeMissing = v!);
+                          unawaited(_preview());
+                        },
+                  title: const Text(
+                    '移除教务已取消的课程',
+                    style: TextStyle(fontSize: 12),
+                  ),
+                ),
               CheckboxListTile(
                 contentPadding: EdgeInsets.zero,
                 dense: true,
@@ -1287,7 +1505,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                   error = null;
                 });
               },
-        child: const Text('返回 / 更换学期'),
+        child: Text(fileMode ? '返回选择文件' : '返回 / 更换学期'),
       ),
       if (plan != null)
         Text(
@@ -1318,6 +1536,88 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
               : '导入日历',
         ),
       ),
+    ],
+  );
+}
+
+class _FileClockEditor extends StatefulWidget {
+  const _FileClockEditor({required this.initial, required this.lastPeriod});
+
+  final List<ClassPeriod> initial;
+  final int lastPeriod;
+
+  @override
+  State<_FileClockEditor> createState() => _FileClockEditorState();
+}
+
+class _FileClockEditorState extends State<_FileClockEditor> {
+  late final clock = TextEditingController(
+    text: [
+      for (var i = 0; i < widget.initial.length; i++)
+        '${i + 1} ${ClassPeriod.clock(widget.initial[i].start)}-${ClassPeriod.clock(widget.initial[i].end)}',
+    ].join('\n'),
+  );
+  String? error;
+
+  @override
+  void dispose() {
+    clock.dispose();
+    super.dispose();
+  }
+
+  void _confirm() {
+    try {
+      final periods = ClassPeriod.parseClock(clock.text);
+      if (periods.length < widget.lastPeriod) {
+        throw FormatException('所选课程用到第 ${widget.lastPeriod} 节，请补齐时刻。');
+      }
+      Navigator.pop(context, periods);
+    } on FormatException catch (e) {
+      setState(() => error = e.message);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) => GlassAlertDialog(
+    title: const Text('填写节次时间'),
+    insetPadding: const EdgeInsets.all(16),
+    content: SizedBox(
+      width: 430,
+      child: SingleChildScrollView(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              widget.lastPeriod == 0
+                  ? '请参照学校或校区公布的作息时间，从第 1 节起每行填写一节。'
+                  : '所选课程用到第 ${widget.lastPeriod} 节。请按校区作息时间，从第 1 节连续填写。',
+            ),
+            const SizedBox(height: 12),
+            TextField(
+              key: const ValueKey('course-html-clock-text'),
+              controller: clock,
+              minLines: 4,
+              maxLines: 8,
+              keyboardType: TextInputType.multiline,
+              decoration: InputDecoration(
+                labelText: '开始和结束时刻',
+                hintText: '1 08:00-08:45\n2 08:50-09:35',
+                alignLabelWithHint: true,
+                errorText: error,
+                errorMaxLines: 3,
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('取消'),
+      ),
+      FilledButton(onPressed: _confirm, child: const Text('应用时刻')),
     ],
   );
 }

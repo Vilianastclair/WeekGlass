@@ -4,6 +4,7 @@ import 'package:sqflite_common/sqlite_api.dart';
 import 'package:weekglass_domain/weekglass_domain.dart';
 
 import 'event_repository.dart';
+import 'sleep_schedule_store.dart';
 import 'sync_store.dart';
 
 class SqliteEventRepository
@@ -21,6 +22,7 @@ class SqliteEventRepository
       StreamController<void>.broadcast();
   Stream<void> get localChanges => _localChanges.stream;
   late final SqliteSyncStore syncStore = SqliteSyncStore(() => _database);
+  late final sleepScheduleStore = SqliteSleepScheduleStore(() => _database);
 
   Future<Database> get _database => _databaseFuture ??= _openDatabase();
 
@@ -29,6 +31,8 @@ class SqliteEventRepository
       _databasePath,
       options: OpenDatabaseOptions(
         version: 4,
+        // Additive tables: an older app can still open the calendar at v4.
+        onOpen: SqliteSleepScheduleStore.createSchema,
         onUpgrade: (database, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await database.execute(
@@ -80,6 +84,18 @@ class SqliteEventRepository
         },
       ),
     );
+  }
+
+  Future<SleepSchedule?> readSleepSchedule() => sleepScheduleStore.read();
+
+  Future<void> migrateSleepSchedule(SleepSchedule value) async {
+    if (await sleepScheduleStore.save(value, migrate: true)) {
+      _localChanges.add(null);
+    }
+  }
+
+  Future<void> saveSleepSchedule(SleepSchedule value) async {
+    if (await sleepScheduleStore.save(value)) _localChanges.add(null);
   }
 
   @override

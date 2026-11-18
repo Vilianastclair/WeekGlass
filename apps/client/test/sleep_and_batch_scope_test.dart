@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -62,56 +63,77 @@ void main() {
     );
   });
   test(
-    'sleep setting persists and conflicting writes cannot mutate calendar',
+    'sleep setting persists without changing any event or undo history',
     () async {
       final repo = SqliteEventRepository(
         factory: databaseFactoryFfi,
         databasePath: inMemoryDatabasePath,
       );
+      addTearDown(repo.close);
       final c = PlannerController(
         repository: repo,
         timeZoneId: 'Asia/Shanghai',
       );
       await c.initialize();
+      await c.saveEvents([
+        task('crossing', DateTime(2026, 11, 3, 20), DateTime(2026, 11, 3, 22)),
+        task('hidden', DateTime(2026, 11, 3, 22), DateTime(2026, 11, 3, 23)),
+      ]);
+      final before = {
+        for (final event in await repo.getAllEvents())
+          event.id: (
+            event.startUtc,
+            event.endUtc,
+            event.version,
+            event.updatedAtUtc,
+          ),
+      };
       await c.setSleepSchedule(
-        const SleepSchedule(sleepMinute: 1410, wakeMinute: 435),
+        const SleepSchedule(sleepMinute: 1260, wakeMinute: 435),
       );
+      expect(c.canUndo, isTrue);
+      expect(
+        c.timedEventsInWindow(DateTime(2026, 11, 3)).single.id,
+        'crossing',
+      );
+      expect(c.events, hasLength(2));
+      expect({
+        for (final event in await repo.getAllEvents())
+          event.id: (
+            event.startUtc,
+            event.endUtc,
+            event.version,
+            event.updatedAtUtc,
+          ),
+      }, before);
       final reload = PlannerController(
         repository: repo,
         timeZoneId: 'Asia/Shanghai',
       );
       await reload.initialize();
-      expect(reload.sleep.sleepMinute, 1410);
+      expect(reload.sleep.enabled, isTrue);
+      expect(reload.sleep.sleepMinute, 1260);
       expect(reload.sleep.wakeMinute, 435);
-      final bad = task(
-        'night',
-        DateTime(2026, 11, 3, 23, 30),
-        DateTime(2026, 11, 4),
-      );
-      await expectLater(c.saveEvents([bad]), throwsArgumentError);
-      expect(await repo.getAllEvents(), isEmpty);
-      expect(c.canUndo, isFalse);
-      await c.saveEvent(
-        task('evening', DateTime(2026, 11, 3, 20), DateTime(2026, 11, 3, 21)),
-      );
+      expect(reload.events, hasLength(2));
       await expectLater(
         c.setSleepSchedule(
-          const SleepSchedule(sleepMinute: 1200, wakeMinute: 420),
+          const SleepSchedule(sleepMinute: 435, wakeMinute: 435),
         ),
         throwsArgumentError,
       );
-      expect(c.sleep.sleepMinute, 1410);
-      expect(c.events, hasLength(1));
+      expect(c.sleep.sleepMinute, 1260);
+      reload.dispose();
       c.dispose();
     },
   );
   test(
-    'existing night events prevent automatic sleep hiding at upgrade',
+    'default sleep hides existing and synced events without opting in to sync',
     () async {
       final repo = SqliteEventRepository(
         factory: databaseFactoryFfi,
         databasePath: inMemoryDatabasePath,
       );
+      addTearDown(repo.close);
       await repo.save(
         task('night', DateTime(2026, 11, 3, 1), DateTime(2026, 11, 3, 2)),
       );
@@ -120,8 +142,90 @@ void main() {
         timeZoneId: 'Asia/Shanghai',
       );
       await c.initialize();
-      expect(c.sleep.enabled, isFalse);
-      expect(c.timedEventsInWindow(DateTime(2026, 11, 3)), hasLength(1));
+      expect(c.sleep.enabled, isTrue);
+      expect(c.timedEventsInWindow(DateTime(2026, 11, 3)), isEmpty);
+      expect(await repo.readSleepSchedule(), isNull);
+      await repo.save(
+        task('remote', DateTime(2026, 11, 3, 23), DateTime(2026, 11, 4)),
+      );
+      await c.reloadAfterSync();
+      expect(c.sleep.enabled, isTrue);
+      expect(c.timedEventsInWindow(DateTime(2026, 11, 3)), isEmpty);
+      expect(c.events, hasLength(2));
+      c.dispose();
+    },
+  );
+  test('overlapping new times are still rejected and deleted originals can be restored', () async {
+    final repo = SqliteEventRepository(
+      factory: databaseFactoryFfi,
+      databasePath: inMemoryDatabasePath,
+    );
+    addTearDown(repo.close);
+    final c = PlannerController(repository: repo, timeZoneId: 'Asia/Shanghai');
+    await c.initialize();
+    final original = task(
+      'morning',
+      DateTime(2026, 11, 3, 8),
+      DateTime(2026, 11, 3, 10),
+    );
+    await c.saveEvent(original);
+    final receipt = (await c.deleteEvent(original.id))!;
+    await c.setSleepSchedule(const SleepSchedule(wakeMinute: 540));
+    expect(await c.undoDeletion(receipt), isTrue);
+    expect(
+      c.timedEventsInWindow(DateTime(2026, 11, 3)).single.startUtc,
+      original.startUtc,
+    );
+    await expectLater(
+      c.saveEvent(task('new', original.startLocal, original.endLocal)),
+      throwsArgumentError,
+    );
+    await expectLater(
+      c.saveEvent(
+        original.withTimedRange(
+          DateTime(2026, 11, 3, 8, 30),
+          DateTime(2026, 11, 3, 10, 30),
+        ),
+      ),
+      throwsArgumentError,
+    );
+    expect((await repo.getAllEvents()).single.startUtc, original.startUtc);
+    c.dispose();
+  });
+  test(
+    'legacy schedule migrates and synced schedule preserves event undo',
+    () async {
+      final repo = SqliteEventRepository(
+        factory: databaseFactoryFfi,
+        databasePath: inMemoryDatabasePath,
+      );
+      addTearDown(repo.close);
+      await SharedPreferencesAsync().setString(
+        'sleep_schedule',
+        '{"enabled":true,"sleep":1350,"wake":450}',
+      );
+      final c = PlannerController(
+        repository: repo,
+        timeZoneId: 'Asia/Shanghai',
+      );
+      await c.initialize();
+      expect(c.sleep.wakeMinute, 450);
+      expect((await repo.readSleepSchedule())!.sleepMinute, 1350);
+      await c.saveEvent(
+        task('early', DateTime(2026, 11, 3, 8), DateTime(2026, 11, 3, 9)),
+      );
+      await repo.saveSleepSchedule(const SleepSchedule(wakeMinute: 540));
+      await c.reloadSleepSchedule();
+      expect(c.sleep.wakeMinute, 540);
+      expect(c.canUndo, isTrue);
+      expect(c.timedEventsInWindow(DateTime(2026, 11, 3)), isEmpty);
+      final restarted = PlannerController(
+        repository: repo,
+        timeZoneId: 'Asia/Shanghai',
+      );
+      await restarted.initialize();
+      expect(restarted.sleep.wakeMinute, 540);
+      restarted.dispose();
       c.dispose();
     },
   );
@@ -130,6 +234,7 @@ void main() {
       factory: databaseFactoryFfi,
       databasePath: inMemoryDatabasePath,
     );
+    addTearDown(repo.close);
     final c = PlannerController(repository: repo, timeZoneId: 'Asia/Shanghai');
     await c.initialize();
     await c.setSleepSchedule(
@@ -147,6 +252,7 @@ void main() {
       factory: databaseFactoryFfi,
       databasePath: inMemoryDatabasePath,
     );
+    addTearDown(repo.close);
     final c = PlannerController(repository: repo, timeZoneId: 'Asia/Shanghai');
     await c.initialize();
     final batch = [

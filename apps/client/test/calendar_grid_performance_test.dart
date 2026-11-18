@@ -58,8 +58,13 @@ double _minute(DateTime value, DateTime day) =>
   double scale,
   double minimum,
 ) {
-  final start = math.max(_minute(event.startLocal, day), visibleStart);
-  final end = math.min(_minute(event.endLocal, day), visibleEnd);
+  final eventStart = _minute(event.startLocal, day);
+  final eventEnd = _minute(event.endLocal, day);
+  final start = eventStart.clamp(visibleStart, visibleEnd).toDouble();
+  final end = eventEnd.clamp(visibleStart, visibleEnd).toDouble();
+  if (start != eventStart || end != eventEnd) {
+    return ((start - visibleStart) * scale, (end - start) * scale);
+  }
   var before = visibleStart.toDouble();
   var after = visibleEnd.toDouble();
   for (final other in events) {

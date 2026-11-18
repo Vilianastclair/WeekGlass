@@ -800,7 +800,7 @@ class _ConnectionAuth extends CloudAuthService {
   @override
   Future<void> restore() async {}
   @override
-  Future<void> approveMerge() async {
+  Future<void> approveMerge({bool includeSleepSchedule = false}) async {
     approved = true;
   }
 

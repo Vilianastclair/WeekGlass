@@ -252,7 +252,7 @@ class _FakeCloudAuthService extends CloudAuthService {
   }
 
   @override
-  Future<void> approveMerge() async {
+  Future<void> approveMerge({bool includeSleepSchedule = false}) async {
     mergeApprovals++;
   }
 

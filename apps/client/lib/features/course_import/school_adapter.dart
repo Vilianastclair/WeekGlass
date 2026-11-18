@@ -1,3 +1,4 @@
+import 'school_html_format.dart';
 import 'whu_timetable.dart';
 
 /// A reviewed official school origin, not a user supplied script or URL.
@@ -83,4 +84,11 @@ class SchoolAdapter {
 
   // Expose only schools that have passed an end-to-end account import.
   static const available = [whu];
+
+  static bool acceptsImportSource(String? source) =>
+      source != null &&
+      (all.any((school) => source.startsWith('${school.id}:')) ||
+          SchoolHtmlFormat.values.any(
+            (format) => source.startsWith('${format.sourceId}:'),
+          ));
 }

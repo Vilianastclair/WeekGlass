@@ -63,6 +63,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
     _ => false,
   };
 
+  late SleepSchedule _originalSleep;
   late bool _sleepEnabled;
   late int _sleep;
   late int _wake;
@@ -76,9 +77,10 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   void _open(_SettingsPage page) {
     setState(() {
       _page = page;
-      _sleepEnabled = controller.sleep.enabled;
-      _sleep = controller.sleep.sleepMinute;
-      _wake = controller.sleep.wakeMinute;
+      _originalSleep = controller.sleep;
+      _sleepEnabled = _originalSleep.enabled;
+      _sleep = _originalSleep.sleepMinute;
+      _wake = _originalSleep.wakeMinute;
       _showTeachingWeek = controller.showTeachingWeek;
       _notifications = controller.notificationsEnabled;
       _shortcuts = {...controller.sidebarActions};
@@ -128,13 +130,17 @@ class _SettingsDialogState extends State<_SettingsDialog> {
     try {
       switch (_page) {
         case _SettingsPage.calendar:
-          await controller.setSleepSchedule(
-            SleepSchedule(
-              enabled: _sleepEnabled,
-              sleepMinute: _sleep,
-              wakeMinute: _wake,
-            ),
-          );
+          if (_sleepEnabled != _originalSleep.enabled ||
+              _sleep != _originalSleep.sleepMinute ||
+              _wake != _originalSleep.wakeMinute) {
+            await controller.setSleepSchedule(
+              SleepSchedule(
+                enabled: _sleepEnabled,
+                sleepMinute: _sleep,
+                wakeMinute: _wake,
+              ),
+            );
+          }
           if (controller.whuConnected) {
             await controller.setTeachingWeekVisible(_showTeachingWeek);
           }
@@ -334,11 +340,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
     SwitchListTile.adaptive(
       contentPadding: EdgeInsets.zero,
       title: const Text('睡眠时段'),
-      subtitle: Text(
-        !_sleepEnabled && controller.sleepConflictCount > 0
-            ? '已有 ${controller.sleepConflictCount} 条日程位于此时段，暂保留完整显示'
-            : '隐藏睡眠时段，不在这段时间安排日程',
-      ),
+      subtitle: const Text('日历只显示清醒时段内的日程部分，原有时间不变'),
       value: _sleepEnabled,
       onChanged: _saving
           ? null

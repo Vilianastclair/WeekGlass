@@ -54,8 +54,15 @@ class CalendarDayLayout {
       : _calculateBand(event);
 
   (double, double) _calculateBand(CalendarEvent event) {
-    final start = math.max(_relativeMinute(event.startLocal, day), startMinute);
-    final end = math.min(_relativeMinute(event.endLocal, day), endMinute);
+    final actualStart = _relativeMinute(event.startLocal, day);
+    final actualEnd = _relativeMinute(event.endLocal, day);
+    final start = actualStart.clamp(startMinute, endMinute).toDouble();
+    final end = actualEnd.clamp(startMinute, endMinute).toDouble();
+    if (start != actualStart || end != actualEnd) {
+      // A continuation meets the edge exactly. Keep the minimum card height
+      // for complete events; short continuations are still in the day header.
+      return ((start - startMinute) * scale, (end - start) * scale);
+    }
     var before = startMinute.toDouble();
     var after = endMinute.toDouble();
     var low = 0;
@@ -906,7 +913,7 @@ class CalendarGridState extends State<CalendarGrid>
     final selected = await showDialog<CalendarEvent>(
       context: context,
       builder: (context) => GlassAlertDialog(
-        title: Text('${date.month}月${date.day}日 · 短日程'),
+        title: Text('${date.month}月${date.day}日短日程'),
         content: SizedBox(
           width: 420,
           child: SingleChildScrollView(
@@ -1112,6 +1119,8 @@ class CalendarGridState extends State<CalendarGrid>
               event: event,
               preview: preview,
               selected: selected,
+              canResizeStart: startMinute >= _startMinute,
+              canResizeEnd: endMinute <= _endMinute,
               onTap: () {
                 if (_pinching) return;
                 setState(() => _selectedEventId = event.id);

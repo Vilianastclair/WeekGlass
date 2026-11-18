@@ -14,6 +14,8 @@ class GlassEventCard extends StatefulWidget {
     this.preview = false,
     this.touchMode = false,
     this.materialActive = true,
+    this.canResizeStart = true,
+    this.canResizeEnd = true,
     required this.onTap,
     required this.onMoveStart,
     required this.onMoveUpdate,
@@ -29,6 +31,8 @@ class GlassEventCard extends StatefulWidget {
   final bool preview;
   final bool touchMode;
   final bool materialActive;
+  final bool canResizeStart;
+  final bool canResizeEnd;
   final VoidCallback onTap;
   final ValueChanged<Offset> onMoveStart;
   final ValueChanged<Offset> onMoveUpdate;
@@ -241,12 +245,13 @@ class _GlassEventCardState extends State<GlassEventCard> {
           ),
         if (size.maxHeight >= 16 && !widget.touchMode) ...[
           for (final top in [true, false])
-            _edge(
-              top: top,
-              visible: _hovered && !widget.preview && size.maxHeight >= 24,
-              ink: ink,
-              hitHeight: size.maxHeight < 24 ? 3 : 6,
-            ),
+            if (top ? widget.canResizeStart : widget.canResizeEnd)
+              _edge(
+                top: top,
+                visible: _hovered && !widget.preview && size.maxHeight >= 24,
+                ink: ink,
+                hitHeight: size.maxHeight < 24 ? 3 : 6,
+              ),
         ],
       ],
     );

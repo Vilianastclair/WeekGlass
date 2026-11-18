@@ -478,42 +478,8 @@ class TimetableImportPlan {
   final List<ClassPeriod> clock;
   final String timeZoneId;
 
-  static List<ClassPeriod> parseClock(String text) {
-    final lines = text
-        .split('\n')
-        .map((line) => line.trim())
-        .where((line) => line.isNotEmpty)
-        .toList();
-    if (lines.isEmpty || lines.length > 24) {
-      throw const FormatException('请填写 1–24 个节次的开始和结束时刻。');
-    }
-    final result = <ClassPeriod>[];
-    for (var index = 0; index < lines.length; index++) {
-      final match = RegExp(
-        r'^(?:第\s*)?(\d{1,2})(?:\s*节)?\s*[:：、.\s]\s*(\d{1,2})[:：](\d{2})\s*[-—–－~～至]\s*(\d{1,2})[:：](\d{2})$',
-      ).firstMatch(lines[index]);
-      if (match == null || int.parse(match[1]!) != index + 1) {
-        throw FormatException(
-          '第 ${index + 1} 行节次时间格式应为“${index + 1} 08:00-08:45”，并从第 1 节连续排列。',
-        );
-      }
-      final sh = int.parse(match[2]!),
-          sm = int.parse(match[3]!),
-          eh = int.parse(match[4]!),
-          em = int.parse(match[5]!);
-      final start = sh * 60 + sm, end = eh * 60 + em;
-      if (sh > 23 ||
-          eh > 23 ||
-          sm > 59 ||
-          em > 59 ||
-          end <= start ||
-          (result.isNotEmpty && start < result.last.end)) {
-        throw FormatException('第 ${index + 1} 节时间无效或与上一节重叠。');
-      }
-      result.add(ClassPeriod(start, end));
-    }
-    return result;
-  }
+  static List<ClassPeriod> parseClock(String text) =>
+      ClassPeriod.parseClock(text);
 
   CalendarImportResult preview({Iterable<CalendarEvent> existing = const []}) {
     if (firstMonday.weekday != DateTime.monday) {

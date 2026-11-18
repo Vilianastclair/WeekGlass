@@ -45,7 +45,7 @@ class PlannerController extends ChangeNotifier {
   final CloudConnection? cloud;
 
   Future<void> waitForPendingWrites() async {
-    while (_writing) {
+    while (_writing || _savingSleep) {
       await Future<void>.delayed(const Duration(milliseconds: 30));
     }
   }
@@ -56,12 +56,26 @@ class PlannerController extends ChangeNotifier {
     if (_writing) return reloadAfterSync();
     _events = events..sort(_compareEvents);
     _undoStack.clear();
-    // An imported remote event must stay visible even if this device's sleep
-    // preferences previously hid that hour.
-    if (_sleep.enabled && _events.any((event) => !_sleep.allows(event))) {
-      _sleep = const SleepSchedule(enabled: false);
-    }
     notifyListeners();
+  }
+
+  Future<void> reloadSleepSchedule() async {
+    if (repository case final SqliteEventRepository repo) {
+      await waitForPendingWrites();
+      final revision = _sleepRevision;
+      final stored = await repo.readSleepSchedule();
+      if (_savingSleep || revision != _sleepRevision) {
+        return reloadSleepSchedule();
+      }
+      if (stored == null ||
+          (stored.enabled == _sleep.enabled &&
+              stored.sleepMinute == _sleep.sleepMinute &&
+              stored.wakeMinute == _sleep.wakeMinute)) {
+        return;
+      }
+      _sleep = stored;
+      notifyListeners();
+    }
   }
 
   final SharedPreferencesAsync _preferences = SharedPreferencesAsync();
@@ -215,15 +229,9 @@ class PlannerController extends ChangeNotifier {
 
   bool _isLoading = true;
   SleepSchedule _sleep = const SleepSchedule(enabled: false);
+  bool _savingSleep = false;
+  int _sleepRevision = 0;
   SleepSchedule get sleep => _sleep;
-  int get sleepConflictCount => _events
-      .where(
-        (event) => !SleepSchedule(
-          sleepMinute: _sleep.sleepMinute,
-          wakeMinute: _sleep.wakeMinute,
-        ).allows(event),
-      )
-      .length;
 
   List<CalendarEvent> get events => List.unmodifiable(_events);
   DateTime get anchorDate => _anchorDate;
@@ -304,33 +312,7 @@ class PlannerController extends ChangeNotifier {
       _events = compacted;
     }
     await _loadTeachingTerms();
-    final savedSleep = await _preferences.getString('sleep_schedule');
-    try {
-      if (savedSleep != null) {
-        final value = jsonDecode(savedSleep) as Map<String, dynamic>;
-        final schedule = SleepSchedule(
-          enabled: value['enabled'] as bool,
-          sleepMinute: value['sleep'] as int,
-          wakeMinute: value['wake'] as int,
-        );
-        if (schedule.valid) {
-          _sleep = _events.every(schedule.allows)
-              ? schedule
-              : SleepSchedule(
-                  enabled: false,
-                  sleepMinute: schedule.sleepMinute,
-                  wakeMinute: schedule.wakeMinute,
-                );
-        }
-      } else {
-        const defaultSleep = SleepSchedule();
-        _sleep = _events.every(defaultSleep.allows)
-            ? defaultSleep
-            : const SleepSchedule(enabled: false);
-      }
-    } catch (_) {
-      _sleep = const SleepSchedule(enabled: false);
-    }
+    await _loadSleepSchedule();
     if (_events.isEmpty && const bool.fromEnvironment('WG_DEMO_DATA')) {
       await _seedDemoWeek();
     }
@@ -460,21 +442,69 @@ class PlannerController extends ChangeNotifier {
 
   Future<void> setSleepSchedule(SleepSchedule value) async {
     if (!value.valid) throw ArgumentError('入睡与起床时间须不同，清醒时段至少保留 15 分钟。');
-    if (_writing) throw StateError('正在保存日程，请稍后再试。');
-    final conflicts = _events.where((event) => !value.allows(event)).length;
-    if (conflicts > 0) {
-      throw ArgumentError('已有 $conflicts 条日程与睡眠时段重叠，请先调整日程或修改睡眠时间。');
+    if (_savingSleep) throw StateError('正在保存睡眠时段，请稍后再试。');
+    _savingSleep = true;
+    try {
+      if (repository case final SqliteEventRepository repo) {
+        await repo.saveSleepSchedule(value);
+      } else {
+        await _preferences.setString(
+          'sleep_schedule',
+          jsonEncode({
+            'enabled': value.enabled,
+            'sleep': value.sleepMinute,
+            'wake': value.wakeMinute,
+          }),
+        );
+      }
+      _sleep = value;
+      _sleepRevision++;
+    } finally {
+      _savingSleep = false;
     }
-    await _preferences.setString(
-      'sleep_schedule',
-      jsonEncode({
-        'enabled': value.enabled,
-        'sleep': value.sleepMinute,
-        'wake': value.wakeMinute,
-      }),
-    );
-    _sleep = value;
     notifyListeners();
+  }
+
+  Future<void> _loadSleepSchedule() async {
+    if (repository case final SqliteEventRepository repo) {
+      final stored = await repo.readSleepSchedule();
+      if (stored != null) {
+        _sleep = stored;
+        return;
+      }
+      final legacy = await _readLegacySleepSchedule();
+      if (legacy != null) {
+        await repo.migrateSleepSchedule(legacy);
+        _sleep = (await repo.readSleepSchedule())!;
+        return;
+      }
+    } else if (await _readLegacySleepSchedule() case final legacy?) {
+      _sleep = legacy;
+      return;
+    }
+    _sleep = const SleepSchedule();
+  }
+
+  Future<SleepSchedule?> _readLegacySleepSchedule() async {
+    try {
+      final saved = await _preferences.getString('sleep_schedule');
+      if (saved == null) return null;
+      final value = jsonDecode(saved);
+      if (value is! Map<String, dynamic> ||
+          value['enabled'] is! bool ||
+          value['sleep'] is! int ||
+          value['wake'] is! int) {
+        return null;
+      }
+      final schedule = SleepSchedule(
+        enabled: value['enabled'] as bool,
+        sleepMinute: value['sleep'] as int,
+        wakeMinute: value['wake'] as int,
+      );
+      return schedule.valid ? schedule : null;
+    } on FormatException {
+      return null;
+    }
   }
 
   List<CalendarEvent> timedEventsInWindow(DateTime date) {
@@ -669,11 +699,7 @@ class PlannerController extends ChangeNotifier {
 
   Future<void> applyCourseImport(List<CalendarEvent> changes) async {
     if (changes.any(
-      (e) =>
-          e.importSource == null ||
-          !SchoolAdapter.all.any(
-            (school) => e.importSource!.startsWith('${school.id}:'),
-          ),
+      (event) => !SchoolAdapter.acceptsImportSource(event.importSource),
     )) {
       throw ArgumentError('课表来源无效，请重新读取。');
     }
@@ -686,9 +712,15 @@ class PlannerController extends ChangeNotifier {
   }) async {
     if (_writing) throw StateError('正在保存，请稍后再试。');
     if (events.isEmpty) return;
-    if (events.any(
-      (event) => event.deletedAtUtc == null && !_sleep.allows(event),
-    )) {
+    if (events.any((event) {
+      if (event.deletedAtUtc != null || _sleep.allows(event)) return false;
+      final previous = _findEvent(event.id);
+      // A visibility change can leave an existing timed event partially or
+      // fully hidden. Editing other fields must not require moving it.
+      return previous == null ||
+          previous.startUtc != event.startUtc ||
+          previous.endUtc != event.endUtc;
+    })) {
       throw ArgumentError('日程与睡眠时段重叠，请调整时间或在设置中修改睡眠时段。');
     }
     if (events.map((e) => e.id).toSet().length != events.length ||
@@ -756,9 +788,6 @@ class PlannerController extends ChangeNotifier {
         .where((entry) => _findEvent(entry.eventId) == null)
         .map((entry) => entry.before!)
         .toList();
-    if (restores.any((event) => !_sleep.allows(event))) {
-      throw StateError('日程与当前睡眠时段重叠，请先调整睡眠设置。');
-    }
     _writing = true;
     try {
       if (restores.isNotEmpty) await repository.saveBatch(restores);

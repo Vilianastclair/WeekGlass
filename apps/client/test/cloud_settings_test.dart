@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
@@ -13,6 +14,7 @@ import 'package:weekglass/features/planner/planner_controller.dart';
 import 'package:weekglass/features/planner/planner_settings_dialog.dart';
 import 'package:weekglass_data/weekglass_data.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
+import 'package:weekglass_domain/weekglass_domain.dart';
 
 import 'cloud_auth_test.dart' show MemoryVault, tokens;
 import 'whu_import_test.dart' show MemoryImportRepo;
@@ -263,6 +265,163 @@ void main() {
     expect(_cta, findsNothing);
     expect(find.text('账号安全与云端导出'), findsOneWidget);
   });
+
+  for (final previouslyMerged in [true, false]) {
+    testWidgets(
+      'sleep sync requires explicit approval and resolves conflict on a narrow screen (prior calendar merge: $previouslyMerged)',
+      (tester) async {
+        _size(tester, const Size(320, 568));
+        final repository = _repository();
+        final vault = MemoryVault()
+          ..value = jsonEncode({
+            ...tokens(),
+            'origin': officialCloudOrigin,
+            'merge_approved': previouslyMerged,
+          });
+        final pulls = <Uri>[];
+        final writes = <Object?>[];
+        final waiting = Completer<Map<String, dynamic>>();
+        const remote = {
+          'revision': 'remote-revision',
+          'write_id': 'other-device',
+          'schedule': {
+            'enabled': true,
+            'sleep_minute': 1350,
+            'wake_minute': 450,
+          },
+        };
+        final cloud = CloudConnection(
+          repository: repository,
+          auth: CloudAuthService(
+            vault: vault,
+            transport: (uri, method, body, headers, form) async {
+              switch (uri.path) {
+                case '/v1/me/entitlements':
+                  return {
+                    'status': 'active',
+                    'sync_read': true,
+                    'sync_write': true,
+                  };
+                case '/v1/me/account':
+                  return {'username': 'writer'};
+                case '/v1/sync/snapshots':
+                  return {
+                    'snapshot_id': 'snapshot',
+                    'sync_epoch': tokens()['sync_epoch'],
+                    'boundary_cursor': 'cursor',
+                    'records': [],
+                    'next_page_token': null,
+                  };
+                case '/v1/sync/changes':
+                  pulls.add(uri);
+                  if (uri.queryParameters['wait_seconds'] == '25') {
+                    return waiting.future;
+                  }
+                  return {
+                    'changes': [],
+                    'has_more': false,
+                    'next_cursor': 'cursor',
+                    if (uri.queryParameters['sleep_revision'] == 'unknown')
+                      'sleep_schedule': remote,
+                  };
+                case '/v1/sync/ack':
+                  return {};
+                case '/v1/sync/sleep-schedule':
+                  writes.add(body);
+                  return remote;
+                default:
+                  throw StateError('Unexpected request: $method ${uri.path}');
+              }
+            },
+          ),
+        );
+        addTearDown(repository.close);
+        addTearDown(() {
+          cloud.dispose();
+          waiting.complete({'changes': [], 'next_cursor': 'cursor'});
+        });
+        await tester.runAsync(() async {
+          await repository.saveSleepSchedule(
+            const SleepSchedule(
+              enabled: false,
+              sleepMinute: 1380,
+              wakeMinute: 480,
+            ),
+          );
+          await cloud.initialize();
+        });
+        await tester.pumpWidget(
+          _host(
+            platform: TargetPlatform.android,
+            open: (context) => openCloudSettings(context, cloud),
+          ),
+        );
+        await _tap(tester, '打开');
+        expect(cloud.auth.sleepScheduleApproved, isFalse);
+        expect(
+          pulls.any((uri) => uri.queryParameters.containsKey('sleep_revision')),
+          isFalse,
+        );
+        expect(writes, isEmpty);
+        if (previouslyMerged) {
+          expect(
+            pulls,
+            isNotEmpty,
+            reason: 'calendar sync continues before approval',
+          );
+          expect(find.text('立即同步'), findsOneWidget);
+        } else {
+          expect(pulls, isEmpty);
+          await _tap(tester, '合并日程');
+          expect(find.textContaining('服务器支持时也会同步睡眠时段'), findsOneWidget);
+        }
+        final approve = previouslyMerged ? '同步作息' : '合并并同步';
+        await tester.ensureVisible(find.text(approve));
+        await tester.tap(find.text(approve));
+        await _waitForCloud(
+          tester,
+          () => cloud.engine.sleepScheduleConflict != null && !cloud.busy,
+        );
+        await tester.pumpAndSettle();
+        expect(cloud.auth.sleepScheduleApproved, isTrue);
+        final restored = CloudAuthService(vault: vault);
+        await restored.restore();
+        expect(restored.sleepScheduleApproved, isTrue);
+        expect(find.text('同步作息'), findsNothing);
+        expect(find.text('请选择要保留的睡眠时段'), findsOneWidget);
+        expect(find.text('本机：睡眠 23:00，起床 08:00（未启用）'), findsOneWidget);
+        expect(find.text('云端：睡眠 22:30，起床 07:30'), findsOneWidget);
+        expect(writes, isEmpty);
+        expect(tester.takeException(), isNull);
+
+        await tester.ensureVisible(find.text('采用云端'));
+        await tester.tap(find.text('采用云端'));
+        await _waitForCloud(
+          tester,
+          () => cloud.engine.sleepScheduleConflict == null && !cloud.busy,
+        );
+        await tester.runAsync(() async {
+          expect((await repository.readSleepSchedule())?.wakeMinute, 450);
+        });
+        await tester.pumpAndSettle();
+        expect(find.text('请选择要保留的睡眠时段'), findsNothing);
+        expect(writes, isEmpty);
+        expect(tester.takeException(), isNull);
+        await _tap(tester, '完成');
+      },
+    );
+  }
+}
+
+Future<void> _waitForCloud(WidgetTester tester, bool Function() ready) async {
+  final clock = Stopwatch()..start();
+  while (!ready() && clock.elapsed < const Duration(seconds: 3)) {
+    await tester.pump(const Duration(milliseconds: 16));
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 10)),
+    );
+  }
+  expect(ready(), isTrue);
 }
 
 final _cta = find.byKey(const ValueKey('subscribe-cloud-service'));

@@ -18,6 +18,7 @@ class CloudSyncEngine extends ChangeNotifier {
     required this.repository,
     required this.request,
     this.onRemoteChange,
+    this.onRemoteSleepChange,
     this.canTransport,
     this.onServiceDenied,
     this.automatic = true,
@@ -44,6 +45,7 @@ class CloudSyncEngine extends ChangeNotifier {
   final Duration retryDelay;
   final Duration maxRetryDelay;
   final Future<void> Function()? onRemoteChange;
+  final Future<void> Function()? onRemoteSleepChange;
   final bool Function()? canTransport;
   final bool Function(SyncRequestException)? onServiceDenied;
   SqliteSyncStore get _store => repository.syncStore;
@@ -57,12 +59,16 @@ class CloudSyncEngine extends ChangeNotifier {
   int _watchGeneration = 0;
   int _watchFailures = 0;
   Duration _watchDelay = Duration.zero;
-  ({String cursor, Map<String, dynamic> page})? _prefetched;
+  ({String cursor, String? sleepRevision, Map<String, dynamic> page})?
+  _prefetched;
   String? _scope;
   bool _connected = false;
   bool _busy = false;
   bool _uploadPaused = false;
   bool _recoverReceipts = false;
+  bool _syncSleepSchedule = false;
+  bool? _sleepScheduleSupported;
+  SleepScheduleConflict? _sleepScheduleConflict;
   bool _disposed = false;
   int _generation = 0;
   int _writeGeneration = 0;
@@ -79,6 +85,8 @@ class CloudSyncEngine extends ChangeNotifier {
   String? get error => _error;
   int get pendingCount => _pendingCount;
   List<CloudConflict> get conflicts => List.unmodifiable(_conflicts);
+  bool? get sleepScheduleSupported => _sleepScheduleSupported;
+  SleepScheduleConflict? get sleepScheduleConflict => _sleepScheduleConflict;
 
   bool get _transportEnabled => canTransport?.call() ?? true;
 
@@ -121,6 +129,7 @@ class CloudSyncEngine extends ChangeNotifier {
     bool uploadLocal = false,
     bool uploadPaused = false,
     bool recoverReceipts = true,
+    bool synchronizeSleepSchedule = false,
   }) async {
     await disconnect();
     if (_disposed || !_transportEnabled) return;
@@ -133,6 +142,9 @@ class CloudSyncEngine extends ChangeNotifier {
       uploadLocal: uploadLocal,
     );
     _connected = true;
+    _syncSleepSchedule = synchronizeSleepSchedule;
+    _sleepScheduleSupported = null;
+    _sleepScheduleConflict = null;
     _uploadPaused = uploadPaused;
     _recoverReceipts = uploadPaused || recoverReceipts;
     _syncFailed = false;
@@ -145,10 +157,17 @@ class CloudSyncEngine extends ChangeNotifier {
     await sync();
   }
 
+  Future<void> enableSleepSchedule() {
+    if (!_connected || _syncSleepSchedule) return Future.value();
+    _syncSleepSchedule = true;
+    return sync();
+  }
+
   /// Logging out stops transport; durable pending edits remain bound to profile.
   Future<void> disconnect() async {
     _connected = false;
     _uploadPaused = false;
+    _sleepScheduleConflict = null;
     _generation++;
     _watchGeneration++;
     _watchTimer?.cancel();
@@ -260,24 +279,38 @@ class CloudSyncEngine extends ChangeNotifier {
         return;
       }
       final timer = Stopwatch()..start();
-      final page = await request(
-        'GET',
-        '/v1/sync/changes?cursor=${Uri.encodeQueryComponent(cursor)}&limit_batches=1&wait_seconds=25',
-        null,
-      );
+      final sleepRevision = await _sleepRevision(scope);
+      if (!current()) return;
+      final page = await _requestChanges(cursor, sleepRevision, wait: true);
       if (!current()) return;
       if (!_syncFailed && _error != null) {
         _error = null;
         _emit();
       }
       final changes = page['changes'] as List;
-      if (changes.isNotEmpty || page['next_cursor'] != cursor) {
-        _prefetched = (cursor: cursor, page: page);
+      final sleepChanged =
+          sleepRevision != null && page.containsKey('sleep_schedule');
+      final currentSleepPage =
+          sleepChanged && sleepRevision == await _sleepRevision(scope);
+      if (!current()) return;
+      if (changes.isNotEmpty ||
+          page['next_cursor'] != cursor ||
+          currentSleepPage) {
+        _prefetched = (
+          cursor: cursor,
+          sleepRevision: sleepRevision,
+          page: page,
+        );
         await sync();
         if (!current()) return;
         final latest = await _store.profile(scope);
+        final appliedSleepRevision = sleepChanged
+            ? await _sleepRevision(scope)
+            : sleepRevision;
         if (!current()) return;
-        if (_syncFailed || latest['cursor'] == cursor) {
+        if (_syncFailed ||
+            latest['cursor'] == cursor &&
+                appliedSleepRevision == sleepRevision) {
           // A blocked upload or unchanged cursor must not download the same
           // immediately available batch in an unbounded hot loop.
           _backoff();
@@ -289,6 +322,10 @@ class CloudSyncEngine extends ChangeNotifier {
         // Upload may have failed while this independent request was waiting.
         // Its empty reply must not add an idle interval to upload retry.
         _backoff();
+      } else if (sleepChanged) {
+        // Our own PUT advanced this baseline while the poll was in flight.
+        _watchFailures = 0;
+        _watchDelay = Duration.zero;
       } else {
         _watchFailures = 0;
         // Older self-hosted servers may return immediately despite wait_seconds.
@@ -342,7 +379,7 @@ class CloudSyncEngine extends ChangeNotifier {
       _transportEnabled;
 
   Future<void> _refreshPendingCount(String scope, int generation) async {
-    final count = await _store.pendingCount(scope);
+    final count = await _pendingFor(scope);
     if (_disposed ||
         !_connected ||
         generation != _generation ||
@@ -352,6 +389,33 @@ class CloudSyncEngine extends ChangeNotifier {
     _pendingCount = count;
     _emit();
   }
+
+  Future<int> _pendingFor(String scope) async {
+    final count = await _store.pendingCount(scope);
+    if (_sleepScheduleSupported != true) return count;
+    final sleep = await repository.sleepScheduleStore.status(scope);
+    return count + (sleep.pending ? 1 : 0);
+  }
+
+  Future<String?> _sleepRevision(String scope) async {
+    if (!_syncSleepSchedule) return null;
+    // On each connection, probe through the existing pull; old servers ignore
+    // the extra query parameter and continue calendar synchronization.
+    if (_sleepScheduleSupported != true) return 'unknown';
+    return repository.sleepScheduleStore.revision(scope);
+  }
+
+  Future<Map<String, dynamic>> _requestChanges(
+    String cursor,
+    String? sleepRevision, {
+    bool wait = false,
+  }) => request(
+    'GET',
+    '/v1/sync/changes?cursor=${Uri.encodeQueryComponent(cursor)}&limit_batches=1'
+        '${wait ? '&wait_seconds=25' : ''}'
+        '${sleepRevision == null ? '' : '&sleep_revision=${Uri.encodeQueryComponent(sleepRevision)}'}',
+    null,
+  );
 
   Future<void> _run(String scope, int generation) async {
     final writeGeneration = _writeGeneration;
@@ -363,6 +427,7 @@ class CloudSyncEngine extends ChangeNotifier {
     _error = null;
     _emit();
     var calendarChanged = false;
+    var sleepChanged = false;
     try {
       // A fresh 403 conclusively rejects this POST. A 404 for a previously
       // timed-out POST only says no receipt has been committed yet.
@@ -400,15 +465,20 @@ class CloudSyncEngine extends ChangeNotifier {
         profile = await _store.profile(scope);
         if (!_current(generation)) return;
         Map<String, dynamic> page;
+        String? sleepRevision;
         try {
           final prefetched = _prefetched;
           _prefetched = null;
-          page = prefetched != null && prefetched.cursor == profile['cursor']
+          sleepRevision = await _sleepRevision(scope);
+          if (!_current(generation)) return;
+          page =
+              prefetched != null &&
+                  prefetched.cursor == profile['cursor'] &&
+                  prefetched.sleepRevision == sleepRevision
               ? prefetched.page
-              : await request(
-                  'GET',
-                  '/v1/sync/changes?cursor=${Uri.encodeQueryComponent(profile['cursor'] as String)}&limit_batches=1',
-                  null,
+              : await _requestChanges(
+                  profile['cursor'] as String,
+                  sleepRevision,
                 );
         } on SyncRequestException catch (e) {
           if (e.status != 410) rethrow;
@@ -437,8 +507,20 @@ class CloudSyncEngine extends ChangeNotifier {
           flight = null;
         }
         if (!_current(generation)) return;
-        calendarChanged =
-            await _store.applyChanges(scope, page) || calendarChanged;
+        final applied = await _store.applyChangePage(
+          scope,
+          page,
+          includeSleepSchedule: sleepRevision != null,
+        );
+        calendarChanged = applied.calendarChanged || calendarChanged;
+        sleepChanged = applied.sleepChanged || sleepChanged;
+        if (sleepRevision != null) {
+          if (page.containsKey('sleep_schedule')) {
+            _sleepScheduleSupported = true;
+          } else {
+            _sleepScheduleSupported ??= false;
+          }
+        }
         if (page['has_more'] == true) continue;
         if (!canUpload()) break;
         if (flight != null &&
@@ -450,7 +532,27 @@ class CloudSyncEngine extends ChangeNotifier {
         }
         final fresh = flight == null;
         final batch = flight ?? await _store.freeze(scope);
-        if (batch == null) break;
+        if (batch == null) {
+          if (canUpload() && _sleepScheduleSupported == true) {
+            final sleepWrite = await repository.sleepScheduleStore.prepare(
+              scope,
+            );
+            if (sleepWrite != null && canUpload()) {
+              final result = await _sendSleepSchedule(
+                scope,
+                sleepWrite,
+                generation,
+              );
+              sleepChanged = result.changed || sleepChanged;
+              if (result.accepted &&
+                  canUpload() &&
+                  (await repository.sleepScheduleStore.status(scope)).pending) {
+                continue;
+              }
+            }
+          }
+          break;
+        }
         if (!canUpload()) break;
         if (await _send(scope, batch, fresh: fresh, generation: generation)) {
           if (!_current(generation)) return;
@@ -489,11 +591,49 @@ class CloudSyncEngine extends ChangeNotifier {
       _error = e is StateError ? e.message.toString() : '暂时无法连接云端，本地日程正常保存';
     } finally {
       _syncFailed = _error != null;
-      _pendingCount = await _store.pendingCount(scope);
+      _pendingCount = await _pendingFor(scope);
       _conflicts = await _store.conflicts(scope);
+      _sleepScheduleConflict = _sleepScheduleSupported == true
+          ? (await repository.sleepScheduleStore.status(scope)).conflict
+          : null;
       if (calendarChanged) await onRemoteChange?.call();
+      if (sleepChanged) await onRemoteSleepChange?.call();
       _busy = false;
       _emit();
+    }
+  }
+
+  Future<({bool accepted, bool changed})> _sendSleepSchedule(
+    String scope,
+    Map<String, dynamic> write,
+    int generation,
+  ) async {
+    try {
+      final record = await request('PUT', '/v1/sync/sleep-schedule', write);
+      if (!_current(generation)) return (accepted: false, changed: false);
+      if (record['write_id'] != write['write_id'] ||
+          !mapEquals(record['schedule'] as Map, write['schedule'] as Map)) {
+        throw StateError('云端睡眠时段回执不符，请稍后重试');
+      }
+      final changed = await repository.sleepScheduleStore.accept(scope, record);
+      return (accepted: true, changed: changed);
+    } on SyncRequestException catch (error) {
+      if (!_current(generation)) return (accepted: false, changed: false);
+      if (error.status == 404) {
+        // A server may have rolled back after this connection discovered support.
+        _sleepScheduleSupported = false;
+        return (accepted: false, changed: false);
+      }
+      if (error.status == 409 &&
+          error.code == 'sleep_schedule_conflict' &&
+          error.payload.containsKey('sleep_schedule')) {
+        final changed = await repository.sleepScheduleStore.accept(
+          scope,
+          error.payload['sleep_schedule'] as Map<String, dynamic>?,
+        );
+        return (accepted: false, changed: changed);
+      }
+      rethrow;
     }
   }
 
@@ -624,6 +764,22 @@ class CloudSyncEngine extends ChangeNotifier {
     if (!_current(generation) || _scope == null) return;
     final changed = await _store.resolve(_scope!, id, useLocal: useLocal);
     if (changed) await onRemoteChange?.call();
+    await sync();
+  }
+
+  Future<void> resolveSleepScheduleConflict(
+    SleepScheduleConflict conflict, {
+    required bool useLocal,
+  }) async {
+    final generation = _generation;
+    await _running;
+    if (!_current(generation) || _scope == null) return;
+    final changed = await repository.sleepScheduleStore.resolve(
+      _scope!,
+      conflict.remoteRevision,
+      useLocal: useLocal,
+    );
+    if (changed) await onRemoteSleepChange?.call();
     await sync();
   }
 

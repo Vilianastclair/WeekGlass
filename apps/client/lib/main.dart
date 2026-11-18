@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_localizations/flutter_localizations.dart';
 import 'package:intl/date_symbol_data_local.dart';
 import 'package:window_manager/window_manager.dart';
@@ -19,6 +21,11 @@ Future<void> main(List<String> args) async {
   UpdateService.launchArguments = args;
   final updater = UpdateService.instance;
   WidgetsFlutterBinding.ensureInitialized();
+  LicenseRegistry.addLicense(() async* {
+    yield LicenseEntryWithLineBreaks([
+      'WakeUp CourseAdapter',
+    ], await rootBundle.loadString('assets/licenses/CourseAdapter.txt'));
+  });
   await initializeDateFormatting('zh_CN');
   await LiquidGlass.load();
 
@@ -47,6 +54,7 @@ Future<void> main(List<String> args) async {
   );
   await controller.initialize();
   services.cloud.refreshPlanner = controller.reloadAfterSync;
+  services.cloud.refreshSleepSchedule = controller.reloadSleepSchedule;
   updater.beforeInstall = () async {
     await controller.waitForPendingWrites();
     await services.cloud.quiesce();

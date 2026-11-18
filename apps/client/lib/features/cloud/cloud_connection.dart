@@ -58,6 +58,9 @@ class CloudConnection extends ChangeNotifier with WidgetsBindingObserver {
       onRemoteChange: () async {
         await refreshPlanner?.call();
       },
+      onRemoteSleepChange: () async {
+        await refreshSleepSchedule?.call();
+      },
       onServiceDenied: _serviceDenied,
     );
     engine.addListener(_changed);
@@ -67,6 +70,7 @@ class CloudConnection extends ChangeNotifier with WidgetsBindingObserver {
   final CloudAuthService auth;
   late final CloudSyncEngine engine;
   Future<void> Function()? refreshPlanner;
+  Future<void> Function()? refreshSleepSchedule;
   bool working = false;
   bool ready = false;
   bool _paused = false;
@@ -208,13 +212,23 @@ class CloudConnection extends ChangeNotifier with WidgetsBindingObserver {
     working = true;
     notifyListeners();
     try {
-      await auth.approveMerge();
+      await auth.approveMerge(includeSleepSchedule: true);
       await _ensureEngine();
     } finally {
       working = false;
       notifyListeners();
     }
   }
+
+  Future<void> approveSleepSchedule() => _accountAction(() async {
+    if (!_canTransport()) return;
+    await auth.approveSleepSchedule();
+    if (engine.connected) {
+      await engine.enableSleepSchedule();
+    } else {
+      await _ensureEngine();
+    }
+  });
 
   Future<void> _ensureEngine() {
     if (_engineConnection case final pending?) return pending;
@@ -230,6 +244,7 @@ class CloudConnection extends ChangeNotifier with WidgetsBindingObserver {
           deviceId: auth.deviceId,
           uploadLocal: true,
           recoverReceipts: auth.official,
+          synchronizeSleepSchedule: auth.sleepScheduleApproved,
         )
         .whenComplete(() => _engineConnection = null);
   }

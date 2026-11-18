@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'package:sqflite_common/sqlite_api.dart';
 import 'package:uuid/uuid.dart';
 
+import 'sleep_schedule_store.dart';
+
 class SyncRequestException implements Exception {
   SyncRequestException(this.status, this.code, this.payload);
   final int status;
@@ -111,6 +113,10 @@ class SqliteSyncStore {
         where: 'scope=?',
         whereArgs: [scope],
       );
+      if (old.isNotEmpty &&
+          (old.single['active'] != 1 || old.single['epoch'] != epoch)) {
+        await SqliteSleepScheduleStore.reset(tx, scope);
+      }
       await tx.update('sync_profiles', {'active': 0});
       if (old.isEmpty) {
         await tx.insert('sync_profiles', {
@@ -408,7 +414,10 @@ class SqliteSyncStore {
       )).single;
       final resetHeads =
           profile['reset_heads'] == 1 || profile['epoch'] != epoch;
-      if (profile['epoch'] != epoch) await _clearFlight(tx, scope);
+      if (profile['epoch'] != epoch) {
+        await _clearFlight(tx, scope);
+        await SqliteSleepScheduleStore.reset(tx, scope);
+      }
       final ids = records.map((r) => r['id']).toSet();
       // After server restore, do not silently discard data absent from its snapshot.
       for (final old in oldHeads.where(
@@ -460,7 +469,14 @@ class SqliteSyncStore {
     });
   }
 
-  Future<bool> applyChanges(String scope, Map<String, dynamic> page) async {
+  Future<bool> applyChanges(String scope, Map<String, dynamic> page) async =>
+      (await applyChangePage(scope, page)).calendarChanged;
+
+  Future<({bool calendarChanged, bool sleepChanged})> applyChangePage(
+    String scope,
+    Map<String, dynamic> page, {
+    bool includeSleepSchedule = false,
+  }) async {
     final db = await database();
     return db.transaction((tx) async {
       var changed = false;
@@ -487,7 +503,15 @@ class SqliteSyncStore {
         where: 'scope=?',
         whereArgs: [scope],
       );
-      return changed;
+      final sleepChanged =
+          includeSleepSchedule && page.containsKey('sleep_schedule')
+          ? await SqliteSleepScheduleStore.apply(
+              tx,
+              scope,
+              page['sleep_schedule'],
+            )
+          : false;
+      return (calendarChanged: changed, sleepChanged: sleepChanged);
     });
   }
 

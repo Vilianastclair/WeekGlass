@@ -205,6 +205,8 @@ class CloudAuthService {
   _CloudLogin? _login;
   bool get connected => _session != null;
   bool get mergeApproved => _session?['merge_approved'] == true;
+  bool get sleepScheduleApproved =>
+      mergeApproved && _session?['sleep_schedule_approved'] == true;
   String? get origin => _session?['origin'] as String?;
   String get serverId => _session!['server_id'] as String;
   String get accountId => _session!['account_id'] as String;
@@ -444,7 +446,12 @@ class CloudAuthService {
           tokens['device_id'] != device) {
         throw const FormatException('登录服务器身份不匹配');
       }
-      final next = {...tokens, 'origin': base.origin, 'merge_approved': false};
+      final next = {
+        ...tokens,
+        'origin': base.origin,
+        'merge_approved': false,
+        'sleep_schedule_approved': false,
+      };
       onPhaseChanged?.call(CloudLoginPhase.saving);
       await _saveLogin(login, next);
       unawaited(
@@ -588,15 +595,24 @@ class CloudAuthService {
     }
   }
 
-  Future<void> approveMerge() {
+  Future<void> approveMerge({bool includeSleepSchedule = false}) {
     final generation = _sessionGeneration;
     return _queueVaultWrite(() async {
       _ensureSession(generation);
-      final next = {..._session!, 'merge_approved': true};
+      final next = {
+        ..._session!,
+        'merge_approved': true,
+        if (includeSleepSchedule) 'sleep_schedule_approved': true,
+      };
       await _vault.write(jsonEncode(next));
       _ensureSession(generation);
       _session = next;
     });
+  }
+
+  Future<void> approveSleepSchedule() {
+    if (!mergeApproved) throw CloudLoginException('请先确认合并日程。');
+    return approveMerge(includeSleepSchedule: true);
   }
 
   Future<Map<String, dynamic>> request(
@@ -704,7 +720,12 @@ class CloudAuthService {
     }
     await _queueVaultWrite(() async {
       if (!_currentSession(generation)) return;
-      final next = {..._session!, ...tokens};
+      final next = {
+        ..._session!,
+        ...tokens,
+        'merge_approved': mergeApproved,
+        'sleep_schedule_approved': sleepScheduleApproved,
+      };
       await _vault.write(jsonEncode(next));
       if (_currentSession(generation)) _session = next;
     });
