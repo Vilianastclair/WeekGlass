@@ -23,6 +23,11 @@ PATTERN = re.compile(r'^(objects/[a-f0-9]{2}/[a-f0-9]{64}|manifests/' + PLATFORM
                      r'/(stable|preview)/[1-9][0-9]*/[a-f0-9]{64}\.json|channels/' +
                      PLATFORM + r'/(stable|preview)\.json)$')
 RETIRED = re.compile(r'^channels/' + PLATFORM + r'/(stable|preview)\.withdrawn-build-[1-9][0-9]*\.json$')
+# Corresponding source is published separately and is not OTA content.
+CORRESPONDING_SOURCE_ARCHIVES = frozenset({
+    'source/weekglass-cloud-20261117-admin.tar.gz',
+    'source/weekglass-cloud-20261118-schedule.tar.gz',
+})
 
 
 def child(name, retired=False):
@@ -112,7 +117,7 @@ def snapshot():
                 raise ValueError('Symlinks forbidden in public store')
             if PATTERN.fullmatch(relative) or RETIRED.fullmatch(relative):
                 files[relative] = descriptor(child(relative, retired=True))
-            else:
+            elif not (relative in CORRESPONDING_SOURCE_ARCHIVES and path.is_file()):
                 unknown.append(relative)
     documents = {}
     keep = {}

@@ -162,6 +162,55 @@ class ReleaseLifecycleTests(unittest.TestCase):
         self.assertTrue(result['remote_verified'])
         self.assertEqual(self.helper('snapshot')['files'], plan['keep'])
 
+    def test_cleanup_retains_the_named_corresponding_source_archives(self):
+        directory = self.store / 'source'
+        directory.mkdir()
+        admin_source = directory / 'weekglass-cloud-20261117-admin.tar.gz'
+        admin_source.write_bytes(b'prior corresponding source')
+        snapshot = self.helper('snapshot')
+        self.assertEqual(snapshot['unknown'], [])
+        self.assertNotIn('source/' + admin_source.name, snapshot['files'])
+        plan = cleanup.verified_plan(snapshot, self.public, self.verification(), now=self.now + timedelta(seconds=3))
+        self.assertTrue(plan['delete'])
+
+        new_source = directory / 'weekglass-cloud-20261118-schedule.tar.gz'
+        new_source.write_bytes(b'new corresponding source')
+        result = self.helper('prune', json.dumps(plan).encode())
+
+        self.assertTrue(result['remote_verified'])
+        self.assertEqual(result['removed_files'], len(plan['delete']))
+        self.assertEqual(admin_source.read_bytes(), b'prior corresponding source')
+        self.assertEqual(new_source.read_bytes(), b'new corresponding source')
+
+    def test_cleanup_refuses_an_unlisted_archive_after_planning(self):
+        verification = self.verification()
+        plan = cleanup.verified_plan(self.helper('snapshot'), self.public, verification,
+                                     now=self.now + timedelta(seconds=3))
+        name = 'source/weekglass-cloud-20261118-schedule-deploy.tar.gz'
+        unknown = self.store / name
+        unknown.parent.mkdir()
+        unknown.write_bytes(b'unreviewed')
+
+        snapshot = self.helper('snapshot')
+        self.assertEqual(snapshot['unknown'], [name])
+        with self.assertRaisesRegex(ValueError, 'Unknown'):
+            cleanup.verified_plan(snapshot, self.public, verification, now=self.now + timedelta(seconds=3))
+        with self.assertRaisesRegex(ValueError, 'Unknown'):
+            self.helper('prune', json.dumps(plan).encode())
+        self.assertTrue(all((self.store / item).is_file() for item in plan['delete']))
+
+    def test_snapshot_refuses_symlink_with_corresponding_source_name(self):
+        source = self.store / 'source' / 'weekglass-cloud-20261118-schedule.tar.gz'
+        source.parent.mkdir()
+        try:
+            source.symlink_to(self.apk_old)
+        except OSError as exc:
+            if getattr(exc, 'winerror', None) == 1314:
+                self.skipTest('Windows symlink privilege is unavailable')
+            raise
+        with self.assertRaisesRegex(ValueError, 'Symlinks forbidden'):
+            self.helper('snapshot')
+
     def test_cleanup_requires_successful_current_dual_downloads(self):
         snapshot = self.helper('snapshot')
         report = self.verification()
