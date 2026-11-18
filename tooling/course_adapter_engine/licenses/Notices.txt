@@ -1,0 +1,10 @@
+Runtime notices
+
+CourseAdapter. Copyright (c) 2024 YZune. MIT. The bundled version changes data acquisition and project integration for offline use. Original: https://github.com/project-tRNA/CourseAdapter/tree/0cb290485d25b23ad3945608a6252e1293cc7c1e
+
+jsoup 1.15.4. MIT. The jsoup.txt notice is from the distributed JAR. https://github.com/jhy/jsoup/tree/jsoup-1.15.4
+
+Google Gson 2.11.0. Apache License 2.0. https://github.com/google/gson/tree/gson-parent-2.11.0
+Kotlin CSV 1.10.0. Apache License 2.0. https://github.com/jsoizo/kotlin-csv/tree/1.10.0
+Kotlin standard library 2.2.21. Apache License 2.0. Additional attributions from the upstream license directory are included. https://github.com/JetBrains/kotlin/tree/v2.2.21/license
+Kotlin coroutines 1.8.0. Apache License 2.0. https://github.com/Kotlin/kotlinx.coroutines/tree/1.8.0

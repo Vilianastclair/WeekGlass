@@ -54,23 +54,10 @@ def literal(value):
 
 
 def main():
-    with urlopen(UPSTREAM, timeout=30) as r:
-        records = json.load(r)
-    with urlopen(CROSSCHECK, timeout=30) as r:
-        entries = build(records, json.load(r))
-    lines = [
-        "// Generated with tooling/scripts/build_school_catalog.py.",
-        "// Source directory: Copyright (c) 2026 baoozak (MIT); see assets/licenses/SchoolDirectory.txt.",
-        "// A listed URL is a navigation shortcut, not verification of the user's timetable.",
-        "const schoolPortalCatalog = <({String name, String entry})>[",
-    ]
-    for name, url in entries.items():
-        lines.append(f"  (name: {literal(name)}, entry: {literal(url)}),")
-    lines.append("];")
-    out = ROOT / "apps/client/lib/features/course_import/school_portal_catalog.dart"
-    out.write_text("\n".join(lines) + "\n", encoding="utf-8")
-    print(f"{len(entries)} school navigation entries")
-
+    # Preserve the original entry point without overwriting the school bindings
+    # with the old two-family directory.
+    from build_wakeup_bindings import main as rebuild
+    rebuild()
 
 if __name__ == "__main__":
     main()

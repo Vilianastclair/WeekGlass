@@ -72,6 +72,33 @@ endif()
 set(INSTALL_BUNDLE_DATA_DIR "${CMAKE_INSTALL_PREFIX}/data")
 set(INSTALL_BUNDLE_LIB_DIR "${CMAKE_INSTALL_PREFIX}")
 
+# The offline parser runs in a private stripped JRE; no Java on the user's PATH.
+find_package(Python3 3.9 REQUIRED COMPONENTS Interpreter)
+get_filename_component(WG_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/../../.." ABSOLUTE)
+set(ENGINE "${WG_ROOT}/tooling/course_adapter_engine")
+set(ENGINE_DIST "${CMAKE_CURRENT_BINARY_DIR}/course_parser")
+file(GLOB ENGINE_INPUTS LIST_DIRECTORIES false CONFIGURE_DEPENDS "${ENGINE}/*.py" "${ENGINE}/*.zip"
+     "${ENGINE}/src/*.kt" "${ENGINE}/licenses/*" "${ENGINE}/LICENSE*")
+add_custom_command(OUTPUT "${ENGINE_DIST}/engine.jar"
+  COMMAND "${Python3_EXECUTABLE}" "${ENGINE}/build.py" --dist "${ENGINE_DIST}"
+  DEPENDS ${ENGINE_INPUTS} VERBATIM)
+file(READ "${WG_ROOT}/tooling/versions.json" WG_VERSIONS)
+string(REGEX MATCH "\"java\"[ \t\r\n]*:[ \t\r\n]*\\{[^}]*\"version\"[ \t\r\n]*:[ \t\r\n]*\"([^\"]+)\"" _ "${WG_VERSIONS}")
+set(WG_JRE "${CMAKE_CURRENT_BINARY_DIR}/course_jre_${CMAKE_MATCH_1}")
+add_custom_command(OUTPUT "${WG_JRE}/release"
+  COMMAND "${Python3_EXECUTABLE}" "${WG_ROOT}/tooling/scripts/link_course_runtime.py" "${WG_JRE}"
+  DEPENDS "${WG_ROOT}/tooling/scripts/link_course_runtime.py" VERBATIM)
+add_custom_target(weekglass_course_adapter DEPENDS "${ENGINE_DIST}/engine.jar" "${WG_JRE}/release")
+add_dependencies(${BINARY_NAME} weekglass_course_adapter)
+set(ENGINE_DEST "${INSTALL_BUNDLE_DATA_DIR}/course_adapter")
+install(FILES "${ENGINE_DIST}/engine.jar"
+   "${CMAKE_CURRENT_SOURCE_DIR}/course_adapter/OpenJDK.txt"
+   "${CMAKE_CURRENT_SOURCE_DIR}/course_adapter/parser.policy"
+   DESTINATION "${ENGINE_DEST}" COMPONENT CourseAdapter)
+install(DIRECTORY "${ENGINE_DIST}/lib" "${ENGINE_DIST}/licenses"
+   DESTINATION "${ENGINE_DEST}" COMPONENT CourseAdapter)
+install(DIRECTORY "${WG_JRE}/" DESTINATION "${ENGINE_DEST}/runtime" COMPONENT CourseAdapter)
+
 install(TARGETS ${BINARY_NAME} RUNTIME DESTINATION "${CMAKE_INSTALL_PREFIX}"
   COMPONENT Runtime)
 

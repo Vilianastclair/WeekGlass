@@ -28,6 +28,15 @@ Future<void> main(List<String> args) async {
     yield LicenseEntryWithLineBreaks([
       'School directory (baoozak/timetable)',
     ], await rootBundle.loadString('assets/licenses/SchoolDirectory.txt'));
+    yield LicenseEntryWithLineBreaks(
+      ['WakeUp CourseAdapter 2025 archive'],
+      await rootBundle.loadString(
+        'assets/licenses/WakeUpCourseAdapter2024.txt',
+      ),
+    );
+    yield LicenseEntryWithLineBreaks([
+      'WakeUpSchedule school routing',
+    ], await rootBundle.loadString('assets/licenses/WakeUpSchedule.txt'));
   });
   await initializeDateFormatting('zh_CN');
   await LiquidGlass.load();

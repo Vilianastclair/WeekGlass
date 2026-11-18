@@ -157,12 +157,20 @@ class WhuCourseMeeting {
     required this.room,
     required this.teacher,
     this.note = '',
+    this.fixedTime,
   });
   final String courseKey, title, weekText, room, teacher, note;
   final int weekday;
   final List<int> periods, weeks;
-  String get scheduleLabel =>
-      '周${'一二三四五六日'[weekday - 1]} · 第 ${periods.join('、')} 节 · $weekText';
+
+  /// The source can specify actual clock times instead of (or in addition to) nodes.
+  final ClassPeriod? fixedTime;
+  String get scheduleLabel => [
+    '周${'一二三四五六日'[weekday - 1]}',
+    if (periods.isNotEmpty) '第 ${periods.join('、')} 节',
+    if (fixedTime != null) fixedTime!.label,
+    weekText,
+  ].join(' · ');
 }
 
 class WhuTimetable {
@@ -170,10 +178,14 @@ class WhuTimetable {
     required this.meetings,
     required this.warnings,
     required this.account,
+    this.suggestedClock,
+    this.suggestedFirstMonday,
   });
   final List<WhuCourseMeeting> meetings;
   final List<String> warnings;
   final String account;
+  final List<ClassPeriod>? suggestedClock;
+  final DateTime? suggestedFirstMonday;
   Set<String> get courseKeys => meetings.map((e) => e.courseKey).toSet();
 
   factory WhuTimetable.parse(Object? response) {
@@ -276,7 +288,14 @@ class WhuTimetable {
     if (firstMonday.weekday != DateTime.monday) {
       throw ArgumentError('第一教学周须选择周一。');
     }
-    if (clock.isEmpty || clock.length > 24) throw ArgumentError('请核对节次时间。');
+    final chosen = meetings.where(
+      (m) => selectedCourses == null || selectedCourses.contains(m.courseKey),
+    );
+    if (clock.length > 24 ||
+        (clock.isEmpty &&
+            (chosen.isEmpty || chosen.any((m) => m.fixedTime == null)))) {
+      throw ArgumentError('请核对节次时间。');
+    }
     for (var i = 0; i < clock.length; i++) {
       final p = clock[i];
       if (p.start < 0 ||
@@ -295,7 +314,9 @@ class WhuTimetable {
         if (key != 0) return key;
         final day = a.weekday.compareTo(b.weekday);
         if (day != 0) return day;
-        return a.periods.first.compareTo(b.periods.first);
+        return (a.periods.firstOrNull ?? 25).compareTo(
+          b.periods.firstOrNull ?? 25,
+        );
       });
     final ordinals = <String, int>{};
     for (final m in ordered) {
@@ -304,16 +325,26 @@ class WhuTimetable {
       if (selectedCourses != null && !selectedCourses.contains(m.courseKey)) {
         continue;
       }
-      if (m.periods.last > clock.length) {
+      if (m.fixedTime == null && m.periods.last > clock.length) {
         throw ArgumentError('“${m.title}”需要第 ${m.periods.last} 节的时间。');
       }
       // Split non-contiguous periods instead of inventing teaching through a gap.
-      final runs = <List<int>>[];
-      for (final p in m.periods) {
-        if (runs.isEmpty || p != runs.last.last + 1) {
-          runs.add([p]);
-        } else {
-          runs.last.add(p);
+      final times = <ClassPeriod>[];
+      if (m.fixedTime case final fixed?) {
+        times.add(fixed);
+      } else {
+        final runs = <List<int>>[];
+        for (final p in m.periods) {
+          if (runs.isEmpty || p != runs.last.last + 1) {
+            runs.add([p]);
+          } else {
+            runs.last.add(p);
+          }
+        }
+        for (final run in runs) {
+          times.add(
+            ClassPeriod(clock[run.first - 1].start, clock[run.last - 1].end),
+          );
         }
       }
       for (final week in m.weeks) {
@@ -322,10 +353,9 @@ class WhuTimetable {
           firstMonday.month,
           firstMonday.day + (week - 1) * 7 + m.weekday - 1,
         );
-        for (var part = 0; part < runs.length; part++) {
-          final run = runs[part];
-          final start = clock[run.first - 1].start;
-          final end = clock[run.last - 1].end;
+        for (var part = 0; part < times.length; part++) {
+          final start = times[part].start;
+          final end = times[part].end;
           final source =
               '$prefix${m.courseKey}:${m.weekday}:$ordinal:$week:$part';
           final notes = [

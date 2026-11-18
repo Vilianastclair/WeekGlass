@@ -12,6 +12,14 @@ import { randomUUID } from 'node:crypto';
 const root = dirname(dirname(dirname(fileURLToPath(import.meta.url))));
 const js = await readFile(join(root,'apps/client/assets/school_portal/read_timetable.js'),'utf8');
 const file = process.argv[2];
+const adapter = process.argv[3];
+if(adapter && !/^[A-Za-z0-9_]+$/.test(adapter)) throw Error('Pass one registered adapter name.');
+const assets = join(root,'apps/client/assets/school_portal');
+const collect = adapter ? await readFile(join(assets,'read_adapter.js'),'utf8') : '';
+const model = adapter ? await readFile(join(assets,'read_model.js'),'utf8') : '';
+const invoke = adapter
+  ? 'JSON.stringify(await ('+collect+')(location.origin,['+JSON.stringify(adapter)+'],{year:2026,semester:3},('+model+')))'
+  : '('+js+')(location.origin)';
 const name = JSON.stringify(basename(file));
 const body = await readFile(file,'utf8');
 const nonce=randomUUID();
@@ -25,7 +33,7 @@ const server=createServer((req,res)=>{
   if(req.url!=='/'){res.writeHead(404).end();return;}
   res.writeHead(200,{'Content-Type':'text/html;charset=utf-8','Content-Security-Policy':
     "default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-"+nonce+"'; connect-src 'self'; base-uri 'none'; form-action 'none'"});
-  res.end(body+'<script nonce="'+nonce+'">addEventListener("load",async()=>{try{const result=('+js+')(location.origin); await fetch("/result",{method:"POST",body:result})}catch(e){await fetch("/result",{method:"POST",body:JSON.stringify({error:String(e)})})}})</script>');
+  res.end(body+'<script nonce="'+nonce+'">addEventListener("load",async()=>{try{const result='+invoke.replace(/<\/script/gi,'<\\/script')+'; await fetch("/result",{method:"POST",body:result})}catch(e){await fetch("/result",{method:"POST",body:JSON.stringify({error:String(e)})})}})</script>');
 });
 await new Promise(r=>server.listen(0,'127.0.0.1',r));
 const profile=await mkdtemp(join(tmpdir(),'wg-school-dom-'));

@@ -18,7 +18,7 @@ WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointmen
 - **Make time by dragging on the calendar.** Open an event to see its notes. Create and edit recurring events as a group.
 - **Pinch the time axis on your phone.** Pinch inward to fit the day or spread vertically for detail. Your display scale is remembered on this device.
 - **Set your visible hours.** Changing wake and sleep times clips the calendar view without modifying saved events. Both times can sync between devices on a compatible server.
-- **Bring in an existing schedule.** Choose your school, sign in to its academic portal, open your personal timetable and review the courses before saving. Wuhan University has a dedicated import flow. The general reader recognizes supported Zhengfang and Qiangzhi timetable pages. You can also import ICS, CSV or JSON, or export a color or black-and-white PDF.
+- **Bring in an existing schedule.** Choose your school, sign in to its academic portal, open your personal timetable and review the courses before saving. Wuhan University has a dedicated import flow. The in-app reader handles supported school-specific pages and systems including Zhengfang, Qiangzhi and URP. Choose the undergraduate or graduate portal you actually use. You can also import ICS, CSV or JSON, or export a color or black-and-white PDF.
 - **Keep your calendar on your device.** To sync across devices, choose the paid WeekGlass Cloud service or [use your own server for free](server/README.md).
 
 ## Use WeekGlass Cloud
@@ -39,7 +39,7 @@ flutter pub get
 flutter test
 ```
 
-- **Windows:** Install Visual Studio's Desktop development with C++ tools, including ATL, CMake, and the Windows SDK. Enable Developer Mode and run `flutter build windows --release`. [Build the EXE installer](tooling/windows-installer/README.md).
+- **Windows:** Install Python 3.9 or later, the [pinned JDK 17](docs/product/wakeup-engine-runtime.md) and Visual Studio's Desktop development with C++ tools, including ATL, CMake, and the Windows SDK. Enable Developer Mode and run `flutter build windows --release`. [Build the EXE installer](tooling/windows-installer/README.md).
 - **Android:** Install JDK 17, Android SDK 36, and NDK 28.2.13676358. Run `flutter build apk --release --target-platform android-arm64`.
 
 ## Support WeekGlass

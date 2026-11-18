@@ -10,6 +10,11 @@ $PackageDir = Join-Path $OutputDirectory "WeekGlass-Windows-x64-$version"
 $HelperPath = Join-Path $ProjectRoot 'release/weekglass_updater.exe'
 $ZipPath = "$PackageDir.zip"
 if (-not (Test-Path -LiteralPath (Join-Path $BuildDir 'weekglass.exe'))) { throw 'Build Windows release first.' }
+foreach ($parserFile in 'engine.jar','runtime/bin/java.exe','runtime/lib/modules','parser.policy','OpenJDK.txt') {
+  if (-not (Test-Path -LiteralPath (Join-Path $BuildDir "data/course_adapter/$parserFile") -PathType Leaf)) {
+    throw "Offline course parser missing: $parserFile. Rebuild the Windows client."
+  }
+}
 if (-not (Test-Path -LiteralPath $HelperPath)) { throw 'Compile the production update helper before packaging.' }
 if (Test-Path -LiteralPath $PackageDir) { throw "Package already exists: $PackageDir. Choose a fresh output directory." }
 # Use the same toolchain override and configured default as tooling/env.ps1.
@@ -67,7 +72,7 @@ $guide = @'
 
 ## 课表与文件
 
-在「学校课表」选择学校，使用学校官方页面登录并打开个人课表，读取后核对日期、课程和节次再保存。武汉大学有专用导入；通用入口识别新正方、强智的个人课表页面。学校要求验证时，在校方页面完成即可。
+在「学校课表」选择学校，使用学校官方页面登录，再打开本学期的个人课表。武汉大学保留专用导入；其他学校可按页面格式在本机读取。若提示补充教学周数，请以学校校历为准。核对日期、上课时段和课程后再保存。学校要求验证时，在校方页面完成即可。
 
 Windows 支持本机识别课表图片。也可导入 ICS、JSON、CSV 或粘贴课表文字；识别结果确认后才加入日历。导出支持日程文件、彩色 PDF 和黑白 PDF。
 
@@ -90,3 +95,6 @@ Windows 支持本机识别课表图片。也可导入 ICS、JSON、CSV 或粘贴
 $guide.Replace('{VERSION}', $version) | Set-Content -LiteralPath (Join-Path $PackageDir '使用说明.md') -Encoding utf8
 Compress-Archive -Path $PackageDir -DestinationPath $ZipPath -CompressionLevel Optimal
 Get-Item -LiteralPath $ZipPath | Select-Object FullName,Length
+
+
+

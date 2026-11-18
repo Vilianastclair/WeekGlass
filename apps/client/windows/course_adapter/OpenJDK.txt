@@ -1,0 +1,10 @@
+WeekGlass bundles a private, reduced Microsoft Build of OpenJDK for the offline
+timetable parser on Windows. Other features do not start Java.
+
+Version: Microsoft Build of OpenJDK 17.0.21.0.2+1, Windows x64.
+License: GNU General Public License version 2 with the Classpath Exception.
+The license, exception and component notices are in runtime/legal/.
+Corresponding source and build instructions:
+https://github.com/microsoft/openjdk-jdk17u/tree/release/jdk-17.0.21.0.2_1
+The exact runtime module selection is in tooling/scripts/link_course_runtime.py
+in the WeekGlass source distribution.

@@ -35,6 +35,7 @@ class MainActivity : FlutterActivity() {
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        CourseAdapterBridge(applicationContext).register(flutterEngine.dartExecutor.binaryMessenger)
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, "com.viliana.weekglass/updates")
             .setMethodCallHandler { call, result ->
                 when (call.method) {

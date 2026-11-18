@@ -6,7 +6,8 @@
   if (location.origin !== expectedOrigin) return result('origin');
   const visible = el => !!el && el.getClientRects().length > 0 &&
     el.ownerDocument.defaultView.getComputedStyle(el).visibility !== 'hidden';
-  const login = doc => /(?:^|\/)(?:login|sso|cas|authserver|captcha|signin)(?:[./_;-]|$)/i.test(doc.location.pathname) ||
+  const login = doc => /(?:^|\/)(?:login|sso|cas|authserver|captcha|signin)(?:[./_;-]|$)/i.test(doc.location.pathname+'/'+doc.location.hash.slice(1)) ||
+    /(?:^|[?&#])(?:ticket|(?:access|id)_token|SAMLResponse|SAMLRequest|code)=/i.test(doc.location.search+doc.location.hash) ||
     [...doc.querySelectorAll('input[type="password"],input[autocomplete="one-time-code"]')].some(visible);
   if (login(document)) return result('login');
   const docs = [document];
@@ -15,7 +16,10 @@
       try {
         const d = f.contentDocument;
         if (docs.length < 24 && visible(f) && d && d.location.origin === expectedOrigin &&
-            !login(d) && !docs.includes(d)) docs.push(d);
+            !docs.includes(d)) {
+          if(login(d)) return result('login');
+          docs.push(d);
+        }
       } catch (_) { /* Only the school's own visible frames can be read. */ }
     }
   }

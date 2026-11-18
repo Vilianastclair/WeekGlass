@@ -1,0 +1,11 @@
+// No SocketPermission and no broad FilePermission. The class loader may read
+// the bundled JARs and resources; reflection is used by Gson for course beans.
+grant {
+    permission java.io.FilePermission "${user.dir}${/}engine.jar", "read";
+    permission java.io.FilePermission "${user.dir}${/}lib${/}*", "read";
+    permission java.util.PropertyPermission "*", "read";
+    permission java.lang.RuntimePermission "accessDeclaredMembers";
+    permission java.lang.RuntimePermission "accessClassInPackage.sun.misc";
+    permission java.lang.RuntimePermission "setIO";
+    permission java.lang.reflect.ReflectPermission "suppressAccessChecks";
+};

@@ -18,7 +18,7 @@ WeekGlass 是一款面向 Windows 和 Android 的周日历。把课表、约会�
 - **拖出一段时间**：在日历上直接创建日程，点开先看备注。每周重复的安排可以一起建、一起改。
 - **手机上双指缩放时间轴**：捏合看全天，张开看细节，自动记住本机的显示比例。
 - **按作息查看日程**：调整起床和睡眠时间不会改写已有日程；日历只显示清醒时段内的部分。连接支持作息同步的云服务后，两端可共用这组时间。
-- **导入课表和日历**：在「学校课表」里选择学校，登录教务并打开个人课表，读取后核对课程再保存。武汉大学保留专用导入；其他学校可通过通用入口读取符合新正方或强智格式的页面。也可导入 ICS、CSV、JSON，导出彩色或黑白 PDF。
+- **导入课表和日历**：在「学校课表」里选择学校，登录教务并打开个人课表，读取后核对课程再保存。武汉大学保留专用入口；其他学校可读取正方、强智、URP 等教务系统的个人课表。学校分本科和研究生入口时，选自己实际使用的一个。也可导入 ICS、CSV、JSON，导出彩色或黑白 PDF。
 - **日程默认留在本机**：要跨设备同步，可以选官方付费云服务，也可以[用自己的服务器免费同步](server/README.md)。
 
 ## 使用官方云
@@ -39,7 +39,7 @@ flutter pub get
 flutter test
 ```
 
-- **Windows**：准备 Visual Studio 的 C++ 桌面开发工具（含 ATL、CMake 和 Windows SDK），开启开发人员模式。运行 `flutter build windows --release`。[构建 EXE 安装包](tooling/windows-installer/README.md)。
+- **Windows**：准备 Python 3.9 以上版本、[指定的 JDK 17](docs/product/wakeup-engine-runtime.md) 和 Visual Studio 的 C++ 桌面开发工具（含 ATL、CMake 和 Windows SDK），开启开发人员模式。运行 `flutter build windows --release`。[构建 EXE 安装包](tooling/windows-installer/README.md)。
 - **Android**：准备 JDK 17、Android SDK 36 和 NDK 28.2.13676358。运行 `flutter build apk --release --target-platform android-arm64`。
 
 <a name="support"></a>

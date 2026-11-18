@@ -8,6 +8,8 @@ import 'package:webview_windows/webview_windows.dart' as win;
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 
 import 'school_portal_catalog.dart';
+import 'wakeup_catalog.dart';
+import 'school_portal_reader.dart';
 import 'school_portal_timetable.dart';
 import 'whu_portal.dart';
 import 'whu_timetable.dart';
@@ -28,6 +30,7 @@ class _SchoolPicker extends StatefulWidget {
 class _SchoolPickerState extends State<_SchoolPicker> {
   final search = TextEditingController();
   bool custom = false;
+  String? pendingName;
   String? error;
   @override
   void dispose() {
@@ -37,7 +40,8 @@ class _SchoolPickerState extends State<_SchoolPicker> {
 
   void choose(String raw, [String? name]) {
     try {
-      Navigator.pop(context, SchoolPortalSite.fromEntry(raw, name: name));
+      final chosen = name ?? pendingName;
+      Navigator.pop(context, SchoolPortalSite.fromEntry(raw, name: chosen));
     } on FormatException catch (e) {
       setState(() => error = e.message);
     }
@@ -46,10 +50,20 @@ class _SchoolPickerState extends State<_SchoolPicker> {
   @override
   Widget build(BuildContext context) {
     final q = search.text.trim().toLowerCase();
+    final directory = <String, String>{
+      '武汉大学': NativeWhuPortal.entry,
+      for (final e in schoolPortalCatalog) e.name: e.entry,
+    };
     final matches =
-        [(name: '武汉大学', entry: NativeWhuPortal.entry), ...schoolPortalCatalog]
+        <({String name, String? entry})>[
+              for (final e in directory.entries) (name: e.key, entry: e.value),
+              for (final name in wakeupSchoolBindings.keys)
+                if (!directory.containsKey(name)) (name: name, entry: null),
+            ]
             .where(
-              (e) => e.name.contains(q) || Uri.parse(e.entry).host.contains(q),
+              (e) =>
+                  e.name.toLowerCase().contains(q) ||
+                  (e.entry != null && Uri.parse(e.entry!).host.contains(q)),
             )
             .toList();
     final size = MediaQuery.sizeOf(context);
@@ -72,7 +86,7 @@ class _SchoolPickerState extends State<_SchoolPicker> {
                 children: [
                   Expanded(
                     child: Text(
-                      custom ? '填写学校教务网址' : '选择学校',
+                      custom ? (pendingName ?? '填写学校教务网址') : '选择学校',
                       style: Theme.of(context).textTheme.titleLarge,
                     ),
                   ),
@@ -121,8 +135,22 @@ class _SchoolPickerState extends State<_SchoolPicker> {
                             final e = matches[i];
                             return ListTile(
                               title: Text(e.name),
-                              subtitle: Text(Uri.parse(e.entry).host),
-                              onTap: () => choose(e.entry, e.name),
+                              subtitle: Text(
+                                e.entry == null
+                                    ? '使用本校教务网址'
+                                    : Uri.parse(e.entry!).host,
+                              ),
+                              onTap: () {
+                                if (e.entry != null) {
+                                  choose(e.entry!, e.name);
+                                } else {
+                                  setState(() {
+                                    pendingName = e.name;
+                                    custom = true;
+                                    search.clear();
+                                  });
+                                }
+                              },
                             );
                           },
                         ),
@@ -132,6 +160,7 @@ class _SchoolPickerState extends State<_SchoolPicker> {
                 onPressed: () {
                   setState(() {
                     custom = !custom;
+                    pendingName = null;
                     search.clear();
                     error = null;
                   });
@@ -171,6 +200,15 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
   mobile.WebViewController? android;
   final subs = <StreamSubscription<dynamic>>[];
   Uri? uri;
+  SchoolPortalSystem system = SchoolPortalSystem.auto;
+  int navigation = 0;
+  String? approvedOrigin;
+  bool get canRead =>
+      widget.site.canRead(uri) ||
+      (widget.site.mayReadLocation(uri) && uri!.origin == approvedOrigin);
+  Future<Object?> _execute(String script) => windows != null
+      ? windows!.executeScript(script)
+      : android!.runJavaScriptReturningResult(script);
   bool ready = false,
       loading = true,
       reading = false,
@@ -192,6 +230,7 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
     if (closed || url == 'about:blank') return;
     final next = Uri.tryParse(url);
     update(() {
+      if (uri != next) navigation++;
       uri = next;
       blocked = !widget.site.permits(next);
       if (blocked) {
@@ -224,6 +263,7 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
           w.loadingState.listen(
             (s) => update(() {
               loading = s == win.LoadingState.loading;
+              if (loading) navigation++;
               if (loading && !blocked) error = null;
             }),
           ),
@@ -250,6 +290,7 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
               if (s.url != null) _location(s.url!);
             },
             onPageStarted: (url) {
+              navigation++;
               _location(url);
               update(() {
                 loading = true;
@@ -309,25 +350,76 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
     }
   }
 
+  Future<void> _confirmOrigin() async {
+    final page = uri;
+    final epoch = navigation;
+    if (reading || page == null || !widget.site.mayConfirmOrigin(page)) return;
+    // Check only whether a password/verification form is showing. No fields,
+    // HTML, identity values or session data are returned before consent.
+    Object? safe;
+    try {
+      safe = await _execute(SchoolPortalReader.originCheck(page))
+          .timeout(const Duration(seconds: 5));
+    } catch (_) {
+      update(() => error = '页面尚未就绪，请打开学期课表再试。');
+      return;
+    }
+    if (!mounted || epoch != navigation || page != uri) return;
+    if (safe != true && safe != 'true') {
+      update(() => error = '请先完成学校登录并打开本人课表，再确认教务域名。');
+      return;
+    }
+    final answer = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        title: const Text('确认学校教务域名'),
+        content: Text(
+          '学校将页面转到了 ${page.authority}。确认这里已显示本人的学期课表后，可在本次导入中读取这个域名。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(ctx, false),
+            child: const Text('返回'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(ctx, true),
+            child: const Text('确认并读取'),
+          ),
+        ],
+      ),
+    );
+    if (answer != true || !mounted || epoch != navigation || page != uri) {
+      return;
+    }
+    update(() => approvedOrigin = page.origin);
+    await _read();
+  }
+
   Future<void> _read() async {
-    if (reading || !widget.site.canRead(uri) || blocked) return;
+    if (reading || !canRead || blocked) return;
     update(() {
       reading = true;
       error = null;
     });
     try {
-      final asset = await rootBundle.loadString(SchoolPortalTimetable.asset);
-      if (closed) return;
-      final script = SchoolPortalTimetable.script(asset, widget.site.entry);
-      final raw =
-          await (windows != null
-                  ? windows!.executeScript(script)
-                  : android!.runJavaScriptReturningResult(script))
-              .timeout(const Duration(seconds: 15));
-      if (closed) return;
-      final result = SchoolPortalTimetable.parse(raw);
-      if (!widget.site.canRead(uri)) throw StateError('页面已切换，请重新打开课表。');
+      final page = uri!;
+      final epoch = navigation;
+      bool current() =>
+          !closed && navigation == epoch && uri == page && canRead;
+      final result = await SchoolPortalReader.read(
+        page: page,
+        term: widget.term,
+        parsers: system == SchoolPortalSystem.auto
+            ? widget.site.parsers
+            : system.parsers,
+        execute: _execute,
+        current: current,
+        requestWeeks: () => confirmSchoolTermWeeks(context, widget.term),
+      );
+      if (!current()) throw StateError('页面已切换，请在当前课表重新读取。');
       if (mounted) Navigator.pop(context, result);
+    } on SchoolReadCancelled {
+      return;
     } catch (e) {
       update(
         () => error = e is FormatException
@@ -424,8 +516,31 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (widget.site.parsers.isEmpty)
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: PopupMenuButton<SchoolPortalSystem>(
+                        enabled: !reading,
+                        initialValue: system,
+                        onSelected: (value) => update(() {
+                          system = value;
+                          error = null;
+                        }),
+                        itemBuilder: (_) => [
+                          for (final s in SchoolPortalSystem.values)
+                            PopupMenuItem(value: s, child: Text(s.label)),
+                        ],
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 8),
+                          child: Text('教务系统：${system.label} ▾'),
+                        ),
+                      ),
+                    ),
                   Text(
-                    error ?? '在学校页面登录，打开${widget.term.label}的本人课表。',
+                    error ??
+                        (!canRead && widget.site.mayConfirmOrigin(uri)
+                            ? '请打开本人学期课表，再确认这个教务域名。'
+                            : '在学校页面登录，打开${widget.term.label}的本人课表。'),
                     style: TextStyle(
                       color: error == null
                           ? p.muted
@@ -439,11 +554,17 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
                             !loading &&
                             !reading &&
                             !blocked &&
-                            widget.site.canRead(uri)
-                        ? _read
+                            (canRead || widget.site.mayConfirmOrigin(uri))
+                        ? (canRead ? _read : _confirmOrigin)
                         : null,
                     icon: const Icon(Icons.calendar_view_week_outlined),
-                    label: Text(reading ? '正在读取…' : '读取当前课表'),
+                    label: Text(
+                      reading
+                          ? '正在读取…'
+                          : (!canRead && widget.site.mayConfirmOrigin(uri))
+                          ? '确认当前教务域名'
+                          : '读取当前课表',
+                    ),
                   ),
                 ],
               ),
@@ -453,4 +574,69 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
       ),
     );
   }
+}
+
+Future<int?> confirmSchoolTermWeeks(BuildContext context, WhuTerm term) =>
+    showDialog<int>(
+      context: context,
+      builder: (_) => _TeachingWeeksPrompt(term: term),
+    );
+
+class _TeachingWeeksPrompt extends StatefulWidget {
+  const _TeachingWeeksPrompt({required this.term});
+  final WhuTerm term;
+  @override
+  State<_TeachingWeeksPrompt> createState() => _TeachingWeeksPromptState();
+}
+
+class _TeachingWeeksPromptState extends State<_TeachingWeeksPrompt> {
+  String value = '';
+  String? error;
+  void proceed() {
+    final n = int.tryParse(value);
+    if (n == null || n < 1 || n > 53) {
+      setState(() => error = '请填写 1 至 53 之间的整数。');
+      return;
+    }
+    Navigator.pop(context, n);
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+    title: const Text('填写教学周数'),
+    content: Column(
+      mainAxisSize: MainAxisSize.min,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text('这份课表没有标明结束周。请按本校校历填写${widget.term.label}的教学周数。'),
+        const SizedBox(height: 16),
+        TextField(
+          key: const ValueKey('school-term-weeks'),
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          inputFormatters: [
+            FilteringTextInputFormatter.digitsOnly,
+            LengthLimitingTextInputFormatter(2),
+          ],
+          decoration: InputDecoration(
+            labelText: '教学周数',
+            suffixText: '周',
+            errorText: error,
+          ),
+          onChanged: (s) => setState(() {
+            value = s;
+            error = null;
+          }),
+          onSubmitted: (_) => proceed(),
+        ),
+      ],
+    ),
+    actions: [
+      TextButton(
+        onPressed: () => Navigator.pop(context),
+        child: const Text('取消'),
+      ),
+      FilledButton(onPressed: proceed, child: const Text('继续预览')),
+    ],
+  );
 }

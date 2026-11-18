@@ -31,6 +31,34 @@ void main() {
     final site = SchoolPortalSite.fromEntry('https://jwxt.shu.edu.cn/');
     final sso = Uri.parse('https://newsso.shu.edu.cn/login');
     expect(site.permits(sso), isTrue);
+    expect(
+      site.mayConfirmOrigin(Uri.parse('https://other.shu.edu.cn/timetable')),
+      isTrue,
+    );
+    for (final addr in [
+      'https://other.shu.edu.cn/#/login',
+      'https://example.org/kb',
+      'https://cas.shu.edu.cn/',
+      'https://other.shu.edu.cn/return?ticket=temporary',
+    ]) {
+      expect(site.mayConfirmOrigin(Uri.parse(addr)), isFalse, reason: addr);
+    }
+    final named = SchoolPortalSite.fromEntry(
+      'https://jwxt.shu.edu.cn/',
+      name: '上海大学',
+    );
+    expect(
+      named.canRead(
+        Uri.parse('https://jwxk.shu.edu.cn/xsxk/elective/grablessons'),
+      ),
+      isTrue,
+    );
+    expect(named.parsers, contains('SHUParser2024'));
+    expect(
+      () => SchoolPortalSite.fromEntry('https://unlisted.example.com/'),
+      throwsFormatException,
+    );
+
     expect(site.canRead(sso), isFalse);
     expect(
       site.canRead(Uri.parse('https://jwxt.shu.edu.cn/xtgl/login_slogin.html')),

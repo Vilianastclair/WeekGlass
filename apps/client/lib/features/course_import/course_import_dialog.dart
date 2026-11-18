@@ -82,6 +82,11 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   int sleepConflicts = 0, overlaps = 0, previewGeneration = 0;
   WhuTerm get term => WhuTerm(year, semester);
   bool get busy => reading || saving;
+  bool get needsPeriodClock =>
+      timetable?.meetings.any(
+        (m) => selected.contains(m.courseKey) && m.fixedTime == null,
+      ) ??
+      true;
   String get sourceId => schoolWeb ? SchoolPortalTimetable.sourceId : school.id;
   String get settingsKey => schoolWeb
       ? '${sourceId}_${site!.entry.origin}_schedule_${term.key}'
@@ -245,6 +250,15 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
       setState(() {
         timetable = data;
         selected = data.courseKeys;
+        final proposed = data.suggestedFirstMonday;
+        if (proposed != null &&
+            !proposed.isBefore(DateTime(year)) &&
+            proposed.isBefore(DateTime(year + 2))) {
+          firstMonday ??= proposed;
+        }
+        if (clock.isEmpty && data.suggestedClock != null) {
+          clock = [...data.suggestedClock!];
+        }
         confirmed = false;
       });
       await _preview();
@@ -292,7 +306,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
     });
     if (timetable == null ||
         firstMonday == null ||
-        clock.isEmpty ||
+        (needsPeriodClock && clock.isEmpty) ||
         accountKey.trim().isEmpty) {
       return;
     }
@@ -438,7 +452,10 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
 
   Future<void> _editSchoolClock() async {
     final lastPeriod = timetable!.meetings
-        .where((meeting) => selected.contains(meeting.courseKey))
+        .where(
+          (meeting) =>
+              selected.contains(meeting.courseKey) && meeting.fixedTime == null,
+        )
         .fold(
           0,
           (last, meeting) =>
@@ -939,7 +956,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                 constraints: const BoxConstraints(maxWidth: 420),
                 child: Text(
                   schoolWeb
-                      ? '可识别正方和强智的部分学期课表。首次导入请准备本校校历及节次时间。'
+                      ? '课表在本机读取。没有标明开学日期或上下课时刻时，请按本校校历和作息表补齐。'
                       : '密码和验证码只在学校官方页面填写。确认第一周、节次与假期后再保存。',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: p.muted, fontSize: 12, height: 1.8),
@@ -1186,7 +1203,9 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
           style: TextStyle(fontSize: 11, color: p.muted, height: 1.6),
         ),
         const SizedBox(height: 8),
-        if (schoolWeb)
+        if (schoolWeb && !needsPeriodClock)
+          const Text('课程使用教务页面提供的起止时刻。')
+        else if (schoolWeb)
           OutlinedButton.icon(
             key: const ValueKey('edit-course-school-clock'),
             onPressed: busy ? null : _editSchoolClock,
@@ -1570,13 +1589,13 @@ class _HolidayEditorState extends State<_HolidayEditor> {
           OutlinedButton.icon(
             onPressed: () => _pick(true),
             icon: const Icon(Icons.event_outlined, size: 18),
-            label: Text('开始 · ${start.year}/${start.month}/${start.day}'),
+            label: Text('开始 ${start.year}/${start.month}/${start.day}'),
           ),
           const SizedBox(height: 8),
           OutlinedButton.icon(
             onPressed: () => _pick(false),
             icon: const Icon(Icons.event_outlined, size: 18),
-            label: Text('结束 · ${end.year}/${end.month}/${end.day}'),
+            label: Text('结束 ${end.year}/${end.month}/${end.day}'),
           ),
           const SizedBox(height: 8),
           const Text(

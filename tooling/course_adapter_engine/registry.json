@@ -1,0 +1,1184 @@
+{
+  "revision": "0cb290485d25b23ad3945608a6252e1293cc7c1e",
+  "adapters": [
+    {
+      "id": "ahnu",
+      "aliases": [
+        "AHNU",
+        "AHNUParser",
+        "parser.AHNUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/AHNUParser.kt",
+      "className": "parser.AHNUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "ahstu",
+      "aliases": [
+        "AHSTU",
+        "AHSTUParser",
+        "main.java.parser.AHSTUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/AHSTUParser.kt",
+      "className": "main.java.parser.AHSTUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "bfaforyjs",
+      "aliases": [
+        "BFAforYJS",
+        "BFAforYJSParser",
+        "parser.BFAforYJSParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/BFAforYJSParser.kt",
+      "className": "parser.BFAforYJSParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "bjtu",
+      "aliases": [
+        "BJTU",
+        "BJTUParser",
+        "main.java.parser.BJTUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/BJTUParser.kt",
+      "className": "main.java.parser.BJTUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "bnuz",
+      "aliases": [
+        "BNUZ",
+        "BNUZParser",
+        "parser.BNUZParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/BNUZParser.kt",
+      "className": "parser.BNUZParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "buaa",
+      "aliases": [
+        "BUAA",
+        "BUAAParser",
+        "main.java.parser.BUAAParser"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "json",
+      "sourceFile": "src/main/java/parser/BUAAParser.kt",
+      "className": "main.java.parser.BUAAParser",
+      "requirement": "getMyScheduleDetail.do 返回的 JSON。"
+    },
+    {
+      "id": "ccibe",
+      "aliases": [
+        "CCIBE",
+        "CCIBEParser",
+        "main.java.parser.CCIBEParser"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "json",
+      "sourceFile": "src/main/java/parser/CCIBEParser.kt",
+      "className": "main.java.parser.CCIBEParser",
+      "requirement": "含 kcmc、xqj、jc、qsz、jsz 的课程 JSON 数组。"
+    },
+    {
+      "id": "ccsu_qz_old",
+      "aliases": [
+        "CCSU",
+        "ccsu",
+        "CCSUParser",
+        "CSXY",
+        "CSXYParser",
+        "parser.CSXYParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/CCSUParser.kt",
+      "className": "parser.CSXYParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "cf",
+      "aliases": [
+        "ChengFang",
+        "ChengFangParser",
+        "parser.ChengFangParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/ChengFangParser.kt",
+      "className": "parser.ChengFangParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "cnu",
+      "aliases": [
+        "CNU",
+        "CNUParser",
+        "main.java.parser.CNUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/CNUParser.kt",
+      "className": "main.java.parser.CNUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "cqupt",
+      "aliases": [
+        "CQUPT",
+        "CQUPTParser",
+        "main.java.parser.CQUPTParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/CQUPTParser.kt",
+      "className": "main.java.parser.CQUPTParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "csv",
+      "aliases": [
+        "CSV",
+        "CSVParser",
+        "parser.CSVParser"
+      ],
+      "available": true,
+      "inputKind": "csv",
+      "originalInputKind": "csv",
+      "sourceFile": "src/main/java/parser/CSVParser.kt",
+      "className": "parser.CSVParser",
+      "requirement": "带标题行的七列 CSV：课程名、星期、开始节、结束节、教师、教室、周数。"
+    },
+    {
+      "id": "ctgu",
+      "aliases": [
+        "CTGU",
+        "CTGUParser",
+        "main.java.parser.CTGUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "files",
+      "sourceFile": "src/main/java/parser/CTGUParser.kt",
+      "className": "main.java.parser.CTGUParser",
+      "requirement": "课表子页 home.html 的内容，不是其父页面或文件路径。"
+    },
+    {
+      "id": "ecjtu",
+      "aliases": [
+        "ECJTU",
+        "ECJTUParser",
+        "main.java.parser.ECJTUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/ECJTUParser.kt",
+      "className": "main.java.parser.ECJTUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "ecnu",
+      "aliases": [
+        "ECNU",
+        "ECNUParser",
+        "main.java.parser.ECNUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/ECNUParser.kt",
+      "className": "main.java.parser.ECNUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "ecupl",
+      "aliases": [
+        "ECUPL",
+        "ECUPLParser",
+        "main.java.parser.ECUPLParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/ECUPLParser.kt",
+      "className": "main.java.parser.ECUPLParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "fspt",
+      "aliases": [
+        "FSPT",
+        "FSPTParser",
+        "main.java.parser.FSPTParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/FSPTParser.kt",
+      "className": "main.java.parser.FSPTParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "fstvc",
+      "aliases": [
+        "FSTVC",
+        "FSTVCParser",
+        "main.java.parser.FSTVCParser"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "session",
+      "sourceFile": "src/main/java/parser/FSTVCParser.kt",
+      "className": "main.java.parser.FSTVCParser",
+      "requirement": "完整教学进度 JSON：rows 包含所有行，total 等于行数，分页须先合并。"
+    },
+    {
+      "id": "gdbh",
+      "aliases": [
+        "GDBH",
+        "GDBHParser",
+        "main.java.parser.GDBHParser"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "session",
+      "sourceFile": "src/main/java/parser/GDBHParser.java",
+      "className": "main.java.parser.GDBHParser",
+      "requirement": "getstutable 课程响应，含 data 数组。"
+    },
+    {
+      "id": "gdbyxy",
+      "aliases": [
+        "GDBYXY",
+        "GDBYXYParser",
+        "main.java.parser.GDBYXYParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/GDBYXYParser.kt",
+      "className": "main.java.parser.GDBYXYParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "gdei",
+      "aliases": [
+        "GDEI",
+        "GDEIParser",
+        "main.java.parser.GDEIParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/GDEIParser.java",
+      "className": "main.java.parser.GDEIParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "gxic",
+      "aliases": [
+        "GXIC",
+        "GXICParser",
+        "parser.wakeup.WakeupParser",
+        "Wakeup",
+        "WakeupParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/GXICParser.kt",
+      "className": "parser.wakeup.WakeupParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "gzhuyjs",
+      "aliases": [
+        "GZHUYJS",
+        "GZHUYJSParser",
+        "main.java.parser.GZHUYJSParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/GZHUYJSParser.kt",
+      "className": "main.java.parser.GZHUYJSParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "hfu",
+      "aliases": [
+        "HFUT",
+        "HFUTParser",
+        "main.java.parser.HFUTParser"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "json",
+      "sourceFile": "src/main/java/parser/HFUTParser.kt",
+      "className": "main.java.parser.HFUTParser",
+      "requirement": "含 result.scheduleList、lessonList 和 scheduleGroupList 的课表 JSON。"
+    },
+    {
+      "id": "hhu",
+      "aliases": [
+        "HHU",
+        "HHUParser",
+        "main.java.parser.HHUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "credentials",
+      "sourceFile": "src/main/java/parser/HHUParser.kt",
+      "className": "main.java.parser.HHUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "hlju",
+      "aliases": [
+        "HLJU",
+        "HLJUParser",
+        "parser.HLJUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/HLJUParser.kt",
+      "className": "parser.HLJUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "hniu",
+      "aliases": [
+        "HNIU",
+        "HNIUParser",
+        "parser.HNIUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/HNIUParser.kt",
+      "className": "parser.HNIUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "hnjm",
+      "aliases": [
+        "HNJM",
+        "HNJMParser",
+        "parser.HNJMParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/HNJMParser.kt",
+      "className": "parser.HNJMParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "hnust",
+      "aliases": [
+        "HNUST",
+        "HNUSTParser",
+        "parser.HNUSTParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/HNUSTParser.kt",
+      "className": "parser.HNUSTParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "hnzj",
+      "aliases": [
+        "HNZJ",
+        "HNZJParser",
+        "main.java.parser.HNZJParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/HNZJParser.java",
+      "className": "main.java.parser.HNZJParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "hrbeugraduate",
+      "aliases": [
+        "HrbeuGraduate",
+        "HrbeuGraduateParser",
+        "main.java.parser.HrbeuGraduateParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/HrbeuGraduateParser.kt",
+      "className": "main.java.parser.HrbeuGraduateParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "huat",
+      "aliases": [
+        "HUAT",
+        "HUATParser",
+        "main.java.parser.HUATParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/HUATParser.java",
+      "className": "main.java.parser.HUATParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "hunnu",
+      "aliases": [
+        "HUNNU",
+        "HUNNUParser",
+        "main.java.parser.HUNNUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/HUNNUParser.kt",
+      "className": "main.java.parser.HUNNUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "hust",
+      "aliases": [
+        "HUST",
+        "HUSTParser",
+        "main.java.parser.HUSTParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/HUSTParser.kt",
+      "className": "main.java.parser.HUSTParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "javtc",
+      "aliases": [
+        "JAVTC",
+        "JAVTCParser",
+        "main.java.parser.JAVTCParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "network",
+      "sourceFile": "src/main/java/parser/JAVTCParser.kt",
+      "className": "main.java.parser.JAVTCParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "jlu",
+      "aliases": [
+        "JLU",
+        "JLUParser",
+        "main.java.parser.JLUParser"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "json",
+      "sourceFile": "src/main/java/parser/JLUParser.kt",
+      "className": "main.java.parser.JLUParser",
+      "requirement": "吉林大学课表查询的 JSON 响应。"
+    },
+    {
+      "id": "jnu",
+      "aliases": [
+        "JNU",
+        "JNUParser",
+        "main.java.parser.JNUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/JNUParser.kt",
+      "className": "main.java.parser.JNUParser",
+      "requirement": "含课表 XML 的页面或其 XML 内容。"
+    },
+    {
+      "id": "jxau",
+      "aliases": [
+        "JXAU",
+        "JXAUParser",
+        "main.java.parser.JXAUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/JXAUParser.kt",
+      "className": "main.java.parser.JXAUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "jxaujk",
+      "aliases": [
+        "JXAUJk",
+        "JXAUJkParser",
+        "main.java.parser.JXAUJkParser"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "credentials",
+      "sourceFile": "src/main/java/parser/JXAUJkParser.kt",
+      "className": "main.java.parser.JXAUJkParser",
+      "requirement": "GetStudentKebiaoByXq 返回的 JSON，含 Data 数组。"
+    },
+    {
+      "id": "jxnu",
+      "aliases": [
+        "JXNU",
+        "JXNUParser",
+        "main.java.parser.JXNUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/JXNUParser.java",
+      "className": "main.java.parser.JXNUParser",
+      "requirement": "学期课程格没有起止周，需确认该学期教学周数。"
+    },
+    {
+      "id": "jz",
+      "aliases": [
+        "JinZhi",
+        "JinZhiParser",
+        "main.java.parser.JinZhiParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/JinZhiParser.kt",
+      "className": "main.java.parser.JinZhiParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "kingosoftzx",
+      "aliases": [
+        "KingosoftZX",
+        "KingosoftZXParser",
+        "main.java.parser.KingosoftZXParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/KingosoftZXParser.kt",
+      "className": "main.java.parser.KingosoftZXParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "lngd",
+      "aliases": [
+        "LNGD",
+        "LNGDParser",
+        "main.java.parser.LNGDParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/LNGDParser.kt",
+      "className": "main.java.parser.LNGDParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "newahnu",
+      "aliases": [
+        "NewAHNU",
+        "NewAHNUParse",
+        "NewAHNUParser",
+        "parser.NewAHNUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/NewAHNUParse.kt",
+      "className": "parser.NewAHNUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "nfu",
+      "aliases": [
+        "main.java.parser.NFUParser",
+        "NFU",
+        "NFUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/NFUParser.kt",
+      "className": "main.java.parser.NFUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "nju",
+      "aliases": [
+        "main.java.parser.NJUParser",
+        "NJU",
+        "NJUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/NJUParser.kt",
+      "className": "main.java.parser.NJUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "nwpu",
+      "aliases": [
+        "main.java.parser.NWPUParser",
+        "NWPU",
+        "NWPUParser"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "credentials",
+      "sourceFile": "src/main/java/parser/NWPUParser.kt",
+      "className": "main.java.parser.NWPUParser",
+      "requirement": "同一学期的组合 JSON：getData 与 printData 为两份课表响应，semesterName 为可选学期名称。"
+    },
+    {
+      "id": "nwpugraduate",
+      "aliases": [
+        "main.java.parser.NWPUGraduateParser",
+        "NWPUGraduate",
+        "NWPUGraduateParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/NWPUGraduateParser.kt",
+      "className": "main.java.parser.NWPUGraduateParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "nyist",
+      "aliases": [
+        "main.java.parser.NYISTParser",
+        "NYIST",
+        "NYISTParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/NYISTParser.kt",
+      "className": "main.java.parser.NYISTParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "pku",
+      "aliases": [
+        "parser.PekingParser",
+        "Peking",
+        "PekingParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/PekingParser.kt",
+      "className": "parser.PekingParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "qz",
+      "aliases": [
+        "parser.qz.QzParser",
+        "Qz",
+        "QzParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/qz/QzParser.kt",
+      "className": "parser.qz.QzParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "qz_2017",
+      "aliases": [
+        "main.java.parser.qz.Qz2017Parser",
+        "Qz2017",
+        "Qz2017Parser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/qz/Qz2017Parser.kt",
+      "className": "main.java.parser.qz.Qz2017Parser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "qz_br",
+      "aliases": [
+        "parser.qz.QzBrParser",
+        "QzBr",
+        "QzBrParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/qz/QzBrParser.kt",
+      "className": "parser.qz.QzBrParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "qz_crazy",
+      "aliases": [
+        "parser.qz.QzCrazyParser",
+        "QzCrazy",
+        "QzCrazyParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/qz/QzCrazyParser.kt",
+      "className": "parser.qz.QzCrazyParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "qz_old",
+      "aliases": [
+        "OldQz",
+        "OldQzParser",
+        "parser.OldQzParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/OldQzParser.kt",
+      "className": "parser.OldQzParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "qz_with_node",
+      "aliases": [
+        "parser.qz.QzWithNodeParser",
+        "QzWithNode",
+        "QzWithNodeParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/qz/QzWithNodeParser.kt",
+      "className": "parser.qz.QzWithNodeParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "ruc",
+      "aliases": [
+        "main.java.parser.RUCParser",
+        "RUC",
+        "RUCParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/RUCParser.java",
+      "className": "main.java.parser.RUCParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "sdpei",
+      "aliases": [
+        "parser.SDPEIParser",
+        "SDPEI",
+        "SDPEIParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/SDPEIParser.kt",
+      "className": "parser.SDPEIParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "shtech",
+      "aliases": [
+        "main.java.parser.SHTechParser",
+        "SHTech",
+        "SHTechParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/SHTechParser.kt",
+      "className": "main.java.parser.SHTechParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "shtech2024",
+      "aliases": [
+        "main.java.parser.SHTechParser2024",
+        "SHTech2024",
+        "SHTechParser2024"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/SHTechParser2024.kt",
+      "className": "main.java.parser.SHTechParser2024",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "shu2024",
+      "aliases": [
+        "main.java.parser.SHUParser2024",
+        "SHU2024",
+        "SHUParser2024"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/SHUParser2024.kt",
+      "className": "main.java.parser.SHUParser2024",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "simc",
+      "aliases": [
+        "main.java.parser.SIMCParser",
+        "SIMC",
+        "SIMCParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/SIMCParser.kt",
+      "className": "main.java.parser.SIMCParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "sit",
+      "aliases": [
+        "parser.SITParser",
+        "SIT",
+        "SITParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/SITParser.kt",
+      "className": "parser.SITParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "sues",
+      "aliases": [
+        "main.java.parser.SUESParser",
+        "SUES",
+        "SUESParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/SUESParser.kt",
+      "className": "main.java.parser.SUESParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "sues2",
+      "aliases": [
+        "main.java.parser.SUESParser2",
+        "SUES2",
+        "SUESParser2"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "session",
+      "sourceFile": "src/main/java/parser/SUESParser2.kt",
+      "className": "main.java.parser.SUESParser2",
+      "requirement": "所选学期 print-data 响应，含 studentTableVms。"
+    },
+    {
+      "id": "supwisdom",
+      "aliases": [
+        "main.java.parser.supwisdom.SupwisdomParser",
+        "Supwisdom",
+        "SupwisdomParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/supwisdom/SupwisdomParser.kt",
+      "className": "main.java.parser.supwisdom.SupwisdomParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "sustech",
+      "aliases": [
+        "main.java.parser.SUSTechParser",
+        "SUSTech",
+        "SUSTechParser"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "credentials",
+      "sourceFile": "src/main/java/parser/SUSTechParser.kt",
+      "className": "main.java.parser.SUSTechParser",
+      "requirement": "queryxszykbzong 返回的课程 JSON 数组。"
+    },
+    {
+      "id": "swjtugraduate",
+      "aliases": [
+        "main.java.parser.SWJTUGraduateParser",
+        "SWJTUGraduate",
+        "SWJTUGraduateParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/SWJTUGraduateParser.kt",
+      "className": "main.java.parser.SWJTUGraduateParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "sysu",
+      "aliases": [
+        "parser.SYSUParser",
+        "SYSU",
+        "SYSUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/SYSUParser.kt",
+      "className": "parser.SYSUParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "sysu2024",
+      "aliases": [
+        "parser.SYSUParser2024",
+        "SYSU2024",
+        "SYSUParser2024"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/SYSUParser2024.kt",
+      "className": "parser.SYSUParser2024",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "thu",
+      "aliases": [
+        "parser.THUParser",
+        "THU",
+        "THUParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "htmlWithOnlineCalendar",
+      "sourceFile": "src/main/java/parser/THUParser.kt",
+      "className": "parser.THUParser",
+      "requirement": "含 setInitValue 的课表页；全周、单双周或后八周须确认学期教学周数。离线不含第三方调休安排。"
+    },
+    {
+      "id": "urp",
+      "aliases": [
+        "parser.UrpParser",
+        "Urp",
+        "urp_new",
+        "UrpParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/UrpParser.kt",
+      "className": "parser.UrpParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "urp_new_ajax",
+      "aliases": [
+        "NewUrp",
+        "NewUrpParser",
+        "parser.NewUrpParser"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "json",
+      "sourceFile": "src/main/java/parser/NewUrpParser.kt",
+      "className": "parser.NewUrpParser",
+      "requirement": "课表 JSON 含 dateList[0].selectCourseList。"
+    },
+    {
+      "id": "ustcgraduate",
+      "aliases": [
+        "main.java.parser.USTCGraduateParser",
+        "USTCGraduate",
+        "USTCGraduateParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/USTCGraduateParser.kt",
+      "className": "main.java.parser.USTCGraduateParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "wsit",
+      "aliases": [
+        "main.java.parser.WISTParser",
+        "WIST",
+        "WISTParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/WISTParser.kt",
+      "className": "main.java.parser.WISTParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "xauat",
+      "aliases": [
+        "main.java.parser.XAUATParser",
+        "XAUAT",
+        "XAUATParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "htmlWithOnlineCalendar",
+      "sourceFile": "src/main/java/parser/XAUATParser.java",
+      "className": "main.java.parser.XAUATParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "xjtugraduate",
+      "aliases": [
+        "main.java.parser.XJTUGraduateParser",
+        "XJTUGraduate",
+        "XJTUGraduateParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/XJTUGraduateParser.kt",
+      "className": "main.java.parser.XJTUGraduateParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "ygu",
+      "aliases": [
+        "main.java.parser.YGUParser",
+        "YGU",
+        "YGUParser"
+      ],
+      "available": true,
+      "inputKind": "json",
+      "originalInputKind": "session",
+      "sourceFile": "src/main/java/parser/YGUParser.kt",
+      "className": "main.java.parser.YGUParser",
+      "requirement": "jw/kpkglkcb/student 的课表 JSON，含 data[].weekList。"
+    },
+    {
+      "id": "yzzy",
+      "aliases": [
+        "main.java.parser.YZZYParser",
+        "YZZY",
+        "YZZYParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "YZZYParser.kt",
+      "className": "main.java.parser.YZZYParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "zf",
+      "aliases": [
+        "parser.ZhengFangParser",
+        "ZhengFang",
+        "ZhengFangParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/ZhengFangParser.kt",
+      "className": "parser.ZhengFangParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "zf_1",
+      "aliases": [],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/ZhengFangParser.kt",
+      "className": "parser.ZhengFangParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "zf_new",
+      "aliases": [
+        "NewZF",
+        "NewZFParser",
+        "parser.NewZFParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/NewZFParser.kt",
+      "className": "parser.NewZFParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "zjvtit",
+      "aliases": [
+        "main.java.parser.ZjvtitParser",
+        "Zjvtit",
+        "ZjvtitParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/ZjvtitParser.kt",
+      "className": "main.java.parser.ZjvtitParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    },
+    {
+      "id": "zptc",
+      "aliases": [
+        "main.java.parser.ZPTCParser",
+        "ZPTC",
+        "ZPTCParser"
+      ],
+      "available": true,
+      "inputKind": "html",
+      "originalInputKind": "html",
+      "sourceFile": "src/main/java/parser/ZPTCParser.kt",
+      "className": "main.java.parser.ZPTCParser",
+      "requirement": "所选学期完整课表页面的 HTML，含原始表格与内嵌课表数据。"
+    }
+  ]
+}

@@ -11,6 +11,23 @@ val signingIdentity = Properties().apply {
 }
 val unsignedRelease = providers.gradleProperty("weekglassUnsignedRelease").orNull == "true"
 
+val courseEngine = rootProject.file("../../../tooling/course_adapter_engine")
+val courseDist = layout.buildDirectory.dir("course_parser").get().asFile
+val buildCourseEngine by tasks.registering(Exec::class) {
+    inputs.files(fileTree(courseEngine) {
+        include("*.py", "*.zip", "src/*.kt", "LICENSE*", "licenses/**")
+    })
+    outputs.dir(courseDist)
+    workingDir(courseEngine)
+    commandLine(System.getenv("PYTHON") ?: "python", "build.py", "--dist", courseDist.absolutePath)
+}
+val engineJar = files(courseDist.resolve("engine.jar")).builtBy(buildCourseEngine)
+val parserLibraries = files(
+    courseDist.resolve("lib/jsoup-1.15.4.jar"),
+    courseDist.resolve("lib/kotlin-csv-jvm-1.10.0.jar"),
+).builtBy(buildCourseEngine)
+tasks.named("preBuild") { dependsOn(buildCourseEngine) }
+
 android {
     namespace = "com.viliana.weekglass.weekglass"
     compileSdk = flutter.compileSdkVersion
@@ -19,6 +36,7 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -46,6 +64,7 @@ android {
             }
         }
         release {
+            proguardFiles("course-adapter.pro")
             // Local builds still use the development key. The publishing build leaves this
             // APK unsigned so apksigner can apply the SDK-specific certificate lineage.
             signingConfig = if (unsignedRelease) null else signingConfigs.getByName("debug")
@@ -64,6 +83,12 @@ flutter {
 }
 
 dependencies {
+    implementation(engineJar)
+    implementation(parserLibraries)
+    implementation("com.google.code.gson:gson:2.11.0")
+    implementation("org.jetbrains.kotlin:kotlin-stdlib:2.2.21")
+    implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core-jvm:1.8.0")
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.5")
     // Already present in Flutter's dependency graph; pin the API we call directly.
     implementation("androidx.core:core:1.13.1")
     testImplementation("junit:junit:4.13.2")

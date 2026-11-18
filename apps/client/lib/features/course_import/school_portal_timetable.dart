@@ -1,18 +1,35 @@
 import 'dart:convert';
 
 import 'whu_timetable.dart';
+import 'school_portal_catalog.dart';
+import 'wakeup_catalog.dart';
 
 /// Exact-origin reads are independent of the school's SSO navigation.
 class SchoolPortalSite {
-  SchoolPortalSite._(this.name, this.entry, this.campusDomain);
+  SchoolPortalSite._(
+    this.name,
+    this.entry,
+    this.campusDomain,
+    this.parsers,
+    this.readOrigins,
+  );
   final String name;
   final Uri entry;
   final String campusDomain;
+  final List<String> parsers;
+  final Set<String> readOrigins;
 
   factory SchoolPortalSite.fromEntry(String raw, {String? name}) {
     final uri = Uri.tryParse(raw.trim());
     final host = uri?.host.toLowerCase() ?? '';
     final labels = host.split('.');
+    final trustedCampusDomain =
+        wakeupCampusDomains.containsKey(host) &&
+            schoolPortalCatalog.any((s) => s.name == name && s.entry == raw)
+        ? wakeupCampusDomains[host]
+        : null;
+    final parsers = wakeupParsersFor(name ?? '', host);
+    final readOrigins = wakeupReadOrigins[name] ?? const <String>[];
     if (uri == null ||
         uri.scheme != 'https' ||
         uri.userInfo.isNotEmpty ||
@@ -20,7 +37,10 @@ class SchoolPortalSite {
         uri.query.isNotEmpty ||
         uri.hasFragment ||
         labels.length < 3 ||
-        !host.endsWith('.edu.cn') ||
+        (!host.endsWith('.edu.cn') &&
+            !(trustedCampusDomain != null &&
+                (host == trustedCampusDomain ||
+                    host.endsWith('.$trustedCampusDomain')))) ||
         labels.any(
           (s) => !RegExp(r'^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$').hasMatch(s),
         )) {
@@ -31,7 +51,9 @@ class SchoolPortalSite {
     return SchoolPortalSite._(
       name ?? host,
       uri,
-      labels.sublist(labels.length - 3).join('.'),
+      trustedCampusDomain ?? labels.sublist(labels.length - 3).join('.'),
+      List.unmodifiable(parsers),
+      Set.unmodifiable({uri.origin, ...readOrigins}),
     );
   }
 
@@ -41,13 +63,24 @@ class SchoolPortalSite {
       uri.userInfo.isEmpty &&
       !uri.authority.contains('@') &&
       (uri.host == campusDomain || uri.host.endsWith('.$campusDomain'));
-  bool canRead(Uri? uri) =>
+  bool mayReadLocation(Uri? uri) =>
       permits(uri) &&
-      uri!.origin == entry.origin &&
+      !RegExp(
+        r'^(?:cas|newcas|sso|newsso|auth(?:entication|server)?|ids|identity|iam|idp|uis|tpass|passport|mfa)(?:[-.0-9]|$)',
+        caseSensitive: false,
+      ).hasMatch(uri!.host) &&
+      !RegExp(
+        r'(?:^|[?&#])(?:ticket|(?:access|id)_token|SAMLResponse|SAMLRequest|code)=',
+        caseSensitive: false,
+      ).hasMatch('${uri.query}&${uri.fragment}') &&
       !RegExp(
         r'(?:^|/)(?:login|sso|cas|authserver|captcha|signin)(?:[./_;-]|$)',
         caseSensitive: false,
-      ).hasMatch(uri.path);
+      ).hasMatch('${uri.path}/${uri.fragment}');
+  bool canRead(Uri? uri) =>
+      mayReadLocation(uri) && readOrigins.contains(uri!.origin);
+  bool mayConfirmOrigin(Uri? uri) =>
+      mayReadLocation(uri) && !readOrigins.contains(uri!.origin);
 }
 
 class SchoolPortalTimetable {
