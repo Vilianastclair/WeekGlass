@@ -1308,11 +1308,72 @@
               "default": 0
             },
             "description": "Optional bounded long poll; no busy empty polling."
+          },
+          {
+            "name": "sleep_revision",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "pattern": "^(unknown|none|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+            },
+            "description": "Opt in to sleep schedule updates. Send unknown before the first read, none for a known unset cloud schedule, or the last observed revision. Only a changed head is returned and can wake a long poll without advancing the calendar cursor."
           }
         ],
         "tags": [
           "Synchronization"
         ]
+      }
+    },
+    "/v1/sync/sleep-schedule": {
+      "put": {
+        "summary": "Conditionally write the account sleep schedule",
+        "operationId": "putSleepSchedule",
+        "tags": [
+          "Synchronization"
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SleepScheduleWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Updated head or the same still-current write replayed safely.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SleepScheduleHead"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Different base revision. sleep_schedule in the Problem response holds the current cloud head or null. No change was made.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          },
+          "default": {
+            "description": "Authorization, entitlement, scope, or validation denied the write.",
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Problem"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/v1/sync/batches": {
@@ -2772,6 +2833,10 @@
               "$ref": "#/components/schemas/Conflict"
             },
             "maxItems": 100
+          },
+          "sleep_schedule": {
+            "$ref": "#/components/schemas/NullableSleepScheduleHead",
+            "description": "Current head in a sleep_schedule_conflict response."
           }
         },
         "required": [
@@ -2884,7 +2949,13 @@
                 "delta_pull",
                 "snapshot",
                 "export",
-                "subscription"
+                "account_management",
+                "recovery_key",
+                "registration",
+                "subscription",
+                "billing_checkout",
+                "billing_auto_renew",
+                "sleep_schedule"
               ]
             }
           },
@@ -3797,6 +3868,10 @@
             "format": "date-time",
             "description": "RFC3339 UTC timestamp ending in Z. Client timestamps are descriptive, never conflict authority.",
             "pattern": "Z$"
+          },
+          "sleep_schedule": {
+            "$ref": "#/components/schemas/NullableSleepScheduleHead",
+            "description": "Present only for a changed requested sleep_revision. Null means the cloud has no explicit schedule; absent means unchanged or unsupported."
           }
         },
         "required": [
@@ -3806,6 +3881,108 @@
           "server_time"
         ],
         "description": "Strictly after request cursor. next_cursor acknowledges only included committed batches, or unchanged input if empty. A cursor from another account/server/epoch is never accepted."
+      },
+      "SleepSchedule": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Local wall-clock minutes, with no time zone conversion. Sleep and wake cannot match. If enabled, the visible interval from wake to sleep is at least 15 minutes.",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "sleep_minute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1439
+          },
+          "wake_minute": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 1439
+          }
+        },
+        "required": [
+          "enabled",
+          "sleep_minute",
+          "wake_minute"
+        ],
+        "examples": [
+          {
+            "enabled": true,
+            "sleep_minute": 1380,
+            "wake_minute": 420
+          }
+        ]
+      },
+      "SleepScheduleHead": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "revision": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Opaque server-generated revision."
+          },
+          "write_id": {
+            "type": "string",
+            "format": "uuid",
+            "description": "ID of the write which produced this head."
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/SleepSchedule"
+          }
+        },
+        "required": [
+          "revision",
+          "write_id",
+          "schedule"
+        ]
+      },
+      "NullableSleepScheduleHead": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/SleepScheduleHead"
+          },
+          {
+            "type": "null"
+          }
+        ]
+      },
+      "SleepScheduleWrite": {
+        "type": "object",
+        "additionalProperties": false,
+        "description": "Requires a matching base revision. Freeze the write ID and body before sending; after a lost response, read the current head before retrying the same write.",
+        "properties": {
+          "dataset_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "sync_epoch": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "base_revision": {
+            "type": [
+              "string",
+              "null"
+            ],
+            "format": "uuid"
+          },
+          "write_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "schedule": {
+            "$ref": "#/components/schemas/SleepSchedule"
+          }
+        },
+        "required": [
+          "dataset_id",
+          "sync_epoch",
+          "base_revision",
+          "write_id",
+          "schedule"
+        ]
       },
       "SnapshotPage": {
         "type": "object",

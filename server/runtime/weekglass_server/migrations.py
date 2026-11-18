@@ -312,6 +312,16 @@ def migrate_operator_order_checks(conn):
     conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
 
 
+def migrate_sleep_schedule(conn):
+    name = '20261118_sleep_schedule_v1'
+    if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():
+        return
+    conn.execute('''ALTER TABLE accounts ADD COLUMN sleep_schedule jsonb,
+      ADD COLUMN sleep_schedule_epoch uuid,
+      ADD CHECK ((sleep_schedule IS NULL) = (sleep_schedule_epoch IS NULL))''')
+    conn.execute('INSERT INTO schema_migrations(migration_id) VALUES (%s)', (name,))
+
+
 def migrate_billing_plan_periods(conn):
     name = '20261114_billing_plan_periods_v1'
     if conn.execute('SELECT 1 FROM schema_migrations WHERE migration_id=%s', (name,)).fetchone():

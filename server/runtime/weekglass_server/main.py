@@ -103,7 +103,7 @@ async def http_error(request, exc):
     code = data.get('code', 'request_rejected')
     response = {'type': 'about:blank', 'title': code.replace('_', ' '), 'status': exc.status_code,
                 'code': code, 'request_id': str(uuid4())}
-    for key in ('conflicts', 'retry_after_seconds'):
+    for key in ('conflicts', 'sleep_schedule', 'retry_after_seconds'):
         if key in data:
             response[key] = data[key]
     return JSONResponse(response, status_code=exc.status_code, media_type='application/problem+json', headers=exc.headers)

@@ -213,3 +213,87 @@ def test_quota_rejection_is_atomic(client, monkeypatch):
     payload = batch(client, [event()])
     assert client.post('/v1/sync/batches', json=payload).status_code == 507
     assert client.get('/v1/sync/batches/' + payload['batch_id']).status_code == 404
+
+
+def sleep_write(client, revision=None, *, enabled=True, sleep=1380, wake=420):
+    return {'dataset_id': str(client.account['dataset_id']), 'sync_epoch': str(client.account['sync_epoch']),
+            'base_revision': revision, 'write_id': str(uuid4()),
+            'schedule': {'enabled': enabled, 'sleep_minute': sleep, 'wake_minute': wake}}
+
+
+def test_sleep_schedule_wakes_existing_poll_without_a_calendar_change(client, monkeypatch):
+    endpoint = '/v1/sync/changes'
+    cursor = client.post('/v1/sync/snapshots').json()['boundary_cursor']
+    info = checked(client.get('/v1/server-info', headers={'host': '127.0.0.1:18081'}), 'ServerInfo')
+    assert 'sleep_schedule' in info['capabilities']
+    first = checked(client.get(endpoint, params={'cursor': cursor, 'sleep_revision': 'unknown'}), 'ChangePage')
+    assert 'sleep_schedule' in first and first['sleep_schedule'] is None
+    reading = Event()
+    account_for = sync.account_for
+
+    def notice(conn, identity, lock=False):
+        result = account_for(conn, identity, lock=lock)
+        if not lock:
+            reading.set()
+        return result
+
+    monkeypatch.setattr(sync, 'account_for', notice)
+    with ThreadPoolExecutor() as pool:
+        reading_future = pool.submit(client.get, endpoint, params={
+            'cursor': cursor, 'sleep_revision': 'none', 'wait_seconds': 8})
+        assert reading.wait(timeout=4)
+        payload = sleep_write(client, enabled=False, sleep=60, wake=420)
+        written = checked(client.put('/v1/sync/sleep-schedule', json=payload), 'SleepScheduleHead')
+        page = checked(reading_future.result(timeout=5), 'ChangePage')
+    assert written['schedule'] == payload['schedule']
+    assert page['sleep_schedule'] == written
+    assert page['changes'] == [] and page['next_cursor'] == cursor
+    unchanged = checked(client.get(endpoint, params={'cursor': cursor, 'sleep_revision': written['revision']}), 'ChangePage')
+    legacy = checked(client.get(endpoint, params={'cursor': cursor}), 'ChangePage')
+    assert 'sleep_schedule' not in unchanged and 'sleep_schedule' not in legacy
+    receipt = checked(client.post('/v1/sync/batches', json=batch(client, [event()])), 'Receipt')
+    both = checked(client.get(endpoint, params={'cursor': cursor, 'sleep_revision': 'unknown'}), 'ChangePage')
+    assert both['next_cursor'] == receipt['commit_cursor']
+    assert len(both['changes'][0]['records']) == 1 and both['sleep_schedule'] == written
+
+
+def test_sleep_schedule_compare_and_set_preserves_newer_values(client):
+    endpoint = '/v1/sync/sleep-schedule'
+    first = sleep_write(client)
+    second = sleep_write(client, sleep=60, wake=540)
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        results = list(pool.map(lambda payload: client.put(endpoint, json=payload), [first, second]))
+    assert sorted(result.status_code for result in results) == [200, 409]
+    index = next(i for i, result in enumerate(results) if result.status_code == 200)
+    committed = checked(results[index], 'SleepScheduleHead')
+    assert checked(results[1 - index], 'Problem', 409)['sleep_schedule'] == committed
+    winner = [first, second][index]
+    assert client.put(endpoint, json=winner).json() == committed
+    reused = {**winner, 'schedule': {**winner['schedule'], 'wake_minute': 600}}
+    assert checked(client.put(endpoint, json=reused), 'Problem', 409)['code'] == 'idempotency_key_reused'
+    new = checked(client.put(endpoint, json=sleep_write(client, committed['revision'], wake=660)), 'SleepScheduleHead')
+    stale = checked(client.put(endpoint, json=winner), 'Problem', 409)
+    assert stale['code'] == 'sleep_schedule_conflict' and stale['sleep_schedule'] == new
+
+
+def test_sleep_schedule_scope_entitlement_and_epoch_are_enforced(client, monkeypatch):
+    endpoint = '/v1/sync/sleep-schedule'
+    payload = sleep_write(client, sleep=15.0, wake=1435)
+    old = client.post('/v1/sync/snapshots').json()['boundary_cursor']
+    assert client.put(endpoint, json={**payload, 'dataset_id': str(uuid4())}).status_code == 410
+    for sleep, wake in ((1439, 1439), (5, 1435), (1440, 0), (-1, 420)):
+        assert client.put(endpoint, json=sleep_write(client, sleep=sleep, wake=wake)).status_code == 422
+    stored = checked(client.put(endpoint, json=payload), 'SleepScheduleHead')
+    assert type(stored['schedule']['sleep_minute']) is int
+    monkeypatch.setattr(settings, 'mode', 'hosted')
+    denied = client.get('/v1/sync/changes', params={'cursor': old, 'sleep_revision': 'unknown'})
+    assert checked(denied, 'Problem', 403)['code'] == 'subscription_required'
+    denied = client.put(endpoint, json=sleep_write(client, stored['revision'], wake=360))
+    assert checked(denied, 'Problem', 403)['code'] == 'subscription_required'
+    monkeypatch.setattr(settings, 'mode', 'self_hosted')
+    with db.connect() as conn:
+        conn.execute('UPDATE accounts SET sync_epoch=%s WHERE account_id=%s', (uuid4(), client.identity['account_id']))
+    assert client.put(endpoint, json=payload).status_code == 410
+    new_cursor = client.post('/v1/sync/snapshots').json()['boundary_cursor']
+    page = checked(client.get('/v1/sync/changes', params={'cursor': new_cursor, 'sleep_revision': 'unknown'}), 'ChangePage')
+    assert 'sleep_schedule' in page and page['sleep_schedule'] is None

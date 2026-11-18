@@ -11,6 +11,14 @@ python -m weekglass_server.admin create-account example-user
 
 For tests, install `requirements-test.txt` and run `python -m pytest tests` from this directory. Tests that exercise the database require a dedicated disposable PostgreSQL database whose name ends in `_test`. Never run the suite against a live database.
 
+## Sync the sleep schedule
+
+Client 0.21.0 and newer can sync whether the sleep schedule is enabled and the two clock times across devices on the same account. This uses the `sleep_schedule` capability in `GET /v1/server-info` and follows the same device authorization and sync entitlement as calendar events. The clock times are local wall-clock minutes, not UTC.
+
+Clients that discover this capability can pass `sleep_revision` to `GET /v1/sync/changes` and receive the changed schedule without advancing the calendar cursor. A `PUT /v1/sync/sleep-schedule` write names the dataset, epoch, and last known schedule revision; a competing write returns the current cloud value for conflict resolution. See the [OpenAPI contract](../contracts/sync-v1.openapi.json) for request and response shapes. Older clients keep the previous change-feed response, and clients connected to older servers keep the schedule on the device.
+
+The API applies migration `20261118_sleep_schedule_v1` on startup. It adds two nullable account columns and does not change existing calendar data. Keep the columns when rolling the API back; the previous API ignores them.
+
 ## Build the hosted API
 
 The hosted image adds the locked Waffo SDK to the same Python API. The standard self-hosted build does not need Node, Waffo, or SMTP. The hosted build needs Docker BuildKit on Linux amd64 or a builder targeting that platform. From the repository root, prepare the locked Python wheels and Node archive, then build:

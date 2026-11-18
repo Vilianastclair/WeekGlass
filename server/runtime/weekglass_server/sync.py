@@ -18,6 +18,7 @@ from .settings import settings, request_origin
 from .protocol import LIMITS, body, compact, cursor, decode_token, encode_token, now, parse_cursor, problem, stamp
 
 router = APIRouter(prefix='/v1')
+SLEEP_REVISION_PATTERN = r'^(unknown|none|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$'
 
 
 def account_for(conn, identity, lock=False):
@@ -45,7 +46,7 @@ def server_info(request: Request):
             'server_time': stamp(), 'api_base_url': origin + '/v1',
             'authorization_endpoint': origin + '/v1/auth/authorize',
             'token_endpoint': origin + '/v1/auth/token',
-            'capabilities': ['atomic_batches', 'delta_pull', 'snapshot', 'export', 'account_management', 'recovery_key'] +
+            'capabilities': ['atomic_batches', 'delta_pull', 'snapshot', 'export', 'account_management', 'recovery_key', 'sleep_schedule'] +
                             (['registration'] if settings.registration_enabled else []) +
                             flags, 'limits': LIMITS}
 
@@ -229,7 +230,8 @@ def read_snapshot(snapshot_id: UUID, page_token: str = Query(min_length=16, max_
 
 @router.get('/sync/changes')
 async def changes(request: Request, cursor: str = Query(min_length=16, max_length=1024), limit_batches: int = Query(1, ge=1, le=10),
-            wait_seconds: int = Query(0, ge=0, le=25), identity=Depends(get_identity)):
+            wait_seconds: int = Query(0, ge=0, le=25), sleep_revision: str | None = Query(None, pattern=SLEEP_REVISION_PATTERN),
+            identity=Depends(get_identity)):
     deadline = time.monotonic() + wait_seconds
     def read_page():
         with connect() as conn:
@@ -242,16 +244,57 @@ async def changes(request: Request, cursor: str = Query(min_length=16, max_lengt
             rows = conn.execute('SELECT seq,batch FROM changes WHERE account_id=%s AND seq>%s ORDER BY seq LIMIT 1',
                                 (identity['account_id'], seq)).fetchall()
             more = bool(rows and rows[0]['seq'] < account['commit_seq'])
-        return rows, more
+            sleep = account_sleep_schedule(account) if sleep_revision is not None else None
+            send_sleep = sleep_revision is not None and sleep_revision != (sleep['revision'] if sleep else 'none')
+        return rows, more, send_sleep, sleep
     while True:
         if await request.is_disconnected():
             return Response(status_code=204)
-        rows, more = await run_in_threadpool(read_page)
-        if rows or time.monotonic() >= deadline:
+        rows, more, send_sleep, sleep = await run_in_threadpool(read_page)
+        if rows or send_sleep or time.monotonic() >= deadline:
             included = [r['batch'] for r in rows]
-            return {'changes': included, 'next_cursor': included[-1]['cursor'] if included else cursor,
+            page = {'changes': included, 'next_cursor': included[-1]['cursor'] if included else cursor,
                     'has_more': more, 'server_time': stamp()}
+            if send_sleep:
+                page['sleep_schedule'] = sleep
+            return page
         await asyncio.sleep(min(0.5, max(0, deadline - time.monotonic())))
+
+
+def account_sleep_schedule(account):
+    # After a dataset reset the old value cannot be mistaken for its new baseline.
+    return account['sleep_schedule'] if account['sleep_schedule_epoch'] == account['sync_epoch'] else None
+
+
+@router.put('/sync/sleep-schedule')
+async def write_sleep_schedule(request: Request, identity=Depends(get_identity)):
+    data = await body(request, 'SleepScheduleWrite')
+    incoming = data['schedule']
+    schedule = {'enabled': incoming['enabled'], 'sleep_minute': int(incoming['sleep_minute']),
+                'wake_minute': int(incoming['wake_minute'])}
+    interval = (schedule['sleep_minute'] - schedule['wake_minute']) % 1440
+    if interval == 0 or (schedule['enabled'] and interval < 15):
+        problem(422, 'invalid_sleep_schedule')
+
+    def write():
+        with connect() as conn:
+            account = account_for(conn, identity, lock=True)
+            if data['dataset_id'] != str(account['dataset_id']) or data['sync_epoch'] != str(account['sync_epoch']):
+                problem(410, 'epoch_mismatch')
+            require_sync(conn, account)
+            current = account_sleep_schedule(account)
+            if current and current['write_id'] == data['write_id']:
+                if current['schedule'] != schedule:
+                    problem(409, 'idempotency_key_reused')
+                return current
+            if (current['revision'] if current else None) != data['base_revision']:
+                problem(409, 'sleep_schedule_conflict', sleep_schedule=current)
+            updated = {'revision': str(uuid4()), 'write_id': data['write_id'], 'schedule': schedule}
+            conn.execute('UPDATE accounts SET sleep_schedule=%s, sleep_schedule_epoch=%s WHERE account_id=%s',
+                         (Jsonb(updated), account['sync_epoch'], account['account_id']))
+            return updated
+
+    return await run_in_threadpool(write)
 
 
 @router.post('/sync/ack', status_code=204)
