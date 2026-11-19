@@ -9,9 +9,10 @@
 #include <optional>
 #include <string>
 
+class VortexTransition;
 class DesktopIntegration {
  public:
-  DesktopIntegration(HWND window, flutter::BinaryMessenger* messenger);
+  DesktopIntegration(HWND window, VortexTransition& vortex, flutter::BinaryMessenger* messenger);
   ~DesktopIntegration();
   void OpenWindow();
   std::optional<LRESULT> Handle(UINT message, WPARAM wparam, LPARAM lparam);
@@ -22,6 +23,7 @@ class DesktopIntegration {
   bool Notify(const std::string& title, const std::string& body,
               const std::string& event_id);
   HWND window_;
+  VortexTransition& vortex_;
   HICON icon_ = nullptr;
   NOTIFYICONDATAW tray_{};
   bool added_ = false;

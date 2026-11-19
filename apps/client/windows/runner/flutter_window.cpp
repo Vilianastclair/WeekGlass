@@ -26,14 +26,16 @@ bool FlutterWindow::OnCreate() {
     return false;
   }
   RegisterPlugins(flutter_controller_->engine());
-  desktop_ = std::make_unique<DesktopIntegration>(GetHandle(),
+  vortex_ = std::make_unique<VortexTransition>(GetHandle(),
+    flutter_controller_->engine()->messenger());
+  desktop_ = std::make_unique<DesktopIntegration>(GetHandle(), *vortex_,
     flutter_controller_->engine()->messenger());
   timetable_ocr_ = std::make_unique<TimetableOcr>(GetHandle(),
     flutter_controller_->engine()->messenger());
   SetChildContent(flutter_controller_->view()->GetNativeWindow());
 
   flutter_controller_->engine()->SetNextFrameCallback([&]() {
-    this->Show();
+    if (vortex_) vortex_->FirstFrame();
   });
 
   // Flutter can complete the first frame before the "show window" callback is
@@ -47,6 +49,7 @@ bool FlutterWindow::OnCreate() {
 void FlutterWindow::OnDestroy() {
   timetable_ocr_ = nullptr;
   desktop_ = nullptr;
+  vortex_ = nullptr;
   if (flutter_controller_) {
     flutter_controller_ = nullptr;
   }
@@ -68,6 +71,10 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
   }
   if (desktop_) {
     auto result = desktop_->Handle(message, wparam, lparam);
+    if (result) return *result;
+  }
+  if (vortex_) {
+    auto result = vortex_->Handle(message, wparam, lparam);
     if (result) return *result;
   }
   if (timetable_ocr_) {

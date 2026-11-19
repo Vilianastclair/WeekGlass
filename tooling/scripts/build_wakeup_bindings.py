@@ -9,6 +9,7 @@ import re
 from urllib.parse import parse_qs, urlsplit, urlunsplit
 from urllib.request import urlopen
 from build_school_catalog import ROOT, UPSTREAM, CROSSCHECK, OFFICIAL, build, literal
+from priority_school_ledger import ADMISSIONS, aliases, render_ledger
 from wakeup_school_sources import SPECIAL, ENTRIES, EXTRA_READ, CAMPUS_DOMAINS
 
 LEGACY = ("https://raw.githubusercontent.com/dIT8Zv/WakeupSchedule_BUPT/88d5b2ff93b946b40e8ade6851d4440188443a7f/"
@@ -100,6 +101,14 @@ def generate(rows,checks,legacy):
     sites={n:urlunsplit(urlsplit(u)) for n,u in sites.items()}
     for n in OFFICIAL:
         if n not in bindings and n!='上海大学':add(n,'NewZFParser')
+    # Explicit admissions carry both the selected portal and its intended reader.
+    for name, item in ADMISSIONS.items():
+        if not route(item['entry']):
+            raise ValueError(f'invalid reviewed entry for {name}')
+        sites[name] = item['entry']
+        add(name,item['parser'])
+        bindings[name].remove(item['parser'])
+        bindings[name].insert(0,item['parser'])
     # Every previously bundled shortcut retains at least its declared reader.
     for n in sites:
         if n not in bindings:raise ValueError(f'missing parser for {n}')
@@ -116,6 +125,7 @@ def emit(sites,bindings):
         schools+=f'  (name: {literal(name)}, entry: {literal(url)}),\n'
     (DEST/'school_portal_catalog.dart').write_text(schools+'];\n',encoding='utf8')
     code=HEADER+"import 'school_portal_catalog.dart';\n\n"+dmap('wakeupSchoolBindings',bindings,strings)+'\n'
+    code+=dmap('prioritySchoolAliases',aliases(),strings)+'\n'
     code+=dmap('wakeupReadOrigins',EXTRA_READ,strings)+'\n'+dmap('wakeupCampusDomains',CAMPUS_DOMAINS,literal)
     code+="""
 
@@ -138,6 +148,7 @@ List<String> wakeupParsersFor(String schoolName, String host) =>
     const [];
 """
     (DEST/'wakeup_catalog.dart').write_text(code,encoding='utf8')
+    (ROOT/'docs/product/priority-school-coverage.md').write_text(render_ledger(sites,bindings),encoding='utf8')
     print(f'{len(bindings)} named bindings; {len(sites)} curated HTTPS entries')
 def main():
     p=argparse.ArgumentParser(); p.add_argument('--inputs',type=__import__('pathlib').Path); a=p.parse_args()

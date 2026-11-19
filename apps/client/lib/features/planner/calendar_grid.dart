@@ -726,7 +726,10 @@ class CalendarGridState extends State<CalendarGrid>
     );
     final lastTop = math.max(firstTop, gridHeight - labelHeight - _bottomInset);
     final compressed = widget.touchMode && _timeZoom < MobileTimeZoom.normal;
-    final spacing = math.max(22.0, labelHeight + 4);
+    final spacing = compressed
+        ? math.max(22.0, labelHeight + 4)
+        : labelHeight + 2;
+    final canShowEnd = lastTop - firstTop >= labelHeight;
     final labelInterval = compressed
         ? const [1, 2, 3, 4, 6, 8, 12, 24].firstWhere(
                 (hours) => _hourHeight * hours >= spacing,
@@ -760,15 +763,17 @@ class CalendarGridState extends State<CalendarGrid>
                             labelHeight / 2)
                         .clamp(firstTop, lastTop);
                 if (minute != _startMinute && minute != _endMinute) {
-                  final skip = compressed
-                      ? minute % labelInterval != 0 ||
-                            top - previousTop < spacing ||
-                            lastTop - top < spacing
+                  final skipForDensity = compressed
+                      ? minute % labelInterval != 0
                       : _hourHeight < 22 && (minute ~/ 60).isOdd;
-                  if (skip) return const SizedBox.shrink();
-                } else if (compressed &&
-                    minute == _endMinute &&
-                    top - previousTop < labelHeight) {
+                  // Clamping the endpoints can place a fractional start/end
+                  // next to a regular hour even at normal zoom.
+                  if (skipForDensity ||
+                      top - previousTop < spacing ||
+                      (canShowEnd && lastTop - top < spacing)) {
+                    return const SizedBox.shrink();
+                  }
+                } else if (minute == _endMinute && !canShowEnd) {
                   return const SizedBox.shrink();
                 }
                 previousTop = top;

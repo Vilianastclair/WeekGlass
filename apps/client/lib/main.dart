@@ -11,6 +11,8 @@ import 'package:weekglass_design_system/weekglass_design_system.dart';
 
 import 'app/app_services.dart';
 import 'app/event_reminders.dart';
+import 'app/windows_vortex.dart';
+import 'app/windows_window_motion.dart';
 import 'features/planner/planner_controller.dart';
 import 'features/planner/planner_screen.dart';
 import 'features/mobile/mobile_planner_screen.dart';
@@ -43,6 +45,8 @@ Future<void> main(List<String> args) async {
 
   if (Platform.isWindows) {
     await windowManager.ensureInitialized();
+    WindowsVortex.instance.attach();
+    await WindowsWindowMotion.instance.initialize();
     const options = WindowOptions(
       size: Size(1280, 760),
       minimumSize: Size(800, 560),
@@ -52,10 +56,7 @@ Future<void> main(List<String> args) async {
       windowButtonVisibility: false,
       backgroundColor: Color(0xFF0A0F20),
     );
-    await windowManager.waitUntilReadyToShow(options, () async {
-      await windowManager.show();
-      await windowManager.focus();
-    });
+    await windowManager.waitUntilReadyToShow(options);
   }
 
   final services = await AppServices.create();
@@ -103,13 +104,20 @@ class WeekGlassApp extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        final planner = Platform.isAndroid
+        Widget planner = Platform.isAndroid
             ? MobilePlannerScreen(controller: controller)
             : PlannerScreen(controller: controller);
+        if (Platform.isWindows) {
+          planner = RepaintBoundary(
+            key: WindowsVortex.instance.frameKey,
+            child: planner,
+          );
+        }
         final service = updater;
         return MaterialApp(
           title: "Viliana's WeekGlass",
           debugShowCheckedModeBanner: false,
+          navigatorObservers: [if (Platform.isWindows) WindowsVortex.instance],
           locale: const Locale('zh', 'CN'),
           supportedLocales: const [Locale('zh', 'CN')],
           localizationsDelegates: GlobalMaterialLocalizations.delegates,

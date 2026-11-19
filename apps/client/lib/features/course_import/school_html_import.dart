@@ -10,6 +10,7 @@ import 'package:html/dom.dart';
 import 'package:html/parser.dart' as html;
 
 import 'school_html_format.dart';
+import 'westlake_sis_timetable.dart';
 import 'whu_timetable.dart';
 
 /// The file is parsed as data. Scripts, frames and linked resources are never
@@ -36,6 +37,8 @@ class SchoolHtmlImport {
     }
     final result = _ImportedRows();
     switch (input.format) {
+      case SchoolHtmlFormat.westlake:
+        return WestlakeSisTimetable.parse(document);
       case SchoolHtmlFormat.peking:
         _readPeking(document, result);
       case SchoolHtmlFormat.hust:

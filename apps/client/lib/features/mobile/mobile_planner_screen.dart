@@ -4,9 +4,9 @@ import 'package:intl/intl.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 
 import '../cloud/cloud_service_button.dart';
+import 'mobile_action_dock.dart';
 import 'mobile_calendar_pager.dart';
 import 'mobile_glass_backdrop.dart';
-import 'mobile_press_feedback.dart';
 import '../planner/planner_actions.dart';
 import '../planner/planner_controller.dart';
 import '../planner/planner_settings_dialog.dart';
@@ -172,14 +172,14 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
           body: MobileGlassBackdrop(
             child: SafeArea(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
+                padding: const EdgeInsets.fromLTRB(8, 2, 8, 3),
                 child: Column(
                   children: [
                     AbsorbPointer(
                       absorbing: _editing,
                       child: _header(context, p),
                     ),
-                    const SizedBox(height: 8),
+                    const SizedBox(height: 3),
                     Expanded(
                       child: MobileCalendarPager(
                         key: _pager,
@@ -191,8 +191,8 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
                         },
                       ),
                     ),
-                    const SizedBox(height: 8),
-                    _dock(context, p),
+                    const SizedBox(height: 4),
+                    AbsorbPointer(absorbing: _editing, child: _dock(context)),
                   ],
                 ),
               ),
@@ -203,180 +203,74 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
     },
   );
 
-  Widget _dock(BuildContext context, WeekGlassPalette palette) {
+  Widget _dock(BuildContext context) {
     final actions = _actions;
     final showCloud =
         controller.cloud != null &&
         controller.sidebarActions.contains(SidebarAction.cloud);
-    return Container(
+    return MobileActionDock(
       key: const ValueKey('mobile-action-dock'),
-      decoration: palette.glassDecoration(elevated: true),
-      padding: const EdgeInsets.all(4),
-      child: LayoutBuilder(
-        builder: (context, constraints) {
-          // Keep a direct Cloud shortcut beside Settings. The sixth dock slot
-          // (More) needs enough width to keep comfortable touch targets.
-          final primaryCount =
-              showCloud && actions.length > 3 && constraints.maxWidth < 6 * 56
-              ? 2
-              : 3;
-          final overflow = actions.skip(primaryCount).toList();
-          return Row(
-            children: [
-              for (final action in actions.take(primaryCount))
-                Expanded(
-                  child: _DockButton(
-                    key: ValueKey('mobile-action-${action.name}'),
-                    icon: action.icon,
-                    label: _shortLabel(action),
-                    tooltip: action == SidebarAction.undo
-                        ? controller.undoLabel
-                        : action.label,
-                    primary: action == SidebarAction.create,
-                    onPressed:
-                        action == SidebarAction.undo && !controller.canUndo
-                        ? null
-                        : () => _run(context, action),
-                  ),
-                ),
-              if (overflow.isNotEmpty)
-                Expanded(
-                  child: _DockButton(
-                    key: const ValueKey('mobile-action-more'),
-                    icon: Icons.more_horiz_rounded,
-                    label: '更多',
-                    tooltip: '更多快捷操作',
-                    onPressed: () => _more(context, overflow),
-                  ),
-                ),
-              if (showCloud)
-                Expanded(
-                  child: CloudServiceButton.dock(
-                    key: const ValueKey('mobile-action-cloud'),
-                    onPressed: () => _run(context, SidebarAction.cloud),
-                  ),
-                ),
-              Expanded(
-                child: _DockButton(
-                  key: const ValueKey('mobile-action-settings'),
-                  icon: Icons.tune_rounded,
-                  label: '设置',
-                  tooltip: '设置',
-                  onPressed: () => openPlannerSettings(context, controller),
-                ),
-              ),
-            ],
-          );
-        },
-      ),
-    );
-  }
-
-  Widget _header(BuildContext context, WeekGlassPalette p) {
-    final days = controller.visibleDays;
-    final date = DateFormat('M月d日', 'zh_CN');
-    final label = days.length == 1
-        ? date.format(days.first)
-        : '${date.format(days.first)} – ${date.format(days.last)}';
-    return Container(
-      key: const ValueKey('mobile-date-header'),
-      padding: const EdgeInsets.fromLTRB(4, 2, 4, 8),
-      decoration: p.glassDecoration(),
-      child: Column(
-        children: [
-          Row(
-            children: [
-              IconButton(
-                key: const ValueKey('mobile-previous-period'),
-                tooltip: '上一段日期',
-                onPressed: () => _navigate(-1),
-                icon: const Icon(Icons.chevron_left_rounded),
-              ),
-              Expanded(
-                child: InkWell(
-                  key: const ValueKey('mobile-choose-date'),
-                  borderRadius: WeekGlassGeometry.corners,
-                  onTap: () => _date(context),
-                  child: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
-                    child: Column(
-                      children: [
-                        Text(
-                          label,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.w600,
-                            color: p.text,
-                          ),
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          controller.teachingWeekLabel ??
-                              '${controller.anchorDate.year} 年 · ${DateFormat('EEEE', 'zh_CN').format(controller.anchorDate)}',
-                          key: const ValueKey('mobile-teaching-week'),
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(fontSize: 10, color: p.muted),
-                        ),
-                      ],
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+        child: LayoutBuilder(
+          builder: (context, box) {
+            // The six-slot row needs wider targets. Cloud and Settings always
+            // retain the tail of the dock, even when More is needed.
+            final direct = showCloud && actions.length > 3 && box.maxWidth < 336
+                ? 2
+                : 3;
+            final overflow = actions.skip(direct).toList();
+            return IntrinsicHeight(
+              child: Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  for (final action in actions.take(direct))
+                    Expanded(
+                      child: MobileDockButton(
+                        key: ValueKey('mobile-action-${action.name}'),
+                        icon: Icon(action.icon),
+                        label: _shortLabel(action),
+                        tooltip: action == SidebarAction.undo
+                            ? controller.undoLabel
+                            : action.label,
+                        primary: action == SidebarAction.create,
+                        onPressed:
+                            action == SidebarAction.undo && !controller.canUndo
+                            ? null
+                            : () => _run(context, action),
+                      ),
+                    ),
+                  if (overflow.isNotEmpty)
+                    Expanded(
+                      child: MobileDockButton(
+                        key: const ValueKey('mobile-action-more'),
+                        icon: const Icon(Icons.more_horiz_rounded),
+                        label: '更多',
+                        tooltip: '更多快捷操作',
+                        onPressed: () => _more(context, overflow),
+                      ),
+                    ),
+                  if (showCloud)
+                    Expanded(
+                      child: CloudServiceButton.dock(
+                        key: const ValueKey('mobile-action-cloud'),
+                        onPressed: () => _run(context, SidebarAction.cloud),
+                      ),
+                    ),
+                  Expanded(
+                    child: MobileDockButton(
+                      key: const ValueKey('mobile-action-settings'),
+                      icon: const Icon(Icons.tune_rounded),
+                      label: '设置',
+                      tooltip: '设置',
+                      onPressed: () => openPlannerSettings(context, controller),
                     ),
                   ),
-                ),
+                ],
               ),
-              IconButton(
-                key: const ValueKey('mobile-next-period'),
-                tooltip: '下一段日期',
-                onPressed: () => _navigate(1),
-                icon: const Icon(Icons.chevron_right_rounded),
-              ),
-            ],
-          ),
-          Row(
-            children: [
-              const SizedBox(width: 8),
-              if (controller.sidebarActions.contains(SidebarAction.view))
-                Expanded(
-                  child: SegmentedButton<PlannerView>(
-                    key: const ValueKey('mobile-view-switch'),
-                    segments: const [
-                      ButtonSegment(value: PlannerView.day, label: Text('单日')),
-                      ButtonSegment(
-                        value: PlannerView.threeDays,
-                        label: Text('三日'),
-                      ),
-                      ButtonSegment(value: PlannerView.week, label: Text('整周')),
-                    ],
-                    selected: {controller.view},
-                    showSelectedIcon: false,
-                    style: ButtonStyle(
-                      textStyle: WidgetStatePropertyAll(
-                        Theme.of(context).textTheme.labelMedium!
-                            .copyWith(fontSize: 12),
-                      ),
-                      visualDensity: VisualDensity.standard,
-                      minimumSize: const WidgetStatePropertyAll(Size(48, 44)),
-                    ),
-                    onSelectionChanged: (value) =>
-                        controller.setView(value.single),
-                  ),
-                )
-              else
-                const Spacer(),
-              const SizedBox(width: 4),
-              TextButton(
-                key: const ValueKey('mobile-today'),
-                onPressed: controller.goToday,
-                style: TextButton.styleFrom(
-                  minimumSize: const Size(52, 44),
-                  padding: const EdgeInsets.symmetric(horizontal: 8),
-                ),
-                child: const Text('今天'),
-              ),
-            ],
-          ),
-        ],
+            );
+          },
+        ),
       ),
     );
   }
@@ -392,67 +286,197 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
     SidebarAction.updates => '更新',
     SidebarAction.view => '视图',
   };
-}
 
-class _DockButton extends StatelessWidget {
-  const _DockButton({
-    super.key,
-    required this.icon,
-    required this.label,
-    required this.tooltip,
-    this.primary = false,
-    required this.onPressed,
-  });
-  final IconData icon;
-  final String label, tooltip;
-  final bool primary;
-  final VoidCallback? onPressed;
-  @override
-  Widget build(BuildContext context) {
-    final p = WeekGlassPalette.of(context);
-    final color = onPressed == null
-        ? p.mutedSoft
-        : primary
-        ? p.accentStrong
-        : p.text;
-    return Tooltip(
-      message: tooltip,
-      child: Semantics(
-        label: tooltip,
-        button: true,
-        enabled: onPressed != null,
-        excludeSemantics: true,
-        child: MobilePressFeedback(
-          enabled: onPressed != null,
-          child: InkWell(
-            onTap: onPressed,
-            borderRadius: WeekGlassGeometry.corners,
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(minHeight: 60, minWidth: 48),
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 5),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    Icon(icon, size: 24, color: color),
-                    const SizedBox(height: 3),
-                    Text(
-                      label,
+  Widget _header(BuildContext context, WeekGlassPalette p) {
+    final days = controller.visibleDays;
+    final first = days.first, last = days.last;
+    final sameMonth = first.year == last.year && first.month == last.month;
+    final single = days.length == 1;
+    final longDate = single
+        ? '${first.month}月${first.day}日'
+        : '${first.month}月${first.day}日至${sameMonth ? "" : "${last.month}月"}${last.day}日';
+    final shortDate = single
+        ? '${first.month}/${first.day}'
+        : '${first.month}/${first.day}至${sameMonth ? "" : "${last.month}/"}${last.day}';
+    final term = controller.visibleTeachingTerm;
+    final week = term?.weekAt(controller.anchorDate);
+    final subtitle = term == null
+        ? '${controller.anchorDate.year}年 ${DateFormat('EEEE', 'zh_CN').format(controller.anchorDate)}'
+        : '第${term.number}学期 第$week周';
+    final shortSubtitle = term == null ? '${first.year}年' : '第$week周';
+    final showViews = controller.sidebarActions.contains(SidebarAction.view);
+    final theme = Theme.of(context).textTheme;
+    final dateStyle = theme.bodyMedium!.copyWith(
+      fontSize: 15,
+      height: 1.21,
+      fontWeight: FontWeight.w600,
+      color: p.text,
+    );
+    final subtitleStyle = theme.bodySmall!.copyWith(
+      fontSize: 11,
+      height: 1.15,
+      fontWeight: FontWeight.w500,
+      color: p.muted,
+    );
+    final labelStyle = theme.labelMedium!.copyWith(
+      fontSize: 12,
+      fontWeight: FontWeight.w600,
+    );
+    final today = TextButton(
+      key: const ValueKey('mobile-today'),
+      style: TextButton.styleFrom(
+        textStyle: labelStyle,
+        foregroundColor: p.accentStrong,
+        minimumSize: const Size(52, 48),
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+      ),
+      onPressed: controller.goToday,
+      child: const Text('今天'),
+    );
+    return Column(
+      key: const ValueKey('mobile-date-header'),
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Row(
+          children: [
+            _PeriodButton(
+              key: const ValueKey('mobile-previous-period'),
+              icon: Icons.chevron_left_rounded,
+              tooltip: '上一段日期',
+              onPressed: () => _navigate(-1),
+            ),
+            Expanded(
+              child: LayoutBuilder(
+                builder: (context, box) {
+                  bool fits(String value, TextStyle style) {
+                    final measure = TextPainter(
+                      text: TextSpan(text: value, style: style),
+                      textScaler: MediaQuery.textScalerOf(context),
+                      textDirection: Directionality.of(context),
+                      locale: Localizations.maybeLocaleOf(context),
                       maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        fontSize: 10,
-                        color: color,
-                        fontWeight: primary ? FontWeight.w600 : FontWeight.w400,
+                    )..layout();
+                    final fits = measure.width <= box.maxWidth;
+                    measure.dispose();
+                    return fits;
+                  }
+
+                  return Semantics(
+                    button: true,
+                    label: '$longDate，$subtitle，选择日期',
+                    excludeSemantics: true,
+                    onTap: () => _date(context),
+                    child: InkWell(
+                      key: const ValueKey('mobile-choose-date'),
+                      borderRadius: WeekGlassGeometry.corners,
+                      onTap: () => _date(context),
+                      child: ConstrainedBox(
+                        constraints: const BoxConstraints(minHeight: 48),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
+                            Text(
+                              fits(longDate, dateStyle) ? longDate : shortDate,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: dateStyle,
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              fits(subtitle, subtitleStyle)
+                                  ? subtitle
+                                  : shortSubtitle,
+                              key: const ValueKey('mobile-teaching-week'),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: subtitleStyle,
+                            ),
+                          ],
+                        ),
                       ),
                     ),
+                  );
+                },
+              ),
+            ),
+            _PeriodButton(
+              key: const ValueKey('mobile-next-period'),
+              icon: Icons.chevron_right_rounded,
+              tooltip: '下一段日期',
+              onPressed: () => _navigate(1),
+            ),
+            if (!showViews) today,
+          ],
+        ),
+        if (showViews)
+          Row(
+            children: [
+              const SizedBox(width: 4),
+              Expanded(
+                child: Row(
+                  key: const ValueKey('mobile-view-switch'),
+                  children: [
+                    for (final (view, label) in const [
+                      (PlannerView.day, '单日'),
+                      (PlannerView.threeDays, '三日'),
+                      (PlannerView.week, '整周'),
+                    ])
+                      Expanded(
+                        key: ValueKey('mobile-view-${view.name}'),
+                        child: Semantics(
+                          selected: controller.view == view,
+                          inMutuallyExclusiveGroup: true,
+                          child: TextButton(
+                            style: TextButton.styleFrom(
+                              textStyle: labelStyle,
+                              backgroundColor: controller.view == view
+                                  ? p.accentSoft
+                                  : Colors.transparent,
+                              foregroundColor: controller.view == view
+                                  ? p.accentStrong
+                                  : p.muted,
+                              minimumSize: const Size(0, 34),
+                              tapTargetSize: MaterialTapTargetSize.padded,
+                              padding: const EdgeInsets.fromLTRB(1, 3, 1, 3),
+                              shape: WeekGlassGeometry.shape,
+                            ),
+                            onPressed: () => controller.setView(view),
+                            child: Text(label, textAlign: TextAlign.center),
+                          ),
+                        ),
+                      ),
                   ],
                 ),
               ),
-            ),
+              const SizedBox(width: 4),
+              today,
+            ],
           ),
-        ),
-      ),
+      ],
     );
   }
+}
+
+class _PeriodButton extends StatelessWidget {
+  const _PeriodButton({
+    super.key,
+    required this.icon,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => SizedBox.square(
+    dimension: 48,
+    child: IconButton(
+      tooltip: tooltip,
+      onPressed: onPressed,
+      padding: EdgeInsets.zero,
+      icon: Icon(icon, color: WeekGlassPalette.of(context).muted, size: 21),
+    ),
+  );
 }

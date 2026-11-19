@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 
+import '../../app/windows_window_motion.dart';
 import 'planner_controller.dart';
 
 Future<void> openSkinPicker(
@@ -41,8 +42,27 @@ class _SkinPicker extends StatefulWidget {
 
 class _SkinPickerState extends State<_SkinPicker> {
   bool saving = false;
+  bool settingWindowMotion = false;
   String? error;
+  String? windowMotionError;
   PlannerController get controller => widget.controller;
+  bool get busy => saving || settingWindowMotion;
+
+  Future<void> setWindowMotion(WindowsWindowMotionMode mode) async {
+    final motion = WindowsWindowMotion.instance;
+    if (busy || (mode == motion.mode && windowMotionError == null)) return;
+    setState(() {
+      settingWindowMotion = true;
+      windowMotionError = null;
+    });
+    try {
+      await motion.select(mode);
+    } catch (_) {
+      windowMotionError = '未能应用或保存窗口动效，请重试。';
+    } finally {
+      if (mounted) setState(() => settingWindowMotion = false);
+    }
+  }
 
   void preview({
     WeekGlassSkin? skin,
@@ -80,7 +100,7 @@ class _SkinPickerState extends State<_SkinPicker> {
         child: Builder(
           builder: (context) {
             return PopScope(
-              canPop: !saving,
+              canPop: !busy,
               child: GlassAlertDialog(
                 key: const ValueKey('skin-gallery'),
                 insetPadding: const EdgeInsets.symmetric(
@@ -128,7 +148,7 @@ class _SkinPickerState extends State<_SkinPicker> {
                                 }, size: 17),
                                 selected: controller.themeMode == mode,
                                 showCheckmark: false,
-                                onSelected: saving
+                                onSelected: busy
                                     ? null
                                     : (_) => preview(mode: mode),
                               ),
@@ -158,7 +178,7 @@ class _SkinPickerState extends State<_SkinPicker> {
                                       skin: skin,
                                       brightness: brightness,
                                       selected: skin == controller.skin,
-                                      onPressed: saving
+                                      onPressed: busy
                                           ? null
                                           : () => preview(skin: skin),
                                     ),
@@ -167,10 +187,18 @@ class _SkinPickerState extends State<_SkinPicker> {
                             );
                           },
                         ),
+                        if (WindowsWindowMotion.isSupported) ...[
+                          const SizedBox(height: 22),
+                          _WindowMotionControls(
+                            mode: WindowsWindowMotion.instance.mode,
+                            onSelected: busy ? null : setWindowMotion,
+                            error: windowMotionError,
+                          ),
+                        ],
                         const SizedBox(height: 22),
                         _LightControls(
                           controller: controller,
-                          enabled: !saving,
+                          enabled: !busy,
                           onStrength: (value) => preview(strength: value),
                           onMotion: (value) => preview(motion: value),
                         ),
@@ -189,13 +217,13 @@ class _SkinPickerState extends State<_SkinPicker> {
                 ),
                 actions: [
                   TextButton(
-                    onPressed: saving
+                    onPressed: busy
                         ? null
                         : () => Navigator.pop(context, false),
                     child: const Text('取消'),
                   ),
                   FilledButton(
-                    onPressed: saving
+                    onPressed: busy
                         ? null
                         : () async {
                             setState(() {
@@ -227,6 +255,61 @@ class _SkinPickerState extends State<_SkinPicker> {
       );
     },
   );
+}
+
+class _WindowMotionControls extends StatelessWidget {
+  const _WindowMotionControls({
+    required this.mode,
+    required this.onSelected,
+    required this.error,
+  });
+
+  final WindowsWindowMotionMode mode;
+  final ValueChanged<WindowsWindowMotionMode>? onSelected;
+  final String? error;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = WeekGlassPalette.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          '窗口动效',
+          style: TextStyle(color: palette.text, fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(height: 6),
+        Wrap(
+          spacing: 8,
+          runSpacing: 4,
+          children: [
+            for (final option in WindowsWindowMotionMode.values)
+              ChoiceChip(
+                key: ValueKey('window-motion-${option.name}'),
+                label: Text(switch (option) {
+                  WindowsWindowMotionMode.liquidGlass => '液态玻璃',
+                  WindowsWindowMotionMode.gentle => '轻柔',
+                  WindowsWindowMotionMode.system => '系统默认',
+                }),
+                selected: option == mode,
+                onSelected: onSelected == null
+                    ? null
+                    : (_) => onSelected!(option),
+              ),
+          ],
+        ),
+        const SizedBox(height: 6),
+        Text(
+          error ?? '只在这台 Windows 设备生效，选择后立即保存。',
+          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+            color: error == null
+                ? palette.muted
+                : Theme.of(context).colorScheme.error,
+          ),
+        ),
+      ],
+    );
+  }
 }
 
 class _LightControls extends StatelessWidget {

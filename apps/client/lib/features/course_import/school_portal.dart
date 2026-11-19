@@ -7,7 +7,9 @@ import 'package:webview_flutter/webview_flutter.dart' as mobile;
 import 'package:webview_windows/webview_windows.dart' as win;
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 
+import 'dedicated_school_portal_routes.dart';
 import 'school_portal_catalog.dart';
+import 'school_html_format.dart';
 import 'wakeup_catalog.dart';
 import 'school_portal_reader.dart';
 import 'school_portal_timetable.dart';
@@ -15,14 +17,37 @@ import 'whu_portal.dart';
 import 'whu_timetable.dart';
 
 /// Selecting the verified WHU route leaves its original flow intact.
-Future<SchoolPortalSite?> chooseSchoolPortal(BuildContext context) =>
-    showDialog<SchoolPortalSite>(
-      context: context,
-      builder: (_) => const _SchoolPicker(),
-    );
+sealed class SchoolImportChoice {
+  const SchoolImportChoice();
+}
+
+final class SchoolWebChoice extends SchoolImportChoice {
+  const SchoolWebChoice(this.site);
+  final SchoolPortalSite site;
+}
+
+final class SchoolFileChoice extends SchoolImportChoice {
+  const SchoolFileChoice(this.format);
+  final SchoolHtmlFormat format;
+}
+
+Future<SchoolImportChoice?> chooseSchoolImport(
+  BuildContext context, {
+  bool includeFiles = true,
+}) => showDialog<SchoolImportChoice>(
+  context: context,
+  builder: (_) => _SchoolPicker(includeFiles: includeFiles),
+);
+
+Future<SchoolPortalSite?> chooseSchoolPortal(BuildContext context) async =>
+    switch (await chooseSchoolImport(context, includeFiles: false)) {
+      SchoolWebChoice(:final site) => site,
+      _ => null,
+    };
 
 class _SchoolPicker extends StatefulWidget {
-  const _SchoolPicker();
+  const _SchoolPicker({required this.includeFiles});
+  final bool includeFiles;
   @override
   State<_SchoolPicker> createState() => _SchoolPickerState();
 }
@@ -41,7 +66,10 @@ class _SchoolPickerState extends State<_SchoolPicker> {
   void choose(String raw, [String? name]) {
     try {
       final chosen = name ?? pendingName;
-      Navigator.pop(context, SchoolPortalSite.fromEntry(raw, name: chosen));
+      Navigator.pop(
+        context,
+        SchoolWebChoice(SchoolPortalSite.fromEntry(raw, name: chosen)),
+      );
     } on FormatException catch (e) {
       setState(() => error = e.message);
     }
@@ -53,16 +81,27 @@ class _SchoolPickerState extends State<_SchoolPicker> {
     final directory = <String, String>{
       '武汉大学': NativeWhuPortal.entry,
       for (final e in schoolPortalCatalog) e.name: e.entry,
+      for (final e in dedicatedSchoolPortalRoutes) e.name: e.entry,
+    };
+    final local = {
+      if (widget.includeFiles)
+        SchoolHtmlFormat.westlake.school: SchoolHtmlFormat.westlake,
     };
     final matches =
         <({String name, String? entry})>[
               for (final e in directory.entries) (name: e.key, entry: e.value),
+              for (final n in local.keys) (name: n, entry: null),
               for (final name in wakeupSchoolBindings.keys)
-                if (!directory.containsKey(name)) (name: name, entry: null),
+                if (!directory.containsKey(name) && !local.containsKey(name))
+                  (name: name, entry: null),
             ]
             .where(
               (e) =>
                   e.name.toLowerCase().contains(q) ||
+                  (prioritySchoolAliases[e.name]?.any(
+                        (a) => a.toLowerCase().contains(q),
+                      ) ??
+                      false) ||
                   (e.entry != null && Uri.parse(e.entry!).host.contains(q)),
             )
             .toList();
@@ -137,11 +176,17 @@ class _SchoolPickerState extends State<_SchoolPicker> {
                               title: Text(e.name),
                               subtitle: Text(
                                 e.entry == null
-                                    ? '使用本校教务网址'
+                                    ? local[e.name]?.page ?? '使用本校教务网址'
                                     : Uri.parse(e.entry!).host,
                               ),
                               onTap: () {
-                                if (e.entry != null) {
+                                if (local[e.name] case final format?
+                                    when e.entry == null) {
+                                  Navigator.pop(
+                                    context,
+                                    SchoolFileChoice(format),
+                                  );
+                                } else if (e.entry != null) {
                                   choose(e.entry!, e.name);
                                 } else {
                                   setState(() {
@@ -516,7 +561,8 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  if (widget.site.parsers.isEmpty)
+                  if (widget.site.parsers.isEmpty &&
+                      widget.site.dedicatedTimetable == null)
                     Align(
                       alignment: Alignment.centerLeft,
                       child: PopupMenuButton<SchoolPortalSystem>(
@@ -540,7 +586,11 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
                     error ??
                         (!canRead && widget.site.mayConfirmOrigin(uri)
                             ? '请打开本人学期课表，再确认这个教务域名。'
-                            : '在学校页面登录，打开${widget.term.label}的本人课表。'),
+                            : widget
+                                      .site
+                                      .dedicatedTimetable
+                                      ?.personalPageHint ??
+                                  '在学校页面登录，打开${widget.term.label}的本人课表。'),
                     style: TextStyle(
                       color: error == null
                           ? p.muted

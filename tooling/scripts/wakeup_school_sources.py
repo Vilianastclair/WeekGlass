@@ -51,6 +51,7 @@ ENTRIES = {
     "重庆对外经贸学院":"https://my.vpn.ccibe.edu.cn/",
 }
 EXTRA_READ = {
+    "中国科学院大学":["https://xkgo.ucas.ac.cn:3000"],
     "上海大学": ["https://jwxk.shu.edu.cn","https://jwxt.shu.edu.cn"],
     "上海科技大学（研究生）": ["https://grad.shanghaitech.edu.cn","https://graduate.shanghaitech.edu.cn"],
     "西北工业大学（研究生）":["https://yjsjy.nwpu.edu.cn"],

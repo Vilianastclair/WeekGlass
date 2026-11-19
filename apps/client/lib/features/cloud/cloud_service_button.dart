@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 
+import '../mobile/mobile_action_dock.dart';
 import 'cloud_connection.dart';
 import 'cloud_subscription_state_chip.dart';
 
@@ -42,9 +43,16 @@ class CloudServiceButton extends StatelessWidget {
     final palette = WeekGlassPalette.of(context);
     final text = Theme.of(context).textTheme;
     final enabled = onPressed != null;
+    if (_kind == _CloudButtonKind.dock) {
+      return MobileDockButton(
+        icon: _CloudDockMark(enabled: enabled),
+        label: label,
+        tooltip: label,
+        onPressed: onPressed,
+      );
+    }
     final ink = enabled ? const Color(0xFF172A4B) : palette.muted;
     final compact = _kind == _CloudButtonKind.rail;
-    final shortcut = compact || _kind == _CloudButtonKind.dock;
     final subscription = _kind == _CloudButtonKind.subscription;
     final title = subscription ? '订阅云服务' : label;
     final icon = Icon(
@@ -53,99 +61,77 @@ class CloudServiceButton extends StatelessWidget {
       size: compact ? 20 : (subscription ? 19 : 23),
     );
     const corners = WeekGlassGeometry.corners;
-    final content = switch (_kind) {
-      _CloudButtonKind.rail => SizedBox(width: 34, height: 34, child: icon),
-      _CloudButtonKind.dock => ConstrainedBox(
-        constraints: const BoxConstraints(minHeight: 60, minWidth: 48),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            icon,
-            const SizedBox(height: 3),
-            Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                fontSize: 10,
-                color: ink,
-                fontWeight: FontWeight.w600,
-              ),
+    final content = compact
+        ? SizedBox(width: 34, height: 34, child: icon)
+        : Padding(
+            padding: EdgeInsets.symmetric(
+              horizontal: 12,
+              vertical: subscription ? 10 : 11,
             ),
-          ],
-        ),
-      ),
-      _ => Padding(
-        padding: EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: subscription ? 10 : 11,
-        ),
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(minHeight: 28),
-          child: Row(
-            children: [
-              if (subscription)
-                icon
-              else
-                DecoratedBox(
-                  decoration: BoxDecoration(
-                    color: const Color(0x88FFFFFF),
-                    border: Border.all(color: const Color(0xDFFFFFFF)),
-                    borderRadius: corners,
-                  ),
-                  child: SizedBox(width: 37, height: 37, child: icon),
-                ),
-              const SizedBox(width: 11),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Wrap(
-                      spacing: 8,
-                      runSpacing: 3,
-                      crossAxisAlignment: WrapCrossAlignment.center,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(minHeight: 28),
+              child: Row(
+                children: [
+                  if (subscription)
+                    icon
+                  else
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: const Color(0x88FFFFFF),
+                        border: Border.all(color: const Color(0xDFFFFFFF)),
+                        borderRadius: corners,
+                      ),
+                      child: SizedBox(width: 37, height: 37, child: icon),
+                    ),
+                  const SizedBox(width: 11),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        Text(
-                          title,
-                          style: text.titleMedium?.copyWith(
-                            color: ink,
-                            fontSize: subscription ? 15 : 17,
-                            fontWeight: FontWeight.w700,
-                          ),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 3,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
+                            Text(
+                              title,
+                              style: text.titleMedium?.copyWith(
+                                color: ink,
+                                fontSize: subscription ? 15 : 17,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                            if (state case final status?)
+                              CloudSubscriptionStateChip(
+                                state: status,
+                                onLight: true,
+                              ),
+                          ],
                         ),
-                        if (state case final status?)
-                          CloudSubscriptionStateChip(
-                            state: status,
-                            onLight: true,
+                        if (detail case final description?) ...[
+                          const SizedBox(height: 3),
+                          Text(
+                            description,
+                            style: text.bodySmall?.copyWith(
+                              color: const Color(0xFF3B4E72),
+                            ),
                           ),
+                        ],
                       ],
                     ),
-                    if (detail case final description?) ...[
-                      const SizedBox(height: 3),
-                      Text(
-                        description,
-                        style: text.bodySmall?.copyWith(
-                          color: const Color(0xFF3B4E72),
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+                  ),
+                  const SizedBox(width: 8),
+                  Icon(
+                    subscription
+                        ? Icons.open_in_new_rounded
+                        : Icons.chevron_right_rounded,
+                    size: subscription ? 17 : 21,
+                    color: ink,
+                  ),
+                ],
               ),
-              const SizedBox(width: 8),
-              Icon(
-                subscription
-                    ? Icons.open_in_new_rounded
-                    : Icons.chevron_right_rounded,
-                size: subscription ? 17 : 21,
-                color: ink,
-              ),
-            ],
-          ),
-        ),
-      ),
-    };
+            ),
+          );
     final button = Semantics(
       label: compact ? label : null,
       button: true,
@@ -201,17 +187,51 @@ class CloudServiceButton extends StatelessWidget {
         ),
       ),
     );
-    return shortcut
+    return compact
         ? Tooltip(
             message: label,
             excludeFromSemantics: true,
             child: Padding(
-              padding: compact
-                  ? const EdgeInsets.fromLTRB(0, 3, 0, 4)
-                  : const EdgeInsets.symmetric(horizontal: 2),
+              padding: const EdgeInsets.fromLTRB(0, 3, 0, 4),
               child: button,
             ),
           )
         : button;
+  }
+}
+
+class _CloudDockMark extends StatelessWidget {
+  const _CloudDockMark({required this.enabled});
+
+  final bool enabled;
+
+  @override
+  Widget build(BuildContext context) {
+    final palette = WeekGlassPalette.of(context);
+    if (!enabled) return const Icon(Icons.cloud_outlined);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        shape: BoxShape.circle,
+        border: Border.all(color: const Color(0xBCFFFFFF), width: .65),
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            const Color(0xEAF0FBFF),
+            Color.lerp(const Color(0xE8CEE8FA), palette.accent, .13)!,
+            const Color(0xE8DCDAF9),
+          ],
+        ),
+      ),
+      child: ClipOval(
+        child: IridescentGlass(
+          child: const Icon(
+            Icons.cloud_outlined,
+            size: 16,
+            color: Color(0xFF172A4B),
+          ),
+        ),
+      ),
+    );
   }
 }

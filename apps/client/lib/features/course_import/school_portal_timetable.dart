@@ -1,5 +1,7 @@
 import 'dart:convert';
 
+import 'dedicated_school_portal_route.dart';
+import 'dedicated_school_portal_routes.dart';
 import 'whu_timetable.dart';
 import 'school_portal_catalog.dart';
 import 'wakeup_catalog.dart';
@@ -18,16 +20,22 @@ class SchoolPortalSite {
   final String campusDomain;
   final List<String> parsers;
   final Set<String> readOrigins;
+  DedicatedSchoolPortalRoute? get dedicatedTimetable =>
+      dedicatedSchoolPortalFor(entry);
 
   factory SchoolPortalSite.fromEntry(String raw, {String? name}) {
     final uri = Uri.tryParse(raw.trim());
     final host = uri?.host.toLowerCase() ?? '';
     final labels = host.split('.');
+    final dedicated = dedicatedSchoolPortalFor(uri);
     final trustedCampusDomain =
-        wakeupCampusDomains.containsKey(host) &&
-            schoolPortalCatalog.any((s) => s.name == name && s.entry == raw)
-        ? wakeupCampusDomains[host]
-        : null;
+        (dedicated?.entry == raw && dedicated?.name == name
+            ? dedicated?.campusDomain
+            : null) ??
+        (wakeupCampusDomains.containsKey(host) &&
+                schoolPortalCatalog.any((s) => s.name == name && s.entry == raw)
+            ? wakeupCampusDomains[host]
+            : null);
     final parsers = wakeupParsersFor(name ?? '', host);
     final readOrigins = wakeupReadOrigins[name] ?? const <String>[];
     if (uri == null ||
@@ -65,6 +73,7 @@ class SchoolPortalSite {
       (uri.host == campusDomain || uri.host.endsWith('.$campusDomain'));
   bool mayReadLocation(Uri? uri) =>
       permits(uri) &&
+      (dedicatedTimetable?.matchesPersonalPage(uri) ?? true) &&
       !RegExp(
         r'^(?:cas|newcas|sso|newsso|auth(?:entication|server)?|ids|identity|iam|idp|uis|tpass|passport|mfa)(?:[-.0-9]|$)',
         caseSensitive: false,

@@ -230,6 +230,50 @@ void main() {
     },
   );
 
+  for (final (size, scale, desktop) in [
+    (const Size(1100, 550), 1.0, true),
+    (const Size(390, 700), 1.3, false),
+  ]) {
+    testWidgets(
+      'half-hour endpoints do not overlap nearby time labels at $size',
+      (tester) async {
+        const sleep = SleepSchedule(
+          wakeMinute: 7 * 60 + 30,
+          sleepMinute: 22 * 60 + 30,
+        );
+        await _mount(
+          tester,
+          size: size,
+          textScale: scale,
+          sleep: sleep,
+          desktop: desktop,
+        );
+
+        expect(_time(sleep.visibleStart), findsOneWidget);
+        expect(_time(sleep.visibleEnd), findsOneWidget);
+        expect(_time(12 * 60), findsOneWidget);
+        final labels = tester
+            .widgetList<Text>(
+              find.byWidgetPredicate(
+                (widget) =>
+                    widget is Text &&
+                    widget.key is ValueKey<String> &&
+                    (widget.key! as ValueKey<String>).value.startsWith('time-'),
+              ),
+            )
+            .map((widget) => tester.getRect(find.byKey(widget.key!)))
+            .toList();
+        for (var i = 1; i < labels.length; i++) {
+          expect(
+            labels[i].top,
+            greaterThanOrEqualTo(labels[i - 1].bottom),
+            reason: 'Adjacent time labels $i and ${i - 1} must not overlap',
+          );
+        }
+      },
+    );
+  }
+
   for (final (size, scale, sleep) in [
     (const Size(390, 844), 1.0, _sleepless),
     (const Size(320, 568), 1.3, _awakeWindow),

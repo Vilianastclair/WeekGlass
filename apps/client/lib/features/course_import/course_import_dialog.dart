@@ -14,6 +14,8 @@ import '../planner/planner_controller.dart';
 import '../planner/planner_settings_dialog.dart';
 import 'whu_portal.dart';
 import 'school_portal.dart';
+import 'school_file_picker.dart';
+import 'school_html_format.dart';
 import 'school_portal_timetable.dart';
 import 'whu_timetable.dart';
 import 'teaching_term.dart';
@@ -37,9 +39,11 @@ class CourseImportDialog extends StatefulWidget {
     this.portal,
     this.portalFactory,
     this.schoolReader = openSchoolPortal,
+    this.schoolFileReader = pickSchoolTimetableFile,
   });
   final PlannerController controller;
   final WhuPortal? portal;
+  final Future<WhuTimetable?> Function(SchoolHtmlFormat) schoolFileReader;
   final Future<WhuTimetable?> Function(BuildContext, SchoolPortalSite, WhuTerm)
   schoolReader;
   final WhuPortal Function(SchoolAdapter)? portalFactory;
@@ -75,7 +79,9 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   bool awaitingSchool = false;
   WhuTimetable? timetable;
   SchoolPortalSite? site;
-  bool get schoolWeb => site != null;
+  SchoolHtmlFormat? fileSchool;
+  bool get externalSchool => site != null || fileSchool != null;
+  String get schoolName => fileSchool?.school ?? site?.name ?? school.name;
   Set<String> selected = {};
   CourseImportPlan? plan;
   String? error;
@@ -87,12 +93,17 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
         (m) => selected.contains(m.courseKey) && m.fixedTime == null,
       ) ??
       true;
-  String get sourceId => schoolWeb ? SchoolPortalTimetable.sourceId : school.id;
-  String get settingsKey => schoolWeb
+  String get sourceId =>
+      fileSchool?.sourceId ??
+      (externalSchool ? SchoolPortalTimetable.sourceId : school.id);
+  String get settingsKey => site != null
       ? '${sourceId}_${site!.entry.origin}_schedule_${term.key}'
       : '${sourceId}_schedule_${term.key}';
-  String get accountKey => schoolWeb
-      ? jsonEncode([site!.entry.origin, account.text.trim()])
+  String get accountKey => externalSchool
+      ? jsonEncode([
+          fileSchool?.sourceId ?? site!.entry.origin,
+          account.text.trim(),
+        ])
       : account.text;
   @override
   void initState() {
@@ -128,9 +139,11 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
             )
             .toList();
         setState(() {
-          firstMonday = date;
-          clock = periods;
-          confirmed = !schoolWeb;
+          if (fileSchool == null) {
+            firstMonday = date;
+            clock = periods;
+          }
+          confirmed = !externalSchool;
           excludeHolidays = value['excludeHolidays'] == true;
           holidays = savedHolidays;
         });
@@ -142,7 +155,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   }
 
   void _portalChanged() {
-    if (!mounted || schoolWeb) return;
+    if (!mounted || externalSchool) return;
     setState(() {});
     if (portal.hasTimetable(term) && !reading && !saving) {
       unawaited(_read());
@@ -169,7 +182,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   }
 
   Future<void> _read() async {
-    if (busy || schoolWeb) return;
+    if (busy || externalSchool) return;
     setState(() {
       reading = true;
       error = null;
@@ -213,18 +226,24 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   }
 
   void _resetSourceSettings() {
-    firstMonday = schoolWeb ? null : school.firstMonday(term);
-    if (schoolWeb) clock = [];
+    firstMonday = externalSchool ? null : school.firstMonday(term);
+    if (externalSchool) clock = [];
     holidays = [];
     excludeHolidays = false;
     confirmed = false;
   }
 
   Future<void> _chooseSchool() async {
-    final picked = await chooseSchoolPortal(context);
+    final picked = await chooseSchoolImport(context);
     if (!mounted || picked == null) return;
     setState(() {
-      site = picked.entry.origin == SchoolAdapter.whu.origin ? null : picked;
+      site = switch (picked) {
+        SchoolWebChoice(:final site)
+            when site.entry.origin != SchoolAdapter.whu.origin =>
+          site,
+        _ => null,
+      };
+      fileSchool = picked is SchoolFileChoice ? picked.format : null;
       account.clear();
       clock = [...ClassPeriod.standard];
       _resetSourceSettings();
@@ -239,19 +258,24 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
 
   Future<void> _readSchool() async {
     final current = site;
-    if (busy || current == null) return;
+    final format = fileSchool;
+    if (busy || (current == null && format == null)) return;
     setState(() {
       reading = true;
       error = null;
     });
     try {
-      final data = await widget.schoolReader(context, current, term);
+      final data = format == null
+          ? await widget.schoolReader(context, current!, term)
+          : await widget.schoolFileReader(format);
       if (!mounted || data == null) return;
       setState(() {
         timetable = data;
         selected = data.courseKeys;
         final proposed = data.suggestedFirstMonday;
-        if (proposed != null &&
+        if (format != null) {
+          firstMonday = proposed;
+        } else if (proposed != null &&
             !proposed.isBefore(DateTime(year)) &&
             proposed.isBefore(DateTime(year + 2))) {
           firstMonday ??= proposed;
@@ -276,7 +300,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
     _ => '操作未完成，请重试。原有日程已保留。',
   };
   Future<void> _rememberTeachingCalendar() async {
-    if (schoolWeb || firstMonday == null || timetable == null) return;
+    if (externalSchool || firstMonday == null || timetable == null) return;
     final lastWeek = timetable!.meetings
         .expand((m) => m.weeks)
         .fold<int>(1, (a, b) => a > b ? a : b);
@@ -317,6 +341,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
         firstMonday: firstMonday!,
         clock: clock,
         selectedCourses: selected,
+        identifyByDate: fileSchool != null,
         schoolId: sourceId,
       );
       final holidayPreview = CourseHolidayPreview.apply(
@@ -352,7 +377,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
         previous: previous,
         allActive: widget.controller.events,
         removeMissing:
-            !schoolWeb &&
+            !externalSchool &&
             removeMissing &&
             timetable!.warnings.isEmpty &&
             selected.length == timetable!.courseKeys.length,
@@ -575,7 +600,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                                 const SizedBox(height: 4),
                                 Text(
                                   preview
-                                      ? '${site?.name ?? school.name} ${term.label}'
+                                      ? '$schoolName ${term.label}'
                                       : '选择学校和学期',
                                   style: TextStyle(
                                     fontSize: 12,
@@ -600,19 +625,21 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                           key: const ValueKey('choose-school-portal'),
                           contentPadding: EdgeInsets.zero,
                           leading: const Icon(Icons.account_balance_outlined),
-                          title: Text(site?.name ?? school.name),
-                          subtitle: Text(site?.entry.host ?? school.host),
+                          title: Text(schoolName),
+                          subtitle: Text(
+                            fileSchool?.page ?? site?.entry.host ?? school.host,
+                          ),
                           trailing: const Icon(Icons.unfold_more),
                           onTap: busy ? null : _chooseSchool,
                         ),
                       if (!preview) _termRow(p),
-                      if (reading || (!schoolWeb && portal.loading))
+                      if (reading || (!externalSchool && portal.loading))
                         const Padding(
                           padding: EdgeInsets.symmetric(vertical: 8),
                           child: LinearProgressIndicator(minHeight: 2),
                         ),
                       if (error != null ||
-                          (!preview && !schoolWeb && portal.error != null))
+                          (!preview && !externalSchool && portal.error != null))
                         Padding(
                           padding: const EdgeInsets.symmetric(vertical: 8),
                           child: Text(
@@ -678,13 +705,15 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                                   ? null
                                   : connecting
                                   ? (portal.canRead ? _read : null)
-                                  : schoolWeb
+                                  : externalSchool
                                   ? _readSchool
                                   : _connect,
                               icon: Icon(
                                 reading
                                     ? Icons.hourglass_top_rounded
-                                    : schoolWeb
+                                    : fileSchool != null
+                                    ? Icons.file_open_outlined
+                                    : externalSchool
                                     ? Icons.open_in_browser
                                     : Icons.download_rounded,
                                 size: 17,
@@ -694,7 +723,9 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                                     ? '正在读取…'
                                     : connecting
                                     ? '读取课表'
-                                    : schoolWeb
+                                    : fileSchool != null
+                                    ? '选择 SIS 课表文件'
+                                    : externalSchool
                                     ? '打开学校教务'
                                     : '连接并读取课表',
                               ),
@@ -902,7 +933,9 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
           dropdownColor: p.surface.withValues(alpha: .98),
           key: const ValueKey('import-semester'),
           initialValue: semester,
-          decoration: const InputDecoration(labelText: '学期'),
+          decoration: InputDecoration(
+            labelText: fileSchool != null ? '归档学期' : '学期',
+          ),
           items: const [
             DropdownMenuItem(value: 3, child: Text('秋季学期')),
             DropdownMenuItem(value: 12, child: Text('春季学期')),
@@ -937,7 +970,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
               ),
               const SizedBox(height: 20),
               Text(
-                '一学期的安排，一次带进来',
+                fileSchool != null ? '导入西湖大学个人课表' : '一学期的安排，一次带进来',
                 textAlign: TextAlign.center,
                 style: TextStyle(
                   fontSize: 23,
@@ -947,7 +980,11 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
               ),
               const SizedBox(height: 12),
               Text(
-                schoolWeb ? '在学校页面打开个人学期课表，点「读取当前课表」。' : '登录后核对课程，再导入日历。',
+                fileSchool != null
+                    ? '在 SIS 打开「查看我的课表」，切到「按课程」，用右上角的下载按钮导出 ps.xls。'
+                    : externalSchool
+                    ? '在学校页面打开个人学期课表，点「读取当前课表」。'
+                    : '登录后核对课程，再导入日历。',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: p.muted),
               ),
@@ -955,7 +992,9 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
               ConstrainedBox(
                 constraints: const BoxConstraints(maxWidth: 420),
                 child: Text(
-                  schoolWeb
+                  fileSchool != null
+                      ? '选择原始导出文件即可预览，课程日期和上课时刻取自文件。'
+                      : externalSchool
                       ? '课表在本机读取。没有标明开学日期或上下课时刻时，请按本校校历和作息表补齐。'
                       : '密码和验证码只在学校官方页面填写。确认第一周、节次与假期后再保存。',
                   textAlign: TextAlign.center,
@@ -1166,11 +1205,11 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
           ),
         ),
         const SizedBox(height: 12),
-        if (schoolWeb || timetable!.account.isEmpty) ...[
+        if (externalSchool || timetable!.account.isEmpty) ...[
           TextField(
-            key: ValueKey(schoolWeb ? 'import-profile' : 'import-account'),
+            key: ValueKey(externalSchool ? 'import-profile' : 'import-account'),
             controller: account,
-            decoration: schoolWeb
+            decoration: externalSchool
                 ? const InputDecoration(
                     labelText: '课表别名（可选）',
                     hintText: '我的课表',
@@ -1187,25 +1226,31 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
           ),
           const SizedBox(height: 12),
         ],
-        OutlinedButton.icon(
-          key: const ValueKey('first-teaching-monday'),
-          onPressed: busy ? null : _pickMonday,
-          icon: const Icon(Icons.event_outlined, size: 17),
-          label: Text(
-            firstMonday == null
-                ? '选择第一教学周的周一'
-                : '第一教学周 ${firstMonday!.year}/${firstMonday!.month}/${firstMonday!.day}',
+        if (fileSchool != null)
+          const Text('日期和上课时刻取自 SIS 文件。')
+        else ...[
+          OutlinedButton.icon(
+            key: const ValueKey('first-teaching-monday'),
+            onPressed: busy ? null : _pickMonday,
+            icon: const Icon(Icons.event_outlined, size: 17),
+            label: Text(
+              firstMonday == null
+                  ? '选择第一教学周的周一'
+                  : '第一教学周 ${firstMonday!.year}/${firstMonday!.month}/${firstMonday!.day}',
+            ),
           ),
-        ),
+          const SizedBox(height: 8),
+          Text(
+            '周次按教务系统计算，请勿用报到日期代替。',
+            style: TextStyle(fontSize: 11, color: p.muted, height: 1.6),
+          ),
+        ],
         const SizedBox(height: 8),
-        Text(
-          '周次按教务系统计算，请勿用报到日期代替。',
-          style: TextStyle(fontSize: 11, color: p.muted, height: 1.6),
-        ),
-        const SizedBox(height: 8),
-        if (schoolWeb && !needsPeriodClock)
+        if (fileSchool != null)
+          const SizedBox.shrink()
+        else if (externalSchool && !needsPeriodClock)
           const Text('课程使用教务页面提供的起止时刻。')
-        else if (schoolWeb)
+        else if (externalSchool)
           OutlinedButton.icon(
             key: const ValueKey('edit-course-school-clock'),
             onPressed: busy ? null : _editSchoolClock,
@@ -1282,9 +1327,9 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
             controlAffinity: ListTileControlAffinity.leading,
             value: confirmed,
             onChanged: busy ? null : (v) => setState(() => confirmed = v!),
-            title: const Text(
-              '已核对学期、第一周、节次与假期安排',
-              style: TextStyle(fontSize: 12),
+            title: Text(
+              fileSchool != null ? '已核对归档学期、课程日期和假期安排' : '已核对学期、第一周、节次与假期安排',
+              style: const TextStyle(fontSize: 12),
             ),
           ),
         ),
@@ -1298,7 +1343,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                 '自动跳过重复课程，保留手动改过的名称、时间和备注；颜色始终保留。',
                 style: TextStyle(fontSize: 12, height: 1.6),
               ),
-              if (!schoolWeb)
+              if (!externalSchool)
                 CheckboxListTile(
                   contentPadding: EdgeInsets.zero,
                   dense: true,
@@ -1413,7 +1458,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                   error = null;
                 });
               },
-        child: Text(schoolWeb ? '返回选择学校或学期' : '返回 / 更换学期'),
+        child: Text(externalSchool ? '返回选择学校或学期' : '返回 / 更换学期'),
       ),
       if (plan != null)
         Text(

@@ -3,6 +3,7 @@ import 'dart:math';
 
 import 'package:flutter/services.dart';
 
+import 'dedicated_school_portal_routes.dart';
 import 'school_portal_timetable.dart';
 import 'wakeup_engine.dart';
 import 'whu_timetable.dart';
@@ -95,6 +96,23 @@ abstract final class SchoolPortalReader {
       final value = await execute(script).timeout(const Duration(seconds: 15));
       check();
       return value;
+    }
+
+    final dedicated = dedicatedSchoolPortalFor(page);
+    if (dedicated != null) {
+      if (!SchoolPortalSite.fromEntry(
+        dedicated.entry,
+        name: dedicated.name,
+      ).canRead(page)) {
+        throw const FormatException('请完成学校登录后再打开本人学期课表。');
+      }
+      final asset = await rootBundle.loadString(dedicated.asset);
+      final data = await _runAsync(page, dedicated.script(asset, term), run);
+      final error = data['error'];
+      if (error != null) throw FormatException(_failure(error));
+      final timetable = await dedicated.parse(data, term);
+      check();
+      return timetable;
     }
 
     Future<WhuTimetable?> direct() async {
@@ -199,15 +217,26 @@ abstract final class SchoolPortalReader {
     throw FormatException(_failure(reason));
   }
 
-  // Android evaluateJavascript and WebView2 do not both await JS Promises.
-  // A single unguessable, short-lived reply slot avoids installing any native
-  // message channel that an unrelated page could invoke.
   static Future<Map> _collect(
     Uri page,
     WhuTerm term,
     String js,
     String model,
     List<String> keys,
+    SchoolExecute run,
+  ) => _runAsync(
+    page,
+    '($js)(${jsonEncode(page.origin)},${jsonEncode(keys)},'
+    '${jsonEncode({'year': term.year, 'semester': term.semester})},($model))',
+    run,
+  );
+
+  // Android evaluateJavascript and WebView2 do not both await JS Promises.
+  // A single unguessable, short-lived reply slot avoids installing any native
+  // message channel that an unrelated page could invoke.
+  static Future<Map> _runAsync(
+    Uri page,
+    String invocation,
     SchoolExecute run,
   ) async {
     final slot = jsonEncode(
@@ -219,7 +248,7 @@ abstract final class SchoolPortalReader {
         const k=$slot, href=location.href;
         Object.defineProperty(window,k,{configurable:true,writable:true,value:{pending:true}});
         setTimeout(()=>{ delete window[k]; }, 14000);
-        ($js)(${jsonEncode(page.origin)},${jsonEncode(keys)},${jsonEncode({'year': term.year, 'semester': term.semester})},($model))
+        $invocation
           .then(data=>{ if (Object.hasOwn(window,k)) window[k]=location.href===href?data:{error:'origin'}; })
           .catch(e=>{ if(Object.hasOwn(window,k)) window[k]={error:e?.message==='large'?'large':'shape'}; });
         return true;
@@ -255,7 +284,9 @@ abstract final class SchoolPortalReader {
     'origin' || 'login' => '请完成学校登录后再打开本人学期课表。',
     'termWeeks' => '当前清华课表没有明确的教学周范围。请切换到列明具体教学周的课表再读取。',
     'term' => '学校页面的学期与所选学期不一致。请在教务页面选择同一学期后再读取。',
+    'classicTerm' => '当前课表没有显示可识别的学期。请在学期选择器里选中学期并打开本人课表。',
     'multiple' => '当前页同时显示多份课表，请单独打开要导入的学期课表。',
+    'incomplete' => '学校没有返回完整课表，请在学校页面核对学期后重试。',
     'large' => '课表内容过大，请选择单学期的本人课表。',
     'endpoint' => '学校未返回当前学期的课表数据。请在学校页面重新查询后再读取。',
     'shape' => '已找到课表区域，但无法识别这版课表。请切换到学校的学期课表视图。',

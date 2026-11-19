@@ -8,6 +8,7 @@
 
 #include "win32_window.h"
 #include "desktop_integration.h"
+#include "vortex_transition.h"
 #include "timetable_ocr.h"
 
 // A window that does nothing but host a Flutter view.
@@ -30,6 +31,7 @@ class FlutterWindow : public Win32Window {
 
   // The Flutter instance hosted by this window.
   std::unique_ptr<flutter::FlutterViewController> flutter_controller_;
+  std::unique_ptr<VortexTransition> vortex_;
   std::unique_ptr<DesktopIntegration> desktop_;
   std::unique_ptr<TimetableOcr> timetable_ocr_;
 };

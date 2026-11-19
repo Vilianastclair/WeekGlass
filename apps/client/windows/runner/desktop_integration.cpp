@@ -4,7 +4,7 @@
 #include <flutter/standard_method_codec.h>
 
 #include "resource.h"
-#include "single_instance.h"
+#include "vortex_transition.h"
 
 namespace {
 constexpr UINT kTrayMessage = WM_APP + 101;
@@ -36,8 +36,8 @@ std::string StringArg(const flutter::EncodableMap& map, const char* key) {
 }
 }
 
-DesktopIntegration::DesktopIntegration(HWND window, flutter::BinaryMessenger* messenger)
-    : window_(window), taskbar_created_(RegisterWindowMessageW(L"TaskbarCreated")) {
+DesktopIntegration::DesktopIntegration(HWND window, VortexTransition& vortex, flutter::BinaryMessenger* messenger)
+    : window_(window), vortex_(vortex), taskbar_created_(RegisterWindowMessageW(L"TaskbarCreated")) {
   // LoadImage works with the standard Windows activation context. LoadIconMetric
   // requires common-controls v6 and can prevent the whole app from loading.
   icon_ = static_cast<HICON>(LoadImageW(GetModuleHandle(nullptr),
@@ -54,7 +54,13 @@ DesktopIntegration::DesktopIntegration(HWND window, flutter::BinaryMessenger* me
   channel_ = std::make_unique<flutter::MethodChannel<flutter::EncodableValue>>(
     messenger, "weekglass/desktop", &flutter::StandardMethodCodec::GetInstance());
   channel_->SetMethodCallHandler([this](const auto& call, auto result) {
-    if (call.method_name() == "notify") {
+    if (call.method_name() == "setWindowMotion") {
+      const auto mode = call.arguments() ? std::get_if<std::string>(call.arguments()) : nullptr;
+      if (!mode || !vortex_.SetMode(*mode)) {
+        result->Error("invalid_arguments", "Unknown window motion"); return;
+      }
+      result->Success();
+    } else if (call.method_name() == "notify") {
       const auto args = call.arguments()
         ? std::get_if<flutter::EncodableMap>(call.arguments()) : nullptr;
       if (!args) { result->Error("invalid_arguments", "Expected notification fields"); return; }
@@ -97,7 +103,7 @@ bool DesktopIntegration::Notify(const std::string& title, const std::string& bod
 }
 
 void DesktopIntegration::OpenWindow() {
-  SingleInstance::Activate(window_);
+  vortex_.Open();
   channel_->InvokeMethod("openApp", nullptr);
 }
 
@@ -126,7 +132,15 @@ std::optional<LRESULT> DesktopIntegration::Handle(UINT message, WPARAM wparam,
                                                   LPARAM lparam) {
   if (message == taskbar_created_) { added_ = false; AddTray(); return 0; }
   if (message == WM_CLOSE && (added_ || AddTray())) {
-    ShowWindow(window_, SW_HIDE);
+    NOTIFYICONIDENTIFIER id{};
+    id.cbSize = sizeof(id); id.hWnd = window_; id.uID = tray_.uID; id.guidItem = kTrayGuid;
+    RECT r{};
+    std::optional<POINT> icon;
+    if (SUCCEEDED(Shell_NotifyIconGetRect(&id, &r)) && !IsRectEmpty(&r)) {
+      POINT p{(r.left + r.right) / 2, (r.top + r.bottom) / 2};
+      if (MonitorFromPoint(p, MONITOR_DEFAULTTONULL)) icon = p;
+    }
+    vortex_.HideToTray(icon);
     return 0;
   }
   if (message == kTrayMessage) {
@@ -135,7 +149,7 @@ std::optional<LRESULT> DesktopIntegration::Handle(UINT message, WPARAM wparam,
       case NIN_SELECT:
       case NIN_KEYSELECT: OpenWindow(); break;
       case NIN_BALLOONUSERCLICK:
-        SingleInstance::Activate(window_);
+        vortex_.Open();
         channel_->InvokeMethod("openEvent",
           std::make_unique<flutter::EncodableValue>(notification_event_));
         break;

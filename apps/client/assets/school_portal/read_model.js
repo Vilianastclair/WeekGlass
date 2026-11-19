@@ -175,10 +175,6 @@
       return model(await request('/jwapp/sys/homeapp/api/home/student/getMyScheduleDetail.do',args));
     }
   }
-  if(key==='SUSTechParser' && loc.origin==='https://tis.sustech.edu.cn') {
-    const response=await request('/xszykb/queryxszykbzong',{xn:term.year+'-'+(term.year+1),xq:({3:1,12:2,16:3})[term.semester]});
-    return model(response);
-  }
   if ((key==='SUESParser2' && loc.origin==='https://jxfw.sues.edu.cn' || key==='NWPUParser' && loc.origin==='https://jwxt.nwpu.edu.cn') &&
       /^\/student\/for-std\/course-table(?:\/|$)/.test(path)) {
     const sel=doc.querySelector('select[name="semesterAssoc"],select#semester,select[name="semesterId"],select:has(option[name="semesterAssoc"])');

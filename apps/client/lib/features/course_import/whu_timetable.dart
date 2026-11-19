@@ -283,6 +283,7 @@ class WhuTimetable {
     required List<ClassPeriod> clock,
     Set<String>? selectedCourses,
     String schoolId = 'whu',
+    bool identifyByDate = false,
   }) {
     if (accountKey.trim().isEmpty) throw ArgumentError('请填写学号，用于区分不同账号的课表。');
     if (firstMonday.weekday != DateTime.monday) {
@@ -314,11 +315,15 @@ class WhuTimetable {
         if (key != 0) return key;
         final day = a.weekday.compareTo(b.weekday);
         if (day != 0) return day;
+        if (identifyByDate && a.fixedTime != null && b.fixedTime != null) {
+          return a.fixedTime!.start.compareTo(b.fixedTime!.start);
+        }
         return (a.periods.firstOrNull ?? 25).compareTo(
           b.periods.firstOrNull ?? 25,
         );
       });
     final ordinals = <String, int>{};
+    final datedOrdinals = <String, int>{};
     for (final m in ordered) {
       final dayKey = '${m.courseKey}:${m.weekday}';
       final ordinal = ordinals.update(dayKey, (n) => n + 1, ifAbsent: () => 0);
@@ -353,11 +358,17 @@ class WhuTimetable {
           firstMonday.month,
           firstMonday.day + (week - 1) * 7 + m.weekday - 1,
         );
+        final datedKey =
+            '${m.courseKey}:${date.year}-${date.month}-${date.day}';
+        final datedIndex = identifyByDate
+            ? datedOrdinals.update(datedKey, (n) => n + 1, ifAbsent: () => 0)
+            : 0;
         for (var part = 0; part < times.length; part++) {
           final start = times[part].start;
           final end = times[part].end;
-          final source =
-              '$prefix${m.courseKey}:${m.weekday}:$ordinal:$week:$part';
+          final source = identifyByDate
+              ? '$prefix$datedKey:$datedIndex:$part'
+              : '$prefix${m.courseKey}:${m.weekday}:$ordinal:$week:$part';
           final notes = [
             if (m.room.isNotEmpty) '地点：${m.room}',
             if (m.teacher.isNotEmpty) '教师：${m.teacher}',

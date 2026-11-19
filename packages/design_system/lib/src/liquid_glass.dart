@@ -121,6 +121,16 @@ class LiquidGlassScope extends StatefulWidget {
   final bool motion;
   final bool mobile;
 
+  /// Reads local material preferences without subscribing to animation ticks.
+  static ({double strength, bool motion}) settingsOf(BuildContext context) {
+    final current = context
+        .dependOnInheritedWidgetOfExactType<_LiquidMaterial>();
+    return (
+      strength: current?.strength ?? LiquidGlass.defaultStrength,
+      motion: current?.motion ?? !MediaQuery.disableAnimationsOf(context),
+    );
+  }
+
   @override
   State<LiquidGlassScope> createState() => _LiquidGlassScopeState();
 }

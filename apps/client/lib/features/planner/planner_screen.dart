@@ -6,6 +6,8 @@ import 'package:flutter/services.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 
+import '../../app/windows_vortex.dart';
+
 import '../cloud/cloud_service_button.dart';
 import '../course_import/course_import_dialog.dart';
 import 'calendar_grid.dart';
@@ -433,7 +435,9 @@ class _CompactBar extends StatelessWidget {
                   icon: Icons.remove_rounded,
                   label: '最小化',
                   hint: '最小化',
-                  onTap: () => windowManager.minimize(),
+                  onTap: () => Platform.isWindows
+                      ? WindowsVortex.minimize()
+                      : windowManager.minimize(),
                 ),
                 _RailButton(
                   icon: Icons.crop_square_rounded,
