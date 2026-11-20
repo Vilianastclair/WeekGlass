@@ -15,6 +15,7 @@ import 'accepted_update.dart';
 import 'android_update_bridge.dart';
 import 'android_update_request.dart';
 import 'update_object_download.dart';
+import 'update_client_version.dart';
 import 'update_protocol.dart';
 import 'update_reconstruction.dart';
 
@@ -56,13 +57,15 @@ class UpdateService extends ChangeNotifier {
   @visibleForTesting
   UpdateService.androidForTesting({
     required Directory updateRoot,
-    required UpdateMetadata metadata,
+    UpdateMetadata? metadata,
     required UpdateEnvelopeVerifier verifyEnvelope,
+    String origin = updateOrigin,
   }) : this._(
          android: true,
          updateRoot: updateRoot,
          fetchMetadata: metadata,
          verifyEnvelope: verifyEnvelope,
+         origin: origin,
        );
 
   @visibleForTesting
@@ -84,8 +87,8 @@ class UpdateService extends ChangeNotifier {
        );
 
   static final instance = UpdateService._();
-  static const currentVersion = '0.22.2';
-  static const currentBuild = 51;
+  static const currentVersion = '0.22.5';
+  static const currentBuild = 54;
   Future<void> Function()? beforeInstall;
   Future<void> Function()? beforeAndroidInstall;
   Future<void> Function()? afterInstallFailure;
@@ -156,17 +159,39 @@ class UpdateService extends ChangeNotifier {
     notifyListeners();
   }
 
+  @visibleForTesting
+  Future<List<int>> metadataForTesting(
+    String relative,
+    int limit, {
+    File? cache,
+  }) => _metadata(relative, limit, cache: cache);
+
   Future<List<int>> _metadata(String relative, int limit, {File? cache}) async {
     if (_fetchMetadata case final fetch?) {
       return fetch(relative, limit, cache: cache);
     }
+    // Android reports its actual installed PackageManager identity. A failure
+    // stops this request rather than routing with stale fallback constants.
+    final device = isAndroid ? await _android.info() : null;
+    final clientVersion = UpdateClientVersion(
+      device?.version ?? currentVersion,
+      device?.build ?? currentBuild,
+    );
     final http = HttpClient()..connectionTimeout = const Duration(seconds: 20);
     try {
       final request = await http.getUrl(Uri.parse(_origin).resolve(relative));
+      clientVersion.headers.forEach(request.headers.set);
       request.followRedirects = false;
       request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
       final tag = cache == null ? null : File('${cache.path}.etag');
-      if (cache != null && await cache.exists() && await tag!.exists()) {
+      final lane = cache == null ? null : File('${cache.path}.client-version');
+      final laneIdentity = '${clientVersion.version}\n${clientVersion.build}';
+      final cacheMatchesClient =
+          cache != null &&
+          await cache.exists() &&
+          await lane!.exists() &&
+          await lane.readAsString() == laneIdentity;
+      if (cacheMatchesClient && await tag!.exists()) {
         request.headers.set(
           HttpHeaders.ifNoneMatchHeader,
           await tag.readAsString(),
@@ -175,7 +200,7 @@ class UpdateService extends ChangeNotifier {
       final response = await request.close().timeout(
         const Duration(seconds: 30),
       );
-      if (response.statusCode == 304 && cache != null && await cache.exists()) {
+      if (response.statusCode == 304 && cacheMatchesClient) {
         return await cache.readAsBytes();
       }
       if (response.statusCode == 404 || response.statusCode == 410) {
@@ -205,6 +230,9 @@ class UpdateService extends ChangeNotifier {
         } else if (await tag!.exists()) {
           await tag.delete();
         }
+        // A pre-upgrade/headerless channel body must never satisfy the next
+        // release's negotiated check, even if a server returns an old ETag.
+        await lane!.writeAsString(laneIdentity, flush: true);
       }
       return bytes;
     } finally {
