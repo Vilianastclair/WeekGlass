@@ -1,7 +1,7 @@
 name: weekglass
 description: A calm, local-first weekly time planner.
 publish_to: none
-version: 0.22.2+51
+version: 0.22.6+55
 
 environment:
   sdk: ^3.13.7

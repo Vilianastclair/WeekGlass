@@ -17,8 +17,6 @@ constexpr UINT kRequestRestore = WM_APP + 146;
 constexpr UINT kTaskbarReady = WM_APP + 147;
 constexpr UINT kGpuReady = WM_APP + 148;
 constexpr UINT kFrameReady = WM_APP + 149;
-constexpr UINT kCheckCover = WM_APP + 150;
-constexpr UINT kForegroundReturn = WM_APP + 151;
 constexpr UINT kDirectMinimize = WM_APP + 152;
 constexpr unsigned kCaptureDeadlineMs = 350;
 constexpr unsigned kAnchorGraceMs = 65;
@@ -173,14 +171,14 @@ void VortexTransition::Open() {
     return;
   }
   if (phase_ == Phase::playing) { Redirect(Target::open); return; }
-  if (parked_ == Target::open && IsWindowVisible(window_) && !IsIconic(window_)) {
-    // Reopening a running instance requests real activation first. Windows can
-    // decline it. Only a successful return from an overlapping app animates.
-    if (GetForegroundWindow() != window_) {
-      CheckCover();
-      if (cover_) background_ = true;
-      SingleInstance::Activate(window_);
+  if (IsWindowVisible(window_) && !IsIconic(window_)) {
+    // An already visible window only needs activation, even if the OS raised
+    // it before our placement notification. Never replay a parked texture.
+    if (parked_ != Target::open) {
+      parked_ = Target::open;
+      Reset(false);
     }
+    if (GetForegroundWindow() != window_) SingleInstance::Activate(window_);
     return;
   }
   if (parked_ != Target::open && renderer_.frame_ready() && anchor_ && CanAnimate() &&
@@ -200,16 +198,15 @@ void VortexTransition::Open() {
 }
 
 void VortexTransition::Request(Target target, std::optional<POINT> anchor, bool find_taskbar,
-                               bool foreground_return) {
+                               bool fresh_restore) {
   Reset(false);
   target_ = target;
-  foreground_return_ = foreground_return;
+  fresh_restore_ = fresh_restore;
   if (target == Target::open) open_foreground_ = GetForegroundWindow();
   if (!CanAnimate()) { System(target); return; }
-  if (foreground_return_) {
-    // The live planner is or will be raised. Drawing a transparent sheet over
-    // its opaque rectangle would show no silhouette. Cloak only its DWM
-    // visual, leaving its window placement, taskbar identity and input intact.
+  if (fresh_restore_) {
+    // Restore an iconic or hidden planner for a fresh capture without showing
+    // its opaque rectangle under the effect. Cloak only its DWM visual.
     const BOOL cloak = TRUE;
     if (!SetNativeTransitions() ||
         FAILED(DwmSetWindowAttribute(window_, DWMWA_CLOAK, &cloak, sizeof(cloak)))) {
@@ -393,10 +390,10 @@ void VortexTransition::Apply(Target target) {
   native_ = true;
   if (target == Target::open) {
     // Do not take focus at the *end* of an animation if the user switched
-    // to a different app in the meantime. A foreground return already has
-    // its final HWND state; it needs only the uncloak in Reset.
+    // to a different app in the meantime. A fresh restore may have already
+    // placed the HWND beneath the overlay; Reset then only needs to uncloak it.
     const HWND foreground = GetForegroundWindow();
-    if (!foreground_return_ || IsIconic(window_) || !IsWindowVisible(window_)) {
+    if (!fresh_restore_ || IsIconic(window_) || !IsWindowVisible(window_)) {
       if (open_foreground_ && foreground && foreground != open_foreground_ && foreground != window_) {
         if (IsIconic(window_) || !IsWindowVisible(window_)) ShowWindow(window_, SW_SHOWNOACTIVATE);
       } else SingleInstance::Activate(window_);
@@ -417,7 +414,7 @@ void VortexTransition::Reset(bool retain) {
   KillTimer(window_, kCaptureTimer);
   CancelFrameWait();
   fetching_anchor_ = false;
-  foreground_return_ = false;
+  fresh_restore_ = false;
   open_foreground_ = nullptr;
   if (cloaked_) {
     const BOOL cloak = FALSE;
@@ -437,7 +434,7 @@ void VortexTransition::Reset(bool retain) {
   }
 }
 void VortexTransition::System(Target target) {
-  const bool leave_focus = foreground_return_ && target == Target::open &&
+  const bool leave_focus = fresh_restore_ && target == Target::open &&
       IsWindowVisible(window_) && !IsIconic(window_);
   const HWND foreground = target == target_ ? open_foreground_ : nullptr;
   Reset(false);
@@ -445,39 +442,6 @@ void VortexTransition::System(Target target) {
   open_foreground_ = foreground;
   if (!leave_focus) Apply(target);
   open_foreground_ = nullptr;
-}
-
-bool VortexTransition::CoveredBy(HWND other) const {
-  if (!other || !IsWindowVisible(other) || IsIconic(other) ||
-      other == GetShellWindow() || GetAncestor(other, GA_ROOTOWNER) == window_ ||
-      (GetWindowLongPtrW(other, GWL_EXSTYLE) & WS_EX_TOOLWINDOW))
-    return false;
-  DWORD pid = 0;
-  GetWindowThreadProcessId(other, &pid);
-  if (!pid || pid == GetCurrentProcessId()) return false;
-  DWORD cloaked = 0;
-  if (SUCCEEDED(DwmGetWindowAttribute(other, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked)
-    return false;
-  wchar_t cls[64]{};
-  GetClassNameW(other, cls, ARRAYSIZE(cls));
-  if (!wcscmp(cls,L"WorkerW") || !wcscmp(cls,L"Progman") || !wcscmp(cls,L"Shell_TrayWnd") ||
-      !wcscmp(cls,L"Shell_SecondaryTrayWnd")) return false;
-  RECT other_bounds{}, intersect{};
-  const RECT ours = ClientBounds(window_);
-  if (FAILED(DwmGetWindowAttribute(other, DWMWA_EXTENDED_FRAME_BOUNDS, &other_bounds, sizeof(other_bounds))) &&
-      !GetWindowRect(other, &other_bounds)) return false;
-  if (!IntersectRect(&intersect, &ours, &other_bounds)) return false;
-  const auto area = [](RECT r) { return static_cast<int64_t>(r.right-r.left)*(r.bottom-r.top); };
-  // Small overlaps at snapped edges don't turn ordinary side-by-side editing
-  // into an opening transition.
-  return area(intersect) * 4 >= area(ours);
-}
-
-void VortexTransition::CheckCover() {
-  cover_ = nullptr;
-  for (HWND h = GetWindow(window_, GW_HWNDPREV); h; h = GetWindow(h, GW_HWNDPREV)) {
-    if (CoveredBy(h)) { cover_ = h; return; }
-  }
 }
 
 std::optional<LRESULT> VortexTransition::Handle(UINT message, WPARAM wparam, LPARAM lparam) {
@@ -493,36 +457,11 @@ std::optional<LRESULT> VortexTransition::Handle(UINT message, WPARAM wparam, LPA
     if (IsMinimizeCommand(static_cast<UINT>(wparam))) MinimizeWithCommand(static_cast<int>(wparam));
     return 0;
   }
-  if (message == WM_ACTIVATEAPP && IsOwnThread(static_cast<DWORD>(lparam))) return {};
-  if (message == WM_ACTIVATEAPP && !wparam) {
-    pending_reentry_ = false;
-    if (foreground_return_ && target_ == Target::open && phase_ != Phase::idle) Reset(false);
-    background_ = first_frame_ && parked_ == Target::open && IsWindowVisible(window_) && !IsIconic(window_);
-    cover_ = nullptr;
-    if (background_) PostMessageW(window_, kCheckCover, 0, 0);
-  }
-  if (message == kCheckCover) { if (background_) CheckCover(); return 0; }
-  if (background_ && message == WM_WINDOWPOSCHANGING &&
-      !(reinterpret_cast<WINDOWPOS*>(lparam)->flags & SWP_NOZORDER)) {
-    // Check the actual order *before* the shell raises the planner.
-    CheckCover();
-  }
-  if (message == WM_ACTIVATEAPP && wparam && background_) {
-    background_ = false;
-    pending_reentry_ = CoveredBy(cover_);
-    if (pending_reentry_) PostMessageW(window_, kForegroundReturn, request_id_, 0);
-    cover_ = nullptr;
-  }
-  if (message == WM_ENTERMENULOOP) pending_reentry_ = false;
-  if (message == kForegroundReturn) {
-    GUITHREADINFO gui{sizeof(GUITHREADINFO)};
-    const bool reenter = std::exchange(pending_reentry_, false);
-    if (reenter && !background_ && wparam == request_id_ && phase_ == Phase::idle && parked_ == Target::open &&
-        IsWindowVisible(window_) && !IsIconic(window_) && IsWindowEnabled(window_) &&
-        GetActiveWindow() == window_ && GetGUIThreadInfo(GetCurrentThreadId(), &gui) &&
-        !(gui.flags & (GUI_INMENUMODE | GUI_POPUPMENUMODE | GUI_SYSTEMMENUMODE | GUI_INMOVESIZE)) &&
-        CanAnimate()) Request(Target::open, {}, false, true);
-    return 0;
+  // Focus loss may cancel an actual restore capture; focus gain never starts one.
+  if (message == WM_ACTIVATEAPP && !wparam && fresh_restore_ &&
+      target_ == Target::open && phase_ != Phase::idle &&
+      !IsOwnThread(static_cast<DWORD>(lparam))) {
+    Reset(false);
   }
   if (message == kRequestRestore) { if (IsIconic(window_)) Open(); return 0; }
   if (message == WM_SYSCOMMAND) {

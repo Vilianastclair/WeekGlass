@@ -41,9 +41,7 @@ class VortexTransition {
   bool CanAnimate() const;
   void MinimizeWithCommand(int command);
   void Request(Target target, std::optional<POINT> anchor, bool find_taskbar,
-               bool foreground_return = false);
-  void CheckCover();
-  bool CoveredBy(HWND other) const;
+               bool fresh_restore = false);
   void Capture();
   void Received(uint64_t id, const flutter::EncodableValue* reply);
   void Advance();
@@ -83,9 +81,8 @@ class VortexTransition {
   bool fetching_anchor_ = false, native_ = false, first_frame_ = false;
   bool first_present_ = false, capture_in_flight_ = false;
   bool capture_allowed_ = true, native_transitions_changed_ = false;
-  bool background_ = false, pending_reentry_ = false;
-  bool foreground_return_ = false, cloaked_ = false;
-  HWND cover_ = nullptr, open_foreground_ = nullptr;
+  bool fresh_restore_ = false, cloaked_ = false;
+  HWND open_foreground_ = nullptr;
   VortexRenderer renderer_;
 };
 #endif
