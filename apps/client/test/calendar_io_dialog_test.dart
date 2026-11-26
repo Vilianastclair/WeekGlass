@@ -53,7 +53,7 @@ void main() {
 
   for (final size in [const Size(1000, 740), const Size(390, 700)]) {
     testWidgets(
-      'import/export dialogs fit $size and offer color/mono choices',
+      'import/export dialogs fit $size and offer one default PDF choice',
       (tester) async {
         tester.view.physicalSize = size;
         tester.view.devicePixelRatio = 1;
@@ -69,14 +69,57 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('导出入口'));
         await tester.pumpAndSettle();
-        expect(find.text('彩色 PDF'), findsOneWidget);
-        expect(find.text('黑白 PDF'), findsOneWidget);
+        final formats = tester.widgetList<ChoiceChip>(find.byType(ChoiceChip));
+        expect(formats.map((chip) => (chip.label as Text).data), [
+          'PDF',
+          'ICS',
+          'JSON',
+          'CSV',
+        ]);
+        expect(
+          (formats.singleWhere((chip) => chip.selected).label as Text).data,
+          'PDF',
+        );
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
         c.dispose();
       },
     );
   }
+
+  testWidgets('PDF export sends the dated file to Android document storage', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(390, 700);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.resetPhysicalSize);
+    addTearDown(tester.view.resetDevicePixelRatio);
+    final oldPicker = FilePickerPlatform.instance;
+    final picker = _FixturePicker(
+      savedUri: Uri.parse('content://weekglass.test/document/calendar'),
+    );
+    FilePickerPlatform.instance = picker;
+    addTearDown(() => FilePickerPlatform.instance = oldPicker);
+    final c = await controller();
+    await tester.pumpWidget(app(c));
+    await tester.tap(find.text('导出入口'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, '导出'));
+    for (var i = 0; i < 200 && picker.savedName == null; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump(const Duration(milliseconds: 20));
+    }
+    await tester.pumpAndSettle();
+    expect(picker.savedName, 'WeekGlass-20261102.pdf');
+    expect(picker.savedMime, 'application/pdf');
+    expect(picker.savedBytes?.take(5), '%PDF-'.codeUnits);
+    expect(find.text('导出日历'), findsNothing);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    c.dispose();
+  });
 
   testWidgets(
     'fixture import previews, saves atomically, and undo removes the batch',
@@ -154,6 +197,9 @@ void main() {
 }
 
 class _FixturePicker extends FilePickerPlatform {
+  _FixturePicker({this.savedUri});
+
+  final Uri? savedUri;
   String? savedName, savedMime;
   Uint8List? savedBytes;
   @override
@@ -185,7 +231,7 @@ class _FixturePicker extends FilePickerPlatform {
     savedName = fileName;
     savedMime = mimeType;
     savedBytes = bytes;
-    return null;
+    return savedUri;
   }
 }
 

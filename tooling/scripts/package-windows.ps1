@@ -74,7 +74,7 @@ $guide = @'
 
 在「学校课表」选择学校，使用学校官方页面登录，再打开本学期的个人课表。武汉大学保留专用导入；其他学校可按页面格式在本机读取。若提示补充教学周数，请以学校校历为准。核对日期、上课时段和课程后再保存。学校要求验证时，在校方页面完成即可。
 
-Windows 支持本机识别课表图片。也可导入 ICS、JSON、CSV 或粘贴课表文字；识别结果确认后才加入日历。导出支持日程文件、彩色 PDF 和黑白 PDF。
+Windows 支持本机识别课表图片。也可导入 ICS、JSON、CSV 或粘贴课表文字；识别结果确认后才加入日历。导出支持 ICS、JSON、CSV 和 A4 黑白周表 PDF。
 
 学校登录使用 Microsoft Edge WebView2 Runtime。若系统缺少此组件，请从微软官方网站安装：https://developer.microsoft.com/microsoft-edge/webview2/ 。
 
