@@ -3,6 +3,7 @@ import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
   override func awakeFromNib() {
+    animationBehavior = .none
     let flutterViewController = FlutterViewController()
     var launchFrame = frame
     contentViewController = flutterViewController
