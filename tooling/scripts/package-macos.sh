@@ -92,7 +92,7 @@ feed_url="$(/usr/bin/plutil -extract "$arch" raw -o - "$update_config")"
 public_ed_key="$(/usr/bin/plutil -extract public_ed_key raw -o - "$update_config")"
 # Xcode treats // as a comment in xcconfig, even with quotes.
 {
-  printf 'ARCHS = %s\n' "$host"
+  printf 'ARCHS = %s\nCODE_SIGN_INJECT_BASE_ENTITLEMENTS = NO\n' "$host"
   printf 'WG_MAC_UPDATE_FEED_URL = https:/$()/%s\n' "${feed_url#https://}"
   printf 'WG_MAC_UPDATE_PUBLIC_KEY = %s\n' "$public_ed_key"
 } > "$scratch/release.xcconfig"
@@ -177,6 +177,9 @@ if [[ -n "$course_asset" ]]; then
     # Use Xcode's expanded entitlements so sandbox service names still match
     # the bundle identifier after re-sealing the added resources.
     /usr/bin/codesign --display --entitlements - --xml "$app" > "$entitlements"
+    if /usr/libexec/PlistBuddy -c 'Print :com.apple.security.get-task-allow' "$entitlements" >/dev/null 2>&1; then
+      /usr/libexec/PlistBuddy -c 'Delete :com.apple.security.get-task-allow' "$entitlements"
+    fi
     /usr/bin/codesign --force --sign - --timestamp=none --entitlements "$entitlements" "$app"
   } 2>&1 | tee "$evidence/course-assets.log"
 else
