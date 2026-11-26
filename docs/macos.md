@@ -42,6 +42,12 @@ bash tooling/scripts/test-macos.sh --package
 
 两版均通过正常云服务页面取得受保护的 `/v1/me/account` 资料。独立服务器记录显示同一账号、同一设备、同一活跃会话族，最后活动从 12:50:32 UTC 更新至 12:51:41 UTC。测试结束后服务端回收了这一个空账号；临时投递通道及私有安装包暂存均已撤下。
 
+### 增量下载
+
+普通 0.22.12+61 已包含差量接收功能。每个架构的正式构建从上一个公开的同架构 DMG 生成 Sparkle 格式 4 的补丁，在 Mac 上重建应用并验签。首装、旧构建未匹配或补丁应用失败使用完整 DMG。
+
+[原样客户端接收验证](https://github.com/Vilianastclair/WeekGlass-macOS-validation/actions/runs/45827949820)使用公开的 Apple Silicon 61，更新到只在私有通道短时提供的 62：Sparkle 请求补丁一次，服务器实发 51,326 字节，52,279,521 字节完整包请求数为零，程序在原位置以新进程启动。两端签名身份保持一致。
+
 ### 早期测试记录
 
 2026 年 11 月 26 日，私有仓库的[单次升级验收](https://github.com/Vilianastclair/WeekGlass-macOS-validation/actions/runs/45780998382)在 Apple Silicon、macOS 15.8.2、Xcode 16.4 上执行了提交 `374c2be`。两版通过原生代码签名校验，绑定同一证书和应用标识。旧版请求更新源和后继包，服务器均返回 HTTP 200；新启动的构建 58 写出了错误回执。测试在文件钥匙串操作时收到 `errSecAuthFailed`（`-25293`），未生成周历窗口截图。该次回执没有区分读取凭据和删除测试项。这次失败促成了固定凭据服务的实现。
