@@ -1,3 +1,4 @@
+import Vision
 import XCTest
 
 final class RunnerUITests: XCTestCase {
@@ -66,41 +67,85 @@ final class RunnerUITests: XCTestCase {
     action.tap()
   }
 
-  private func exportJSON(in app: XCUIApplication) {
+  // Files is a remote system view. Some simulator/XCTest pairs expose its
+  // controls only on screen, outside the tested app's accessibility tree.
+  private func filesControl(
+    _ text: String, app: XCUIApplication, timeout: TimeInterval = 8,
+    isDocument: Bool = false
+  ) throws -> XCUICoordinate? {
+    let end = Date().addingTimeInterval(timeout)
+    var observed: [String] = []
+    repeat {
+      let predicate = NSPredicate(format: isDocument ? "label BEGINSWITH %@" : "label == %@", text)
+      let element = app.descendants(matching: .any).matching(predicate).firstMatch
+      if element.exists && element.isHittable {
+        return element.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+      }
+      let screen = XCUIScreen.main.screenshot()
+      let request = VNRecognizeTextRequest()
+      request.recognitionLevel = .accurate
+      request.recognitionLanguages = ["en-US"]
+      request.usesLanguageCorrection = false
+      try VNImageRequestHandler(data: screen.pngRepresentation, options: [:]).perform([request])
+      observed = []
+      for item in request.results ?? [] {
+        guard let candidate = item.topCandidates(1).first else { continue }
+        let line = candidate.string.trimmingCharacters(in: .whitespacesAndNewlines)
+        observed.append(line)
+        let word = line.lowercased().filter { $0.isLetter || $0.isNumber }
+        let target = text.lowercased().filter { $0.isLetter || $0.isNumber }
+        // Files may wrap a basename in grid view or hide its extension.
+        let matches = isDocument
+          ? (word.hasPrefix(target) || word == String(target.suffix(8)) ||
+             (word.hasPrefix("weekglass") && target.hasPrefix(word)))
+          : word == target
+        if matches {
+          let box = item.boundingBox
+          return app.coordinate(withNormalizedOffset: CGVector(dx: box.midX, dy: 1 - box.midY))
+        }
+      }
+      Thread.sleep(forTimeInterval: 0.4)
+    } while Date() < end
+    print("Files could not locate \(text); visible labels: \(observed)")
+    return nil
+  }
+
+  private func exportJSON(in app: XCUIApplication) throws {
     openFileAction("导出日程", in: app)
     control("JSON", in: app).tap()
     app.buttons["导出"].tap()
-    let save = app.buttons["Save"]
-    XCTAssertTrue(save.waitForExistence(timeout: 20), "The system Files save sheet must open")
-    if !save.isEnabled {
-      control("On My iPhone", in: app).tap()
-    }
-    XCTAssertTrue(save.isEnabled)
-    attachScreen("在文件中保存 JSON", of: app)
+    let save = try XCTUnwrap(try filesControl("Save", app: app, timeout: 20))
+    let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+    shot.name = "在文件中保存 JSON"
+    shot.lifetime = .keepAlways
+    add(shot)
     save.tap()
     checkWeek(app)
   }
 
-  private func importJSON(named base: String, in app: XCUIApplication) {
+  private func importJSON(named base: String, in app: XCUIApplication) throws {
     openFileAction("导入日程", in: app)
     app.buttons["选择文件并导入"].tap()
-    let file = app.descendants(matching: .any).matching(
-      NSPredicate(format: "label BEGINSWITH %@", base)
-    ).firstMatch
-    if !file.waitForExistence(timeout: 5) {
-      // A fresh picker may start in Recents. Browse the on-device location
-      // where the save sheet wrote the file instead of using app storage.
-      let browse = control("Browse", in: app)
-      if browse.exists { browse.tap() }
-      let phone = control("On My iPhone", in: app)
-      if phone.waitForExistence(timeout: 3) { phone.tap() }
+    var file = try filesControl(base, app: app, isDocument: true)
+    if file == nil {
+      if let browse = try filesControl("Browse", app: app, timeout: 2) { browse.tap() }
+      if let downloads = try filesControl("Downloads", app: app, timeout: 3) {
+        downloads.tap()
+      } else if let local = try filesControl("On My iPhone", app: app, timeout: 3) {
+        local.tap()
+        if let downloads = try filesControl("Downloads", app: app) { downloads.tap() }
+      }
+      file = try filesControl(base, app: app, isDocument: true)
     }
-    XCTAssertTrue(file.waitForExistence(timeout: 10), "The document saved by Files must be selectable")
-    attachScreen("在文件中选择 JSON", of: app)
-    file.tap()
+    let document = try XCTUnwrap(file, "The exported JSON must be visible in Files")
+    let shot = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+    shot.name = "在文件中选择 JSON"
+    shot.lifetime = .keepAlways
+    add(shot)
+    document.tap()
   }
 
-  func testWeekKeepsChangesAcrossRelaunches() {
+  func testWeekKeepsChangesAcrossRelaunches() throws {
     continueAfterFailure = false
     let app = XCUIApplication()
     app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
@@ -149,7 +194,7 @@ final class RunnerUITests: XCTestCase {
     openDetails(editedTitle, on: day, in: app)
     attachScreen("重开后的修改日程", of: app)
     app.buttons["关闭"].tap()
-    exportJSON(in: app)
+    try exportJSON(in: app)
     openDetails(editedTitle, on: day, in: app)
     app.buttons["删除"].tap()
     app.buttons["确认删除"].tap()
@@ -161,7 +206,7 @@ final class RunnerUITests: XCTestCase {
     XCTAssertFalse(card(editedTitle, in: app).exists)
     attachScreen("删除后重新打开周历", of: app)
 
-    importJSON(named: filename, in: app)
+    try importJSON(named: filename, in: app)
     XCTAssertTrue(card(editedTitle, in: app).waitForExistence(timeout: 15))
     relaunch(app)
     openDetails(editedTitle, on: day, in: app)
