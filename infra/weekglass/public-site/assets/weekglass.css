@@ -9,3 +9,4 @@
 @media(max-width:460px){.pricing-grid{grid-template-columns:1fr}.plan{padding:28px}.plan-heading{display:flex}.plan-heading h2{margin:0}.plan .price{font-size:66px}.plan-description{margin-bottom:25px}.mobile-break{display:block}.top nav{gap:12px}.top .nav-account{padding-inline:10px}.brand{font-size:18px}.preview-caption{flex-wrap:wrap}.device-switch{margin-left:auto}.footer nav{gap:18px}.free-price{font-size:30px}}
 @media(prefers-reduced-motion:reduce){*,*::before,*::after{animation:none!important;transition:none!important}.button:hover{transform:none}}
 .footer .public-security-record{display:inline-flex;align-items:center;gap:6px;white-space:nowrap}.footer .public-security-record img{width:18px;height:20px;flex:none}.footer .public-security-record:hover{text-decoration:underline}
+.footer .filing-records{flex-wrap:wrap;column-gap:18px;row-gap:4px}.footer .icp-record{white-space:nowrap}.footer .filing-records a:hover{text-decoration:underline}
