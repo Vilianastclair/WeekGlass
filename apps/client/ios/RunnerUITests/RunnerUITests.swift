@@ -47,11 +47,12 @@ final class RunnerUITests: XCTestCase {
     XCTAssertTrue(event.waitForExistence(timeout: 10))
     XCTAssertTrue(event.isHittable)
     event.tap()
-    XCTAssertTrue(app.staticTexts[title].waitForExistence(timeout: 10))
-    let dateAndTime = app.staticTexts.matching(NSPredicate(
-      format: "label CONTAINS %@ AND label CONTAINS %@", day, "09:00 — 10:00"
+    // Flutter exposes the title, date and time as one accessible reading group.
+    let detail = app.descendants(matching: .any).matching(NSPredicate(
+      format: "label BEGINSWITH %@ AND label CONTAINS %@ AND label ENDSWITH %@",
+      title + "\n", day, "09:00 — 10:00"
     )).firstMatch
-    XCTAssertTrue(dateAndTime.exists, "Details must show the selected day and both times")
+    XCTAssertTrue(detail.waitForExistence(timeout: 10), "Details must show the title, day and both times")
   }
 
   private func control(_ label: String, in app: XCUIApplication) -> XCUIElement {
