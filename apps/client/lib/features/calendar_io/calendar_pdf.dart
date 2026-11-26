@@ -10,8 +10,7 @@ import 'calendar_codec.dart';
 
 part 'calendar_pdf_week.dart';
 
-/// Color exports open with a weekly time grid. Both modes retain searchable
-/// text and paginate the complete titles and notes.
+/// Color prints a compact weekly agenda. Monochrome retains its detail table.
 class CalendarPdf {
   static Future<Uint8List> build({
     required Iterable<CalendarEvent> events,
@@ -95,7 +94,13 @@ class CalendarPdf {
           )
           .toList();
       if (!monochrome) {
-        _ColorWeek(weekStart, first, last, zone, timeZoneId, weekly).addTo(doc);
+        _ColorWeek(
+          weekStart,
+          first,
+          last,
+          zone,
+          weekly,
+        ).addTo(doc, font.getFont(pw.Context(document: doc.document)));
         week = nextWeek;
         continue;
       }

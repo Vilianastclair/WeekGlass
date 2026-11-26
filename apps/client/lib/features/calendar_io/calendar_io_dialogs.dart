@@ -554,7 +554,7 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
               ),
               const SizedBox(height: 12),
               Text(switch (_format) {
-                CalendarExportFormat.colorPdf => '每周一张彩色周历，完整时间和备注另附。',
+                CalendarExportFormat.colorPdf => 'A4 横向周表',
                 CalendarExportFormat.monochromePdf => '按周列出时间和备注，适合黑白打印。',
                 CalendarExportFormat.ics => '兼容主流日历；已展开的周/月日程按各次时间导出。',
                 CalendarExportFormat.json =>

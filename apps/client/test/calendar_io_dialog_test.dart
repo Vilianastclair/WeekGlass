@@ -93,43 +93,68 @@ void main() {
     );
     FilePickerPlatform.instance = picker;
     addTearDown(() => FilePickerPlatform.instance = previous);
-    final events = [
-      for (var day = 0; day < 7; day++)
-        for (final (i, entry) in const [
-          (8 * 60, 35, '晨间阅读'),
-          (8 * 60 + 40, 45, '线性代数'),
-          (9 * 60 + 40, 80, '城市观察'),
-          (11 * 60 + 15, 20, '整理笔记'),
-          (12 * 60, 50, '午餐与休息'),
-          (14 * 60, 80, '工作室讨论'),
-          (16 * 60, 55, '样品制作'),
-          (18 * 60 + 20, 25, '校园散步'),
-          (19 * 60 + 10, 65, '个人练习'),
-        ].indexed)
-          CalendarEvent.timed(
-            id: 'pdf-$day-$i',
-            title: entry.$3,
-            startLocal: DateTime(2026, 11, 2 + day, 0, entry.$1),
-            endLocal: DateTime(2026, 11, 2 + day, 0, entry.$1 + entry.$2),
-            timeZoneId: 'Asia/Shanghai',
-            color: EventColor.values[(i + day) % EventColor.values.length],
-            notes: i == 2
-                ? '地点：图书馆二楼\n带上观察记录与草图。'
-                : day == 6 && i == 8
-                ? '整理本周作品，下周带齐纸样。'
-                : null,
-          ),
-      for (var i = 0; i < 2; i++)
-        CalendarEvent.timed(
-          id: 'pdf-overlap-$i',
-          title: i == 0 ? '实验室交流' : '取资料',
-          startLocal: DateTime(2026, 11, 3 + i, 14, 25),
-          endLocal: DateTime(2026, 11, 3 + i, 14, i == 0 ? 55 : 30),
-          timeZoneId: 'Asia/Shanghai',
-          color: EventColor.rose,
-        ),
-    ];
+    // A local run can supply the selected week's records without adding
+    // personal schedules to the repository or changing the export route.
+    final input = Platform.environment['WG_COLOR_PDF_RECORDS'];
+    final anchor = DateTime.parse(
+      Platform.environment['WG_COLOR_PDF_MONDAY'] ?? '2026-11-02',
+    );
+    final events = input != null
+        ? (jsonDecode(input) as List)
+              .map(
+                (r) => CalendarEvent.timed(
+                  id: r['id'] as String,
+                  title: r['title'] as String,
+                  startLocal: DateTime.parse(r['start_utc'] as String)
+                      .toLocal(),
+                  endLocal: DateTime.parse(r['end_utc'] as String).toLocal(),
+                  timeZoneId: 'Asia/Shanghai',
+                  color: EventColorPresentation.fromKey(
+                    r['color_key'] as String?,
+                  ),
+                  notes: r['notes'] as String?,
+                ),
+              )
+              .toList()
+        : [
+            for (var day = 0; day < 7; day++)
+              for (final (i, entry) in const [
+                (8 * 60, 35, '晨间阅读'),
+                (8 * 60 + 40, 45, '线性代数'),
+                (9 * 60 + 40, 80, '城市观察'),
+                (11 * 60 + 15, 20, '整理笔记'),
+                (12 * 60, 50, '午餐与休息'),
+                (14 * 60, 80, '工作室讨论'),
+                (16 * 60, 55, '样品制作'),
+                (18 * 60 + 20, 25, '校园散步'),
+                (19 * 60 + 10, 65, '个人练习'),
+              ].indexed)
+                CalendarEvent.timed(
+                  id: 'pdf-$day-$i',
+                  title: entry.$3,
+                  startLocal: DateTime(2026, 11, 2 + day, 0, entry.$1),
+                  endLocal: DateTime(2026, 11, 2 + day, 0, entry.$1 + entry.$2),
+                  timeZoneId: 'Asia/Shanghai',
+                  color:
+                      EventColor.values[(i + day) % EventColor.values.length],
+                  notes: i == 2
+                      ? '地点：图书馆二楼\n带上观察记录与草图。'
+                      : day == 6 && i == 8
+                      ? '整理本周作品，下周带齐纸样。'
+                      : null,
+                ),
+            for (var i = 0; i < 2; i++)
+              CalendarEvent.timed(
+                id: 'pdf-overlap-$i',
+                title: i == 0 ? '实验室交流' : '取资料',
+                startLocal: DateTime(2026, 11, 3 + i, 14, 25),
+                endLocal: DateTime(2026, 11, 3 + i, 14, i == 0 ? 55 : 30),
+                timeZoneId: 'Asia/Shanghai',
+                color: EventColor.rose,
+              ),
+          ];
     final c = await controller(events);
+    c.setAnchorDate(anchor);
     await tester.pumpWidget(app(c));
     await tester.tap(find.text('导出入口'));
     await tester.pumpAndSettle();
@@ -142,7 +167,10 @@ void main() {
       }
     });
     await tester.pumpAndSettle();
-    expect(picker.savedName, 'WeekGlass-20261102-彩色.pdf');
+    final stamp = anchor.toIso8601String().substring(0, 10).replaceAll('-', '');
+    expect(picker.savedName, 'WeekGlass-$stamp-彩色.pdf');
+    final pdf = latin1.decode(picker.savedBytes!);
+    expect(RegExp(r'/Type\s*/Page\b').allMatches(pdf).length, 1);
     expect(picker.savedMime, 'application/pdf');
     expect(picker.savedBytes!.take(5), '%PDF-'.codeUnits);
     expect(tester.takeException(), isNull);
