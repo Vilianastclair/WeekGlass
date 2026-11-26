@@ -79,8 +79,9 @@ EOF
 }
 build "$old" 1 PROBE_V1 2>&1 | tee "$evidence/old-signature.log"
 build "$new" 2 PROBE_V2 2>&1 | tee "$evidence/new-signature.log"
-old_dr="$(sed -n '/^designated => /p' "$evidence/old-signature.log")"
-new_dr="$(sed -n '/^designated => /p' "$evidence/new-signature.log")"
+# codesign prefixes the synthesized requirement of ad hoc code with "# ".
+old_dr="$(sed -n 's/^# //; /^designated => /p' "$evidence/old-signature.log")"
+new_dr="$(sed -n 's/^# //; /^designated => /p' "$evidence/new-signature.log")"
 if [[ -z "$old_dr" || -z "$new_dr" || "$old_dr" == "$new_dr" ]]; then
   echo 'Expected distinct designated requirements for the two ad hoc builds.' >&2
   exit 1

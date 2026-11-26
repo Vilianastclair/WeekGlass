@@ -126,7 +126,8 @@ verify_app() {
   signature="$(/usr/bin/codesign --display --verbose=4 "$candidate" 2>&1)"
   printf '%s\n' "$signature"
   grep -qx 'Signature=adhoc' <<< "$signature" || die 'The app must use an ad hoc signature.'
-  /usr/bin/codesign --display --entitlements - "$candidate" > "$extracted"
+  /usr/bin/codesign --display --entitlements - --xml "$candidate" > "$extracted"
+  /usr/bin/plutil -lint "$extracted" || die 'The signed app entitlements could not be decoded as a property list.'
   for key in com.apple.security.app-sandbox com.apple.security.network.client \
              com.apple.security.network.server com.apple.security.files.user-selected.read-write; do
     [[ "$(/usr/libexec/PlistBuddy -c "Print :$key" "$extracted")" == true ]] ||
