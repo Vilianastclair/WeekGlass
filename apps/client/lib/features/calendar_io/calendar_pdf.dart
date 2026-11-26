@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:pdf/pdf.dart';
@@ -7,8 +8,10 @@ import 'package:weekglass_domain/weekglass_domain.dart';
 
 import 'calendar_codec.dart';
 
-/// A print layout, with repeated column headings and continuation rows. No
-/// screenshots are embedded: Chinese text remains selectable and searchable.
+part 'calendar_pdf_week.dart';
+
+/// Color exports open with a weekly time grid. Both modes retain searchable
+/// text and paginate the complete titles and notes.
 class CalendarPdf {
   static Future<Uint8List> build({
     required Iterable<CalendarEvent> events,
@@ -91,6 +94,11 @@ class CalendarPdf {
                 e.endUtc!.isAfter(weekStartInstant),
           )
           .toList();
+      if (!monochrome) {
+        _ColorWeek(weekStart, first, last, zone, timeZoneId, weekly).addTo(doc);
+        week = nextWeek;
+        continue;
+      }
       final rows = <pw.TableRow>[
         pw.TableRow(
           repeat: true,
@@ -232,18 +240,20 @@ class CalendarPdf {
   // The bundled variable font's default outlines are very light. A restrained
   // matching stroke keeps small print legible without shipping a second CJK
   // font or rasterizing text; the original Unicode mapping stays intact.
-  static pw.Widget _text(String text, {required pw.TextStyle style}) =>
-      pw.CustomPaint(
-        painter: (canvas, size) => canvas
-          ..setStrokeColor(style.color ?? PdfColors.black)
-          ..setLineWidth((style.fontSize ?? 10) * .014),
-        child: pw.Text(
-          text,
-          style: style.copyWith(
-            renderingMode: PdfTextRenderingMode.fillAndStroke,
-          ),
-        ),
-      );
+  static pw.Widget _text(
+    String text, {
+    required pw.TextStyle style,
+    int? maxLines,
+  }) => pw.CustomPaint(
+    painter: (canvas, size) => canvas
+      ..setStrokeColor(style.color ?? PdfColors.black)
+      ..setLineWidth((style.fontSize ?? 10) * .014),
+    child: pw.Text(
+      text,
+      maxLines: maxLines,
+      style: style.copyWith(renderingMode: PdfTextRenderingMode.fillAndStroke),
+    ),
+  );
 
   static pw.Widget _cell(
     String text,
