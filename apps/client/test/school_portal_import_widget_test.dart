@@ -90,7 +90,6 @@ void main() {
       }
 
       final commit = find.byKey(const ValueKey('commit-course-import'));
-      final confirm = find.byKey(const ValueKey('confirm-import-calendar'));
       var capturedSource = false;
       Future<void> openFixture() async {
         final portal = FakeWhuPortal();
@@ -124,8 +123,8 @@ void main() {
         expect(find.text('示例线性代数'), findsOneWidget);
         expect(find.byKey(const ValueKey('import-profile')), findsOneWidget);
         expect(controller.events.length, anyOf(0, 4));
-        expect(tester.widget<FilledButton>(commit).onPressed, isNull);
-        expect(tester.widget<CheckboxListTile>(confirm).value, isFalse);
+        expect(tester.widget<FilledButton>(commit).onPressed,
+            controller.events.isEmpty ? isNull : isNotNull);
       }
 
       await openFixture();
@@ -151,9 +150,6 @@ void main() {
       );
       await tester.tap(find.text('应用时刻'));
       await tester.pumpAndSettle();
-      await tester.ensureVisible(confirm);
-      await tester.tap(confirm);
-      await tester.pumpAndSettle();
       expect(tester.widget<FilledButton>(commit).onPressed, isNotNull);
       await capture('school-preview-phone');
       await tester.tap(commit);
@@ -169,9 +165,6 @@ void main() {
       final originalIds = controller.events.map((e) => e.id).toSet();
 
       await openFixture();
-      await tester.ensureVisible(confirm);
-      await tester.tap(confirm);
-      await tester.pumpAndSettle();
       expect(find.text('保存导入设置'), findsOneWidget);
       await tester.tap(commit);
       await tester.pumpAndSettle();

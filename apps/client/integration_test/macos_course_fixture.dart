@@ -130,8 +130,7 @@ Future<void> importMacosCourseFixture(
   await _waitFor(tester, clock);
   await tester.enterText(clock, '1 08:00-08:50\n2 09:00-09:50\n3 10:10-11:00');
   await _tap(tester, find.text('应用时刻'));
-  // Supply the fixture's term inputs through the existing import dialog.
-  await _tap(tester, find.byKey(const ValueKey('confirm-import-calendar')));
+  expect(find.byKey(const ValueKey('confirm-import-calendar')), findsNothing);
   final commit = find.byKey(const ValueKey('commit-course-import'));
   final watch = Stopwatch()..start();
   while (tester.widget<FilledButton>(commit).onPressed == null &&
