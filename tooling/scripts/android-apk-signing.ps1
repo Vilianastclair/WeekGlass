@@ -119,8 +119,17 @@ function New-WeekGlassSignedApk {
     $signer = Join-Path $buildTools 'apksigner.bat'
     $aligner = Join-Path $buildTools 'zipalign.exe'
     $PSNativeCommandUseErrorActionPreference = $false
-    $null = & $signer verify $SourceApk 2>&1
-    if ($LASTEXITCODE -eq 0) { throw 'Expected an unsigned Flutter release APK. No output was signed.' }
+    # Windows PowerShell 5.1 converts native stderr to terminating errors when
+    # callers use Stop. An unsigned input intentionally fails this one probe.
+    $savedPreference = $ErrorActionPreference
+    try {
+        $ErrorActionPreference = 'Continue'
+        $null = & $signer verify $SourceApk 2>&1
+        $sourceVerified = $LASTEXITCODE -eq 0
+    } finally {
+        $ErrorActionPreference = $savedPreference
+    }
+    if ($sourceVerified) { throw 'Expected an unsigned Flutter release APK. No output was signed.' }
     $tempApk = Join-Path (Split-Path $OutputApk) ".weekglass-android-$([guid]::NewGuid()).apk"
     $options = @(
         'sign', '--out', $tempApk, '--debuggable-apk-permitted', 'false',
