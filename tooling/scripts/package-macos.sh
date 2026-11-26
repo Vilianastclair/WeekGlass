@@ -19,9 +19,11 @@ EOF
 die() { printf '%s\n' "$*" >&2; exit 1; }
 
 course_asset=
+signed_app=
 java_home="${JAVA_HOME:-}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --signed-app) [[ $# -gt 1 && -d "$2" ]] || die 'Missing signed app.'; signed_app="$(cd "$2" && pwd -P)"; shift ;;
     --course-asset) [[ $# -gt 1 ]] || die 'Missing course asset path.'; course_asset="$2"; shift ;;
     --java-home) [[ $# -gt 1 ]] || die 'Missing JDK home path.'; java_home="$2"; shift ;;
     --help|-h) usage; exit 0 ;;
@@ -97,12 +99,15 @@ public_ed_key="$(/usr/bin/plutil -extract public_ed_key raw -o - "$update_config
   printf 'WG_MAC_UPDATE_PUBLIC_KEY = %s\n' "$public_ed_key"
 } > "$scratch/release.xcconfig"
 {
+  if [[ -z "$signed_app" ]]; then
   flutter --suppress-analytics pub get --enforce-lockfile
   XCODE_XCCONFIG_FILE="$scratch/release.xcconfig" \
     flutter --suppress-analytics build macos --release --no-pub
+  fi
 } 2>&1 | tee "$evidence/build.log"
 
-built_app="$PWD/build/macos/Build/Products/Release/WeekGlass.app"
+built_app="${signed_app:-$PWD/build/macos/Build/Products/Release/WeekGlass.app}"
+leaf=942A2793EB98F519A4D23E5626C96D2EED0FA03C
 staging="$scratch/image"
 app="$staging/WeekGlass.app"
 mkdir -p "$staging"
@@ -144,7 +149,21 @@ verify_app() {
   /usr/bin/codesign --verify --deep --strict --verbose=2 "$candidate"
   signature="$(/usr/bin/codesign --display --verbose=4 "$candidate" 2>&1)"
   printf '%s\n' "$signature"
-  grep -qx 'Signature=adhoc' <<< "$signature" || die 'The app must use an ad hoc signature.'
+  if [[ -n "$signed_app" ]]; then
+    /usr/bin/codesign --verify -R "=identifier \"$bundle_id\" and certificate leaf = H\"$leaf\"" "$candidate"
+    vault="$candidate/Contents/XPCServices/WeekGlassAccount.xpc"
+    /usr/bin/codesign --verify --strict --deep -R "=identifier \"$bundle_id.account\" and certificate leaf = H\"$leaf\"" "$vault"
+    [[ "$(plutil -extract XPCService.JoinExistingSession raw -o - "$vault/Contents/Info.plist")" == true ]]
+    /usr/bin/codesign --display --entitlements - --xml "$vault" > "$scratch/vault-entitlements.plist"
+    for key in com.apple.security.app-sandbox com.apple.security.network.client; do
+      [[ "$(/usr/libexec/PlistBuddy -c "Print :$key" "$scratch/vault-entitlements.plist")" == true ]]
+    done
+    [[ "$(plutil -extract WGAccountSigningLeaf raw -o - "$info")" == "$leaf" ]]
+    /usr/bin/codesign --display --verbose=4 "$vault" 2>&1 | /usr/bin/sed -n 's/^CDHash=//p' > "$scratch/vault-cdhash"
+    grep -Eq '^[a-f0-9]{40}$' "$scratch/vault-cdhash"
+  else
+    grep -qx 'Signature=adhoc' <<< "$signature" || die 'Expected an ad hoc development build.'
+  fi
   /usr/bin/codesign --display --entitlements - --xml "$candidate" > "$extracted"
   /usr/bin/plutil -lint "$extracted" || die 'The signed app entitlements could not be decoded as a property list.'
   for key in com.apple.security.app-sandbox com.apple.security.network.client \
@@ -157,7 +176,10 @@ verify_app() {
   printf 'Bundle: %s %s (%s) with Flutter AOT and release sandbox\n' "$bundle_id" "$expected_version" "$host"
 }
 
-if [[ -n "$course_asset" ]]; then
+if [[ -n "$signed_app" ]]; then
+  [[ -d "$app/Contents/Resources/course_adapter" && -x "$app/Contents/Resources/course_adapter/runtime/bin/java" ]] || die 'Signed candidate lacks the offline parser.'
+  course_asset="$app/Contents/Resources/course_adapter"
+elif [[ -n "$course_asset" ]]; then
   {
     course="$course_asset"
     if [[ -f "$course_asset" ]]; then
@@ -221,7 +243,7 @@ quarantine="$(/usr/bin/xattr -p com.apple.quarantine "$installed_app" 2>/dev/nul
   /usr/sbin/spctl --status
   cat "$evidence/gatekeeper-assessment.log"
   printf 'Gatekeeper assessment exit status: %s\n' "$gatekeeper_status"
-  printf 'Ad hoc code integrity uses no Developer ID and no notarization. macOS can block the first launch of an Internet download under standard Gatekeeper policy.\n'
+  printf 'This distribution uses no Apple Developer ID and no notarization. macOS can block the first launch of an Internet download under standard Gatekeeper policy.\n'
   printf 'Apple support: https://support.apple.com/en-us/102445\n'
   if $quarantined; then
     printf 'Internet quarantine attribute: %s\n' "$quarantine"
@@ -240,16 +262,18 @@ digest="$(/usr/bin/shasum -a 256 < "$dmg" | awk '{print $1}')"
 bytes="$(stat -f '%z' "$dmg")"
 parser_included=false
 [[ -z "$course_asset" ]] || parser_included=true
+vault_cdhash=""
+[[ -z "$signed_app" ]] || vault_cdhash="$(cat "$scratch/vault-cdhash")"
 python3 - "$manifest" "$(git rev-parse HEAD)" "$version" "$build" "$arch" \
   "$filename" "$bytes" "$digest" "$parser_included" "$gatekeeper_status" \
-  "$evidence/gatekeeper-assessment.log" "$quarantined" "$feed_url" "$public_ed_key" "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" <<'PY'
+  "$evidence/gatekeeper-assessment.log" "$quarantined" "$feed_url" "$public_ed_key" "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" "$leaf" "$vault_cdhash" <<'PY'
 import json
 from pathlib import Path
 import sys
 
 (
     manifest, commit, version, build, arch, filename, size, digest,
-    parser_included, gatekeeper_status, assessment_log, quarantined, feed_url, public_ed_key, host_arm,
+    parser_included, gatekeeper_status, assessment_log, quarantined, feed_url, public_ed_key, host_arm, leaf, vault_cdhash,
 ) = sys.argv[1:]
 receipt = {
     "commit": commit,
@@ -261,7 +285,9 @@ receipt = {
     "build_host": "arm64" if host_arm == "1" else "x64",
     "updater": {"feed_url": feed_url, "public_ed_key": public_ed_key, "require_signed_feed": True,
                 "verify_before_extraction": True, "installer_xpc": True},
-    "adhoc_verified": True,
+    "code_signing": {"verified": True, "leaf_sha1": leaf, "vault_id": "com.viliana.weekglass.account",
+                     "vault_cdhash": vault_cdhash} if vault_cdhash else {"verified": False},
+    "adhoc_verified": not bool(vault_cdhash),
     "course_adapter": parser_included == "true",
     "gatekeeper": {
         "assessment_exit_status": int(gatekeeper_status),

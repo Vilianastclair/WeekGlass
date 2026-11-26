@@ -22,6 +22,7 @@
 
 /* Begin PBXBuildFile section */
 		CAD02CCF2600000000000001 /* MacUpdater.swift in Sources */ = {isa = PBXBuildFile; fileRef = CAD02CCF2600000000000002 /* MacUpdater.swift */; };
+		CAD02CDD2600000000000001 /* AccountBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = CAD02CDD2600000000000002 /* AccountBridge.m */; };
 		CAD02CCF2600000000000003 /* Sparkle in Frameworks */ = {isa = PBXBuildFile; productRef = CAD02CCF2600000000000004 /* Sparkle */; };
 		331C80D8294CF71000263BE5 /* RunnerTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 331C80D7294CF71000263BE5 /* RunnerTests.swift */; };
 		335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */ = {isa = PBXBuildFile; fileRef = 335BBD1A22A9A15E00E9071D /* GeneratedPluginRegistrant.swift */; };
@@ -65,6 +66,7 @@
 
 /* Begin PBXFileReference section */
 		CAD02CCF2600000000000002 /* MacUpdater.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MacUpdater.swift; sourceTree = "<group>"; };
+		CAD02CDD2600000000000002 /* AccountBridge.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AccountBridge.m; sourceTree = "<group>"; };
 		331C80D5294CF71000263BE5 /* RunnerTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = RunnerTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		331C80D7294CF71000263BE5 /* RunnerTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = RunnerTests.swift; sourceTree = "<group>"; };
 		333000ED22D3DE5D00554162 /* Warnings.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Warnings.xcconfig; sourceTree = "<group>"; };
@@ -176,6 +178,7 @@
 				33CC11122044BFA00003C045 /* MainFlutterWindow.swift */,
 				CAD02CCE2600000000000002 /* TimetableOCR.swift */,
 				CAD02CCF2600000000000002 /* MacUpdater.swift */,
+				CAD02CDD2600000000000002 /* AccountBridge.m */,
 				33E51913231747F40026EE4D /* DebugProfile.entitlements */,
 				33E51914231749380026EE4D /* Release.entitlements */,
 				33CC11242044D66E0003C045 /* Resources */,
@@ -367,6 +370,7 @@
 				33CC11132044BFA00003C045 /* MainFlutterWindow.swift in Sources */,
 				CAD02CCE2600000000000001 /* TimetableOCR.swift in Sources */,
 				CAD02CCF2600000000000001 /* MacUpdater.swift in Sources */,
+				CAD02CDD2600000000000001 /* AccountBridge.m in Sources */,
 				33CC10F12044A3C60003C045 /* AppDelegate.swift in Sources */,
 				335BBD1B22A9A15E00E9071D /* GeneratedPluginRegistrant.swift in Sources */,
 			);
@@ -506,6 +510,7 @@
 					"@executable_path/../Frameworks",
 				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
+                SWIFT_OBJC_BRIDGING_HEADER = Runner/AccountBridge.h;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Profile;
@@ -638,6 +643,7 @@
 					"@executable_path/../Frameworks",
 				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
+                SWIFT_OBJC_BRIDGING_HEADER = Runner/AccountBridge.h;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_VERSION = 5.0;
 			};
@@ -658,6 +664,7 @@
 					"@executable_path/../Frameworks",
 				);
 				PROVISIONING_PROFILE_SPECIFIER = "";
+                SWIFT_OBJC_BRIDGING_HEADER = Runner/AccountBridge.h;
 				SWIFT_VERSION = 5.0;
 			};
 			name = Release;

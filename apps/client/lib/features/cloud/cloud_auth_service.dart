@@ -110,50 +110,75 @@ class SecureCloudTokenVault implements CloudTokenVault {
     mOptions: MacOsOptions(usesDataProtectionKeychain: false),
   );
   static const _key = 'weekglass.cloud.session.v1';
-  static const _slotPreference = 'weekglass.cloud.keychain.slot';
-  bool _requiresAuthorization = false;
+  @override
+  Future<String?> read() => _storage.read(key: _key);
+  @override
+  Future<void> write(String value) => _storage.write(key: _key, value: value);
+  @override
+  Future<void> clear() => _storage.delete(key: _key);
+}
 
-  Future<String> _slot() async => Platform.isMacOS
-      ? await SharedPreferencesAsync().getString(_slotPreference) ?? _key
-      : _key;
+/// The native broker owns the refresh credential. Dart keeps the current
+/// short-lived access grant in memory and uses an opaque ID to request renewal.
+class MacCloudSessionVault implements CloudTokenVault {
+  static const _channel = MethodChannel('weekglass/macos_account');
+
+  Future<Map<String, dynamic>> _call(Map<String, dynamic> input) async {
+    final reply = await _channel.invokeMethod<String>(
+      'account',
+      jsonEncode(input),
+    );
+    final result = jsonDecode(reply!) as Map<String, dynamic>;
+    if (result['error'] != null) {
+      if (result['error'] == 'keychain') {
+        throw CloudLoginException('macOS 钥匙串暂时不可用，请解锁后重试。');
+      }
+      throw CloudApiException(
+        result['status'] as int,
+        result['error'] as String,
+        {},
+      );
+    }
+    return (result['value'] as Map<String, dynamic>?) ?? {};
+  }
 
   @override
   Future<String?> read() async {
-    try {
-      final result = await _storage.read(key: await _slot());
-      _requiresAuthorization = false;
-      return result;
-    } on PlatformException catch (error) {
-      // If macOS denies the old app's item, leave its ACL and data alone.
-      // A fresh browser grant may create a new item owned by this build.
-      if (!Platform.isMacOS || !{-25293, -128}.contains(error.details)) rethrow;
-      _requiresAuthorization = true;
-      throw CloudLoginException('macOS 未授权读取原登录。请点击连接，在浏览器中重新授权。');
-    }
+    final result = await _call({'op': 'restore'});
+    return result.isEmpty ? null : jsonEncode(result);
   }
 
   @override
   Future<void> write(String value) async {
-    if (!_requiresAuthorization) {
-      await _storage.write(key: await _slot(), value: value);
-      return;
-    }
-    final next = '$_key.${const Uuid().v4()}';
-    await _storage.write(key: next, value: value);
-    try {
-      // This preference is only a lookup name. All tokens stay in Keychain.
-      await SharedPreferencesAsync().setString(_slotPreference, next);
-    } catch (_) {
-      await _storage.delete(key: next);
-      rethrow;
-    }
-    _requiresAuthorization = false;
+    final current = jsonDecode(value) as Map<String, dynamic>;
+    await _call({
+      'op': 'commit',
+      'handle': current['refresh_token'],
+      'merge': current['merge_approved'],
+      'sleep': current['sleep_schedule_approved'],
+    });
   }
 
   @override
   Future<void> clear() async {
-    if (_requiresAuthorization) return;
-    await _storage.delete(key: await _slot());
+    await _call({'op': 'clear'});
+  }
+
+  Future<Map<String, dynamic>> authorize(
+    String origin,
+    String server,
+    Map<String, dynamic> grant,
+  ) => _call({
+    'op': 'authorize',
+    'origin': origin,
+    'server_id': server,
+    ...grant,
+  });
+
+  Future<Map<String, dynamic>> renew(String handle) =>
+      _call({'op': 'renew', 'handle': handle});
+  Future<void> revoke(String handle) async {
+    await _call({'op': 'revoke', 'handle': handle});
   }
 }
 
@@ -246,7 +271,11 @@ class CloudAuthService {
     Future<bool> Function(Uri)? browserLauncher,
     CloudDevicePlatform? devicePlatform,
     this.callbackTimeout = const Duration(minutes: 5),
-  }) : _vault = vault ?? SecureCloudTokenVault(),
+  }) : _vault =
+           vault ??
+           (Platform.isMacOS
+               ? MacCloudSessionVault()
+               : SecureCloudTokenVault()),
        _transportOverride = transport,
        _devicePlatform =
            devicePlatform ??
@@ -320,15 +349,18 @@ class CloudAuthService {
     }
     final value = jsonDecode(stored) as Map<String, dynamic>;
     validateCloudOrigin(value['origin'] as String);
-    _validateTokens(value);
+    _validateTokens(value, offlineState: _vault is MacCloudSessionVault);
     _session = value;
     _sessionGeneration++;
     _refreshing = null;
   }
 
-  void _validateTokens(Map<String, dynamic> tokens) {
+  void _validateTokens(
+    Map<String, dynamic> tokens, {
+    bool offlineState = false,
+  }) {
     for (final key in [
-      'access_token',
+      if (!offlineState) 'access_token',
       'refresh_token',
       'server_id',
       'account_id',
@@ -357,7 +389,7 @@ class CloudAuthService {
         throw const FormatException('登录身份无效');
       }
     }
-    if ((tokens['access_token'] as String).length < 32 ||
+    if ((!offlineState && (tokens['access_token'] as String).length < 32) ||
         (tokens['refresh_token'] as String).length < 32) {
       throw const FormatException('登录凭据无效');
     }
@@ -489,21 +521,25 @@ class CloudAuthService {
       login.checkCancellation();
       onPhaseChanged?.call(CloudLoginPhase.exchanging);
       login.checkCancellation();
+      final grant = <String, dynamic>{
+        'grant_type': 'authorization_code',
+        'client_id': 'weekglass-native',
+        'code': code,
+        'redirect_uri': redirect,
+        'code_verifier': verifier,
+        'device_id': device,
+      };
+      final vault = _vault;
       final tokens = await login.wait(
-        _transport(
-          base.resolve('/v1/auth/token'),
-          'POST',
-          {
-            'grant_type': 'authorization_code',
-            'client_id': 'weekglass-native',
-            'code': code,
-            'redirect_uri': redirect,
-            'code_verifier': verifier,
-            'device_id': device,
-          },
-          {},
-          true,
-        ),
+        vault is MacCloudSessionVault
+            ? vault.authorize(base.origin, info['server_id'] as String, grant)
+            : _transport(
+                base.resolve('/v1/auth/token'),
+                'POST',
+                grant,
+                {},
+                true,
+              ),
         timeout: const Duration(seconds: 35),
         timeoutMessage: '接收授权超时，请重新连接。',
       );
@@ -728,7 +764,11 @@ class CloudAuthService {
       );
     }
 
-    final access = session['access_token'] as String;
+    if (session['access_token'] == null && _vault is MacCloudSessionVault) {
+      await _renewOnce(generation);
+      _ensureSession(generation);
+    }
+    final access = _session!['access_token'] as String;
     try {
       return await send(access);
     } on CloudApiException catch (error) {
@@ -736,36 +776,37 @@ class CloudAuthService {
       _ensureSession(generation);
       ensureSyncAllowed();
       if (_session?['access_token'] == access) {
-        var refresh = _refreshing;
-        if (refresh == null) {
-          final pending = _refresh(generation);
-          _refreshing = refresh = pending.whenComplete(() {
-            if (_sessionGeneration == generation) _refreshing = null;
-          });
-        }
-        await refresh;
+        await _renewOnce(generation);
       }
       _ensureSession(generation);
       return send(_session!['access_token'] as String);
     }
   }
 
+  Future<String> _renewOnce(int generation) =>
+      _refreshing ??= _refresh(generation).whenComplete(() {
+        if (_sessionGeneration == generation) _refreshing = null;
+      });
+
   Future<String> _refresh(int generation) async {
     final old = _session!;
     late Map<String, dynamic> tokens;
     try {
-      tokens = await _transport(
-        Uri.parse(old['origin'] as String).resolve('/v1/auth/token'),
-        'POST',
-        {
-          'grant_type': 'refresh_token',
-          'client_id': 'weekglass-native',
-          'refresh_token': old['refresh_token'],
-          'device_id': old['device_id'],
-        },
-        {},
-        true,
-      );
+      final vault = _vault;
+      tokens = vault is MacCloudSessionVault
+          ? await vault.renew(old['refresh_token'] as String)
+          : await _transport(
+              Uri.parse(old['origin'] as String).resolve('/v1/auth/token'),
+              'POST',
+              {
+                'grant_type': 'refresh_token',
+                'client_id': 'weekglass-native',
+                'refresh_token': old['refresh_token'],
+                'device_id': old['device_id'],
+              },
+              {},
+              true,
+            );
     } on CloudApiException catch (error) {
       if (error.code == 'invalid_grant' || error.status == 401) {
         throw CloudApiException(401, 'session_expired', {});
@@ -821,16 +862,19 @@ class CloudAuthService {
     final latest = _session ?? session;
     if (latest != null) {
       try {
-        await _transport(
-          Uri.parse(latest['origin'] as String).resolve('/v1/auth/revoke'),
-          'POST',
-          {
-            'refresh_token': rotatedToken ?? latest['refresh_token'],
-            'device_id': latest['device_id'],
-          },
-          {},
-          false,
-        );
+        final handle = rotatedToken ?? latest['refresh_token'] as String;
+        final vault = _vault;
+        if (vault is MacCloudSessionVault) {
+          await vault.revoke(handle);
+        } else {
+          await _transport(
+            Uri.parse(latest['origin'] as String).resolve('/v1/auth/revoke'),
+            'POST',
+            {'refresh_token': handle, 'device_id': latest['device_id']},
+            {},
+            false,
+          );
+        }
       } catch (_) {
         // Offline logout always clears local credentials; server tokens expire.
       }

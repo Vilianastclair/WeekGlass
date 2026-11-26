@@ -13,3 +13,6 @@ PRODUCT_BUNDLE_IDENTIFIER = com.viliana.weekglass$(WEEKGLASS_MACOS_BUNDLE_SUFFIX
 
 // The copyright displayed in application information
 PRODUCT_COPYRIGHT = Copyright © 2026 Viliana. All rights reserved.
+
+// Pinned WeekGlass account-service certificate, not a system trust anchor.
+WG_ACCOUNT_SIGNING_LEAF = 942A2793EB98F519A4D23E5626C96D2EED0FA03C

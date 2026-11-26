@@ -44,6 +44,7 @@ class AppDelegate: FlutterAppDelegate, UNUserNotificationCenterDelegate {
     }
     TimetableOCR.register(with: messenger)
     macUpdater = MacUpdater(messenger: messenger)
+    WGRegisterAccountBroker(messenger)
 
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     item.button?.image = NSImage(systemSymbolName: "calendar", accessibilityDescription: "WeekGlass")
