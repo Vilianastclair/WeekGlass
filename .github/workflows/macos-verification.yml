@@ -132,6 +132,15 @@ jobs:
             bash tooling/scripts/package-macos.sh --course-asset "$WEEKGLASS_MAC_COURSE_RUNTIME_DIR"
           fi
 
+      - name: Generate and verify the update from the preceding public disk image
+        if: github.ref_name == 'ci/macos-validation'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          dir=apps/client/build/weekglass-macos
+          identity="$(python3 tooling/macos-account/version.py a)"
+          python3 tooling/scripts/macos-sparkle-delta.py --arch "${{ matrix.arch }}" --version "${identity%+*}" --build "${identity##*+}" --new "$dir/WeekGlass-macOS-${{ matrix.arch }}-${identity%+*}.dmg" --out "$dir"
+
       - name: Upload runtime evidence
         if: ${{ !cancelled() && steps.course.outcome != 'skipped' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
@@ -159,6 +168,7 @@ jobs:
           path: |
             apps/client/build/weekglass-macos/WeekGlass-macOS-*.dmg
             apps/client/build/weekglass-macos/WeekGlass-macOS-*.json
+            apps/client/build/weekglass-macos/WeekGlass-macOS-*.delta
           if-no-files-found: error
           compression-level: 0
           retention-days: 7
