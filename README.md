@@ -4,7 +4,7 @@
 
 WeekGlass 是一款面向 Windows 和 Android 的周日历。把课表、约会和专注时间放进同一张日历。无需账号，离线也能排日程。
 
-- [下载 Windows x64 安装包](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.22.7/WeekGlass-Setup-0.22.7-Windows-x64.exe)
+- [下载 Windows x64 安装包](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.22.10/WeekGlass-Setup-0.22.10-Windows-x64.exe)
 - [下载 Android ARM64 APK](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.22.5/WeekGlass-Android-0.22.5-arm64.apk)
 
 [GitHub 发行页](https://github.com/Vilianastclair/WeekGlass/releases) | [官网](https://cloud.viliana.cn/) | [English](README-EN.md)
@@ -20,7 +20,7 @@ WeekGlass 是一款面向 Windows 和 Android 的周日历。把课表、约会�
 - **拖出一段时间**：在日历上直接创建日程，点开先看备注。每周重复的安排可以一起建、一起改。
 - **手机上双指缩放时间轴**：捏合看全天，张开看细节，自动记住本机的显示比例。
 - **按作息查看日程**：调整起床和睡眠时间不会改写已有日程；日历只显示清醒时段内的部分。连接支持作息同步的云服务后，两端可共用这组时间。
-- **导入课表和日历**：在「学校课表」里选择学校，登录教务并打开个人课表，读取后核对课程再保存。武汉大学保留专用入口；其他学校可读取正方、强智、URP 等教务系统的个人课表。学校分本科和研究生入口时，选自己实际使用的一个。也可导入 ICS、CSV、JSON，导出黑白周表 PDF。
+- **导入课表和日历**：在「学校课表」里选择学校，登录教务并打开个人课表。WeekGlass 读取课程并检查排程后即可导入。武汉大学保留专用入口；其他学校可读取正方、强智、URP 等教务系统的个人课表。学校分本科和研究生入口时，选自己实际使用的一个。也可导入课表图片、文字及 ICS、CSV、JSON 文件，导出 A4 单页黑白周表 PDF。
 - **日程默认留在本机**：要跨设备同步，可以选官方付费云服务，也可以[用自己的服务器免费同步](server/README.md)。
 
 ## 使用官方云
@@ -31,7 +31,7 @@ WeekGlass 是一款面向 Windows 和 Android 的周日历。把课表、约会�
 
 ## 从源码构建
 
-[0.22.7 更新说明](docs/releases/0.22.7.md)
+[0.22.10 更新说明](docs/releases/0.22.10.md)
 
 使用 Flutter 3.47.9（Dart 3.13.7）。在仓库根目录运行：
 
