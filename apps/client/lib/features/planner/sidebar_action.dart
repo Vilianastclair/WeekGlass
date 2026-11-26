@@ -14,5 +14,10 @@ enum SidebarAction {
   const SidebarAction(this.label, this.icon);
   final String label;
   final IconData icon;
+  // The first iPhone build offers local planning only.
+  bool availableOn(TargetPlatform platform) =>
+      platform != TargetPlatform.iOS ||
+      const {create, undo, appearance, view}.contains(this);
+
   static const defaults = {create, undo, courses, cloud, view};
 }

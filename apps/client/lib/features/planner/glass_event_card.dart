@@ -145,7 +145,13 @@ class _GlassEventCardState extends State<GlassEventCard> {
                           builder: (context, size) => _content(
                             size,
                             title: title,
-                            time: time,
+                            time:
+                                widget.touchMode &&
+                                    Theme.of(context).platform ==
+                                        TargetPlatform.iOS &&
+                                    !text.fullTimeFits
+                                ? _time(widget.event.startLocal)
+                                : time,
                             notes: notes,
                             palette: palette,
                             ink: ink,
@@ -365,6 +371,7 @@ class _CardTextPlan {
     }
     final titleLine = measure(title, titleStyle);
     final timeSize = measure(time, timeStyle).size;
+    fullTimeFits = timeSize.width <= available;
     compact = size.maxHeight < sample.height + timeSize.height + 11;
 
     var titleSpace = available;
@@ -397,6 +404,7 @@ class _CardTextPlan {
         titleLine.size.width > titleSpace ||
         timeSize.width > available;
   }
+  bool fullTimeFits = false;
   late final double inset;
   late final bool compact, showTitle, showTime, overflow;
   late final TextStyle titleStyle, timeStyle;

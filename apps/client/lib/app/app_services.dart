@@ -19,7 +19,7 @@ class AppServices {
 
   final EventRepository eventRepository;
   final String timeZoneId;
-  final CloudConnection cloud;
+  final CloudConnection? cloud;
 
   static Future<AppServices> create() async {
     final supportDirectory = await getApplicationSupportDirectory();
@@ -46,7 +46,7 @@ class AppServices {
     return AppServices(
       eventRepository: repository,
       timeZoneId: timeZoneId,
-      cloud: CloudConnection(repository: repository),
+      cloud: Platform.isIOS ? null : CloudConnection(repository: repository),
     );
   }
 

@@ -66,15 +66,16 @@ Future<void> main(List<String> args) async {
     cloud: services.cloud,
   );
   await controller.initialize();
-  services.cloud.refreshPlanner = controller.reloadAfterSync;
-  services.cloud.refreshSleepSchedule = controller.reloadSleepSchedule;
+  final cloud = services.cloud;
+  cloud?.refreshPlanner = controller.reloadAfterSync;
+  cloud?.refreshSleepSchedule = controller.reloadSleepSchedule;
   updater.beforeInstall = () async {
     await controller.waitForPendingWrites();
-    await services.cloud.quiesce();
+    await cloud?.quiesce();
     await controller.waitForPendingWrites();
     await services.eventRepository.close();
   };
-  updater.afterInstallFailure = services.cloud.resume;
+  updater.afterInstallFailure = cloud?.resume;
   updater.beforeAndroidInstall = controller.waitForPendingWrites;
   if (Platform.isWindows) {
     await WindowsReminders(
@@ -85,11 +86,11 @@ Future<void> main(List<String> args) async {
 
   runApp(WeekGlassApp(controller: controller, updater: updater));
   WidgetsBinding.instance.addPostFrameCallback((_) {
-    unawaited(UpdateService.completePendingUpdateBoot());
-    unawaited(services.cloud.initialize());
-    // The local services and first planner frame are ready. Update metadata and
-    // cloud recovery both run in the background.
-    unawaited(updater.checkOnStartup());
+    if (updater.supportsUpdates) {
+      unawaited(UpdateService.completePendingUpdateBoot());
+      unawaited(updater.checkOnStartup());
+    }
+    unawaited(cloud?.initialize());
   });
 }
 
@@ -104,7 +105,8 @@ class WeekGlassApp extends StatelessWidget {
     return AnimatedBuilder(
       animation: controller,
       builder: (context, _) {
-        Widget planner = Platform.isAndroid
+        final mobile = Platform.isIOS || Platform.isAndroid;
+        Widget planner = mobile
             ? MobilePlannerScreen(controller: controller)
             : PlannerScreen(controller: controller);
         if (Platform.isWindows) {
@@ -126,7 +128,7 @@ class WeekGlassApp extends StatelessWidget {
             child: LiquidGlassScope(
               strength: controller.glassStrength,
               motion: controller.glassMotion,
-              mobile: Platform.isAndroid,
+              mobile: mobile,
               child: child!,
             ),
           ),

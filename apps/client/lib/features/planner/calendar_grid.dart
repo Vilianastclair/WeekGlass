@@ -277,6 +277,38 @@ class CalendarGridState extends State<CalendarGrid>
     _updateViewport();
   }
 
+  DateTime? _revealedAnchor;
+
+  void _revealIPhoneWeekday() {
+    if (!widget.touchMode ||
+        defaultTargetPlatform != TargetPlatform.iOS ||
+        widget.visibleDays != null ||
+        widget.controller.view != PlannerView.week) {
+      _revealedAnchor = null;
+      return;
+    }
+    final anchor = widget.controller.anchorDate;
+    if (_revealedAnchor == anchor) return;
+    _revealedAnchor = anchor;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted ||
+          _revealedAnchor != anchor ||
+          !_gridHorizontalController.hasClients) {
+        return;
+      }
+      final index = _visibleDays.indexWhere(
+        (d) => DateUtils.isSameDay(d, anchor),
+      );
+      if (index < 0) return;
+      final position = _gridHorizontalController.position;
+      final left = index * _dayWidth;
+      final target = position.pixels
+          .clamp(left + _dayWidth - position.viewportDimension, left)
+          .clamp(0.0, position.maxScrollExtent);
+      if (target != position.pixels) _gridHorizontalController.jumpTo(target);
+    });
+  }
+
   void _updateViewport() {
     final horizontal = _gridHorizontalController.hasClients
         ? _gridHorizontalController.offset
@@ -422,6 +454,7 @@ class CalendarGridState extends State<CalendarGrid>
             : _desktopMinimumDayWidth;
         _dayWidth = math.max(minimumDayWidth, availableDayWidth);
         _dragDayWidth = _dayWidth;
+        _revealIPhoneWeekday();
         final contentWidth = _dayWidth * _visibleDays.length;
         _headerHeight = math.max(
           40,

@@ -53,6 +53,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   _SettingsPage _page = _SettingsPage.home;
   PlannerController get controller => widget.controller;
   bool get _windows => Theme.of(context).platform == TargetPlatform.windows;
+  bool get _iPhone => Theme.of(context).platform == TargetPlatform.iOS;
   bool get _home => _page == _SettingsPage.home;
 
   String _pageLabel(_SettingsPage page) =>
@@ -303,18 +304,20 @@ class _SettingsDialogState extends State<_SettingsDialog> {
               subtitle: _windows ? '自定义侧边栏' : '自定义底部和更多菜单',
               onTap: () => _open(_SettingsPage.shortcuts),
             ),
-            _SettingsRow(
-              icon: Icons.calendar_month_outlined,
-              title: _SettingsPage.data.label,
-              subtitle: '导入与导出',
-              onTap: () => _open(_SettingsPage.data),
-            ),
-            _SettingsRow(
-              icon: Icons.settings_suggest_outlined,
-              title: _pageLabel(_SettingsPage.system),
-              subtitle: _windows ? '日程提醒与软件更新' : '检查或安装新版本',
-              onTap: () => _open(_SettingsPage.system),
-            ),
+            if (!_iPhone)
+              _SettingsRow(
+                icon: Icons.calendar_month_outlined,
+                title: _SettingsPage.data.label,
+                subtitle: '导入与导出',
+                onTap: () => _open(_SettingsPage.data),
+              ),
+            if (!_iPhone)
+              _SettingsRow(
+                icon: Icons.settings_suggest_outlined,
+                title: _pageLabel(_SettingsPage.system),
+                subtitle: _windows ? '日程提醒与软件更新' : '检查或安装新版本',
+                onTap: () => _open(_SettingsPage.system),
+              ),
           ],
         ),
       ),
@@ -396,7 +399,8 @@ class _SettingsDialogState extends State<_SettingsDialog> {
       ),
     ),
     for (final action in SidebarAction.values)
-      if ((action != SidebarAction.view || !_windows) &&
+      if (action.availableOn(Theme.of(context).platform) &&
+          (action != SidebarAction.view || !_windows) &&
           (action != SidebarAction.cloud || controller.cloud != null))
         CheckboxListTile(
           key: ValueKey('sidebar-${action.name}'),

@@ -65,6 +65,7 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
   List<SidebarAction> get _actions => SidebarAction.values
       .where(
         (action) =>
+            action.availableOn(Theme.of(context).platform) &&
             action != SidebarAction.view &&
             action != SidebarAction.cloud &&
             controller.sidebarActions.contains(action),
@@ -424,6 +425,10 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
                       Expanded(
                         key: ValueKey('mobile-view-${view.name}'),
                         child: Semantics(
+                          button: true,
+                          label: label,
+                          onTap: () => controller.setView(view),
+                          excludeSemantics: true,
                           selected: controller.view == view,
                           inMutuallyExclusiveGroup: true,
                           child: TextButton(
