@@ -8,6 +8,20 @@ final class RunnerUITests: XCTestCase {
     add(image)
   }
 
+  override func tearDownWithError() throws {
+    if let result = testRun, result.failureCount > 0 {
+      let tree = XCTAttachment(string: XCUIApplication().debugDescription)
+      tree.name = "发生故障时的控件"
+      tree.lifetime = .keepAlways
+      add(tree)
+      let screen = XCTAttachment(screenshot: XCUIScreen.main.screenshot())
+      screen.name = "发生故障时的屏幕"
+      screen.lifetime = .keepAlways
+      add(screen)
+    }
+    try super.tearDownWithError()
+  }
+
   private func checkWeek(_ app: XCUIApplication) {
     let week = app.buttons["整周"]
     XCTAssertTrue(week.waitForExistence(timeout: 30))
@@ -40,12 +54,67 @@ final class RunnerUITests: XCTestCase {
     XCTAssertTrue(dateAndTime.exists, "Details must show the selected day and both times")
   }
 
+  private func control(_ label: String, in app: XCUIApplication) -> XCUIElement {
+    app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
+  }
+
+  private func openFileAction(_ label: String, in app: XCUIApplication) {
+    app.buttons["更多快捷操作"].tap()
+    let action = control(label, in: app)
+    XCTAssertTrue(action.waitForExistence(timeout: 10))
+    action.tap()
+  }
+
+  private func exportJSON(in app: XCUIApplication) {
+    openFileAction("导出日程", in: app)
+    control("JSON", in: app).tap()
+    app.buttons["导出"].tap()
+    let save = app.buttons["Save"]
+    XCTAssertTrue(save.waitForExistence(timeout: 20), "The system Files save sheet must open")
+    if !save.isEnabled {
+      control("On My iPhone", in: app).tap()
+    }
+    XCTAssertTrue(save.isEnabled)
+    attachScreen("在文件中保存 JSON", of: app)
+    save.tap()
+    checkWeek(app)
+  }
+
+  private func importJSON(named base: String, in app: XCUIApplication) {
+    openFileAction("导入日程", in: app)
+    app.buttons["选择文件并导入"].tap()
+    let file = app.descendants(matching: .any).matching(
+      NSPredicate(format: "label BEGINSWITH %@", base)
+    ).firstMatch
+    if !file.waitForExistence(timeout: 5) {
+      // A fresh picker may start in Recents. Browse the on-device location
+      // where the save sheet wrote the file instead of using app storage.
+      let browse = control("Browse", in: app)
+      if browse.exists { browse.tap() }
+      let phone = control("On My iPhone", in: app)
+      if phone.waitForExistence(timeout: 3) { phone.tap() }
+    }
+    XCTAssertTrue(file.waitForExistence(timeout: 10), "The document saved by Files must be selectable")
+    attachScreen("在文件中选择 JSON", of: app)
+    file.tap()
+  }
+
   func testWeekKeepsChangesAcrossRelaunches() {
     continueAfterFailure = false
     let app = XCUIApplication()
+    app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
     var calendar = Calendar(identifier: .gregorian)
     calendar.timeZone = .current
-    let date = calendar.dateComponents([.month, .day], from: Date())
+    let today = Date()
+    let date = calendar.dateComponents([.month, .day], from: today)
+    let mondayOffset = (calendar.component(.weekday, from: today) + 5) % 7
+    let monday = calendar.date(byAdding: .day, value: -mondayOffset, to: today)!
+    let formatter = DateFormatter()
+    formatter.locale = Locale(identifier: "en_US_POSIX")
+    formatter.calendar = calendar
+    formatter.timeZone = calendar.timeZone
+    formatter.dateFormat = "yyyyMMdd"
+    let filename = "WeekGlass-" + formatter.string(from: monday)
     let day = "\(date.month!)月\(date.day!)日"
     let title = "Studio review " + String(UUID().uuidString.prefix(8))
     let editedTitle = title + " AM"
@@ -78,6 +147,9 @@ final class RunnerUITests: XCTestCase {
     XCTAssertFalse(card(title, in: app).exists)
     openDetails(editedTitle, on: day, in: app)
     attachScreen("重开后的修改日程", of: app)
+    app.buttons["关闭"].tap()
+    exportJSON(in: app)
+    openDetails(editedTitle, on: day, in: app)
     app.buttons["删除"].tap()
     app.buttons["确认删除"].tap()
     checkWeek(app)
@@ -87,5 +159,11 @@ final class RunnerUITests: XCTestCase {
     XCTAssertFalse(card(title, in: app).exists)
     XCTAssertFalse(card(editedTitle, in: app).exists)
     attachScreen("删除后重新打开周历", of: app)
+
+    importJSON(named: filename, in: app)
+    XCTAssertTrue(card(editedTitle, in: app).waitForExistence(timeout: 15))
+    relaunch(app)
+    openDetails(editedTitle, on: day, in: app)
+    attachScreen("文件导回并重开后的日程", of: app)
   }
 }

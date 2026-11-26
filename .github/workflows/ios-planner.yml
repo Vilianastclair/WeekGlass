@@ -30,6 +30,7 @@ jobs:
           rm "$archive"
           echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
       - name: Run the iPhone journey
+        timeout-minutes: 23
         shell: bash
         run: |
           set -euo pipefail
