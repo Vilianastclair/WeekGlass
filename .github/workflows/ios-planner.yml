@@ -9,7 +9,7 @@ permissions:
 
 jobs:
   planner:
-    if: github.repository == 'Vilianastclair/WeekGlass-macOS-validation' && github.event.repository.private
+    if: github.repository == 'Vilianastclair/WeekGlass' && github.event.repository.private == false
     runs-on: macos-15
     timeout-minutes: 30
     env:
