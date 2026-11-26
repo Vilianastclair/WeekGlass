@@ -36,11 +36,15 @@ bash tooling/scripts/test-macos.sh --package
 
 首次连接云账号时，浏览器授权回传到本机。独立沙盒服务 `com.viliana.weekglass.account` 保存刷新凭据，通过项目证书与应用标识同时验证调用方；主程序只在内存使用短期访问凭据。服务加入登录会话，参见 [Apple XPC 服务设置](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/CreatingXPCServices.html)。每个架构复用[固定组件清单](../tooling/macos-account/frozen-components.json)中的完整已签归档；后续构建从私有发布附件恢复，验证归档、原生资源封印、证书和代码目录标识。正式版本取自客户端 pubspec，私有后继由 [升级配置](../tooling/macos-account/private-successor.json) 指定。
 
-[身份机制验证](https://github.com/Vilianastclair/WeekGlass-macOS-validation/actions/runs/45788837337)在独立测试身份下验证了不同版本通过同一沙盒服务读回合成钥匙串项，同时拒绝其他应用标识。公开前仍须在普通正式包中完成 61 至 62 自动升级，并以同一账号、同一设备、受保护请求和零授权交互验收。
+[身份机制验证](https://github.com/Vilianastclair/WeekGlass-macOS-validation/actions/runs/45788837337)在独立测试身份下验证了不同版本通过同一沙盒服务读回合成钥匙串项，同时拒绝其他应用标识。
+
+[正式升级验收 45823182767](https://github.com/Vilianastclair/WeekGlass-macOS-validation/actions/runs/45823182767) 已在 Apple Silicon 完成。原版按正常流程注册并登录，Sparkle 下载私有 DMG，从同一路径将进程 11760 替换为 12711。新版未出现账号登录或系统授权窗口；原日程 Orchid61、起止时间和浅色偏好保持不变。新周历截图与回执位于该运行的 `WeekGlass macOS upgrade evidence` 产物（15119610273）。
+
+两版均通过正常云服务页面取得受保护的 `/v1/me/account` 资料。独立服务器记录显示同一账号、同一设备、同一活跃会话族，最后活动从 12:50:32 UTC 更新至 12:51:41 UTC。测试结束后服务端回收了这一个空账号；临时投递通道及私有安装包暂存均已撤下。
 
 ### 早期测试记录
 
-2026 年 11 月 26 日，私有仓库的[单次升级验收](https://github.com/Vilianastclair/WeekGlass-macOS-validation/actions/runs/45780998382)在 Apple Silicon、macOS 15.8.2、Xcode 16.4 上执行了提交 `374c2be`。两版通过原生代码签名校验，绑定同一证书和应用标识。旧版请求更新源和后继包，服务器均返回 HTTP 200；新启动的构建 58 写出了错误回执。测试在文件钥匙串操作时收到 `errSecAuthFailed`（`-25293`），未生成周历窗口截图。该次回执没有区分读取凭据和删除测试项。正式发行等待登录凭据在新版中无交互读回的证据。
+2026 年 11 月 26 日，私有仓库的[单次升级验收](https://github.com/Vilianastclair/WeekGlass-macOS-validation/actions/runs/45780998382)在 Apple Silicon、macOS 15.8.2、Xcode 16.4 上执行了提交 `374c2be`。两版通过原生代码签名校验，绑定同一证书和应用标识。旧版请求更新源和后继包，服务器均返回 HTTP 200；新启动的构建 58 写出了错误回执。测试在文件钥匙串操作时收到 `errSecAuthFailed`（`-25293`），未生成周历窗口截图。该次回执没有区分读取凭据和删除测试项。这次失败促成了固定凭据服务的实现。
 
 [Apple 的安全服务源码](https://github.com/apple-oss-distributions/Security/blob/main/securityd/src/clientid.cpp#L254-L274)为符合其证书规则的开发者分配团队分区；其他签名程序按代码目录摘要分区。重建后的自签主程序可以通过同一身份要求，却落入不同的钥匙串分区。这与本次拒绝相符；记录中没有系统给出的具体分区判定。
 
