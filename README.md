@@ -2,14 +2,17 @@
 
 **优雅地规划你的一天！**
 
-WeekGlass 是一款面向 Windows 和 Android 的周日历。把课表、约会和专注时间放进同一张日历。无需账号，离线也能排日程。
+WeekGlass 是一款面向 Windows、macOS 和 Android 的周日历。把课表、约会和专注时间放进同一张日历。无需账号，离线也能排日程。
 
 - [下载 Windows x64 安装包](https://cloud.viliana.cn/download/windows)
+- [下载 macOS 版（Apple 芯片或 Intel）](https://cloud.viliana.cn/download/macos)
 - [下载 Android ARM64 APK](https://cloud.viliana.cn/download/WeekGlass-Android-arm64.apk)
 
 [GitHub 发行页](https://github.com/Vilianastclair/WeekGlass/releases) | [官网](https://cloud.viliana.cn/) | [English](README-EN.md)
 
 **Windows**：运行 EXE 安装，在「设置 → 软件与通知」检查更新。
+
+**macOS**：打开 DMG，将 WeekGlass 拖入「应用程序」，后续可在应用内升级。此版未经 Apple 公证；如果首次打开时系统提示无法验证开发者，可按 [Apple 的说明](https://support.apple.com/zh-cn/102445)单独允许 WeekGlass。
 
 **Android**：打开 APK 安装，在「设置 → 软件更新」升级。下载并校验后，WeekGlass 会在前台打开系统安装器，按提示确认即可。
 
@@ -29,7 +32,7 @@ WeekGlass 是一款面向 Windows 和 Android 的周日历。把课表、约会�
 
 ## 从源码构建
 
-正式版源码：[Windows 0.22.10](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.10)、[Android 0.22.11](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.11)。请先切换到对应标签再构建。
+正式版源码：[Windows 0.22.10](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.10)、[macOS 0.22.12](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.12)、[Android 0.22.11](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.11)。请先切换到对应标签再构建。
 
 使用 Flutter 3.47.9（Dart 3.13.7）。在仓库根目录运行：
 

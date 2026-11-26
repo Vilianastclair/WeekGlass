@@ -2,14 +2,17 @@
 
 **See your week at a glance. Make time for what matters.**
 
-WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointments, and focus time in one view. Plan offline without an account.
+WeekGlass is a weekly calendar for Windows, macOS, and Android. Keep classes, appointments, and focus time in one view. Plan offline without an account.
 
 - [Download the Windows x64 installer](https://cloud.viliana.cn/download/windows)
+- [Download for macOS (Apple silicon or Intel)](https://cloud.viliana.cn/download/macos)
 - [Download the Android ARM64 APK](https://cloud.viliana.cn/download/WeekGlass-Android-arm64.apk)
 
 [GitHub releases](https://github.com/Vilianastclair/WeekGlass/releases) | [Website](https://cloud.viliana.cn/) | [简体中文](README.md)
 
 **Windows:** Run the EXE installer. Check for updates under Settings → Software and notifications.
+
+**macOS:** Open the DMG and drag WeekGlass to Applications. Future updates install from the app. This release is not notarized by Apple. If macOS cannot verify the developer on first launch, use [Apple’s instructions](https://support.apple.com/en-us/102445) to allow WeekGlass.
 
 **Android:** Open the APK to install. Get updates under Settings → Software Update. After verification, WeekGlass opens the system installer in the foreground so you can confirm installation.
 
@@ -29,7 +32,7 @@ Visit [your cloud account](https://cloud.viliana.cn/account) to manage orders, d
 
 ## Build from source
 
-Check out the source tag for the release you want to build: [Windows 0.22.10](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.10) or [Android 0.22.11](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.11).
+Check out the source tag for the release you want to build: [Windows 0.22.10](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.10), [macOS 0.22.12](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.12), or [Android 0.22.11](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.11).
 
 Use Flutter 3.47.9 (Dart 3.13.7). From the repository root:
 
