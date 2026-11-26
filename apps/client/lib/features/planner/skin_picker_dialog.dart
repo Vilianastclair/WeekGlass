@@ -300,7 +300,8 @@ class _WindowMotionControls extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          error ?? '关闭时使用 Windows 的窗口行为。选择后立即保存。',
+          error ??
+              '适用于启动、关闭到托盘、最小化，以及从任务栏或托盘还原。关闭时沿用 Windows 的窗口行为。选择后立即保存。',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: error == null
                 ? palette.muted
