@@ -4,8 +4,8 @@
 
 WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointments, and focus time in one view. Plan offline without an account.
 
-- [Download the Windows x64 installer](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.22.0/WeekGlass-Setup-0.22.0-Windows-x64.exe)
-- [Download the Android ARM64 APK](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.22.0/WeekGlass-Android-0.22.0-arm64.apk)
+- [Download the Windows x64 installer](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.22.7/WeekGlass-Setup-0.22.7-Windows-x64.exe)
+- [Download the Android ARM64 APK](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.22.5/WeekGlass-Android-0.22.5-arm64.apk)
 
 [GitHub releases](https://github.com/Vilianastclair/WeekGlass/releases) | [Website](https://cloud.viliana.cn/) | [简体中文](README.md)
 
@@ -29,7 +29,7 @@ Visit [your cloud account](https://cloud.viliana.cn/account) to manage orders, d
 
 ## Build from source
 
-[What changed in 0.22.0 (Chinese)](docs/releases/0.22.0.md)
+[What changed in 0.22.7 (Chinese)](docs/releases/0.22.7.md)
 
 Use Flutter 3.47.9 (Dart 3.13.7). From the repository root:
 
