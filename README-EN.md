@@ -18,7 +18,7 @@ WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointmen
 - **Make time by dragging on the calendar.** Open an event to see its notes. Create and edit recurring events as a group.
 - **Pinch the time axis on your phone.** Pinch inward to fit the day or spread vertically for detail. Your display scale is remembered on this device.
 - **Set your visible hours.** Changing wake and sleep times clips the calendar view without modifying saved events. Both times can sync between devices on a compatible server.
-- **Bring in an existing schedule.** Choose your school, sign in to its academic portal, open your personal timetable and review the courses before saving. Wuhan University has a dedicated import flow. The in-app reader handles supported school-specific pages and systems including Zhengfang, Qiangzhi and URP. Choose the undergraduate or graduate portal you actually use. You can also import ICS, CSV or JSON, or export a color or black-and-white PDF.
+- **Bring in an existing schedule.** Choose your school, sign in to its academic portal, open your personal timetable and review the courses before saving. Wuhan University has a dedicated import flow. The in-app reader handles supported school-specific pages and systems including Zhengfang, Qiangzhi and URP. Choose the undergraduate or graduate portal you actually use. You can also import ICS, CSV or JSON, or export a printable black-and-white weekly agenda.
 - **Keep your calendar on your device.** To sync across devices, choose the paid WeekGlass Cloud service or [use your own server for free](server/README.md).
 
 ## Use WeekGlass Cloud

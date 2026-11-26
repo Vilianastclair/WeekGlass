@@ -57,37 +57,36 @@ void main() {
   );
 
   for (final size in [const Size(1000, 740), const Size(390, 700)]) {
-    testWidgets(
-      'import/export dialogs fit $size and offer color/mono choices',
-      (tester) async {
-        tester.view.physicalSize = size;
-        tester.view.devicePixelRatio = 1;
-        addTearDown(tester.view.resetPhysicalSize);
-        addTearDown(tester.view.resetDevicePixelRatio);
-        final c = await controller();
-        await tester.pumpWidget(app(c));
-        await tester.tap(find.text('导入入口'));
-        await tester.pumpAndSettle();
-        expect(find.text('选择文件'), findsOneWidget);
-        expect(tester.takeException(), isNull);
-        await tester.tap(find.text('取消'));
-        await tester.pumpAndSettle();
-        await tester.tap(find.text('导出入口'));
-        await tester.pumpAndSettle();
-        expect(find.text('彩色 PDF'), findsOneWidget);
-        expect(find.text('黑白 PDF'), findsOneWidget);
-        expect(tester.takeException(), isNull);
-        await tester.pumpWidget(const SizedBox.shrink());
-        c.dispose();
-      },
-    );
+    testWidgets('import/export dialogs fit $size and offer one PDF format', (
+      tester,
+    ) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final c = await controller();
+      await tester.pumpWidget(app(c));
+      await tester.tap(find.text('导入入口'));
+      await tester.pumpAndSettle();
+      expect(find.text('选择文件'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+      await tester.tap(find.text('取消'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('导出入口'));
+      await tester.pumpAndSettle();
+      expect(find.widgetWithText(ChoiceChip, 'PDF'), findsOneWidget);
+      expect(find.byType(ChoiceChip), findsNWidgets(4));
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      c.dispose();
+    });
   }
 
-  testWidgets('color PDF exports a busy week from the calendar dialog', (
+  testWidgets('PDF exports a busy week from the calendar dialog', (
     tester,
   ) async {
     final previous = FilePickerPlatform.instance;
-    final output = Platform.environment['WG_COLOR_PDF_SAMPLE'];
+    final output = Platform.environment['WG_PDF_SAMPLE'];
     final picker = _FixturePicker(
       saveTarget: output == null ? null : File(output),
     );
@@ -95,9 +94,9 @@ void main() {
     addTearDown(() => FilePickerPlatform.instance = previous);
     // A local run can supply the selected week's records without adding
     // personal schedules to the repository or changing the export route.
-    final input = Platform.environment['WG_COLOR_PDF_RECORDS'];
+    final input = Platform.environment['WG_PDF_RECORDS'];
     final anchor = DateTime.parse(
-      Platform.environment['WG_COLOR_PDF_MONDAY'] ?? '2026-11-02',
+      Platform.environment['WG_PDF_MONDAY'] ?? '2026-11-02',
     );
     final events = input != null
         ? (jsonDecode(input) as List)
@@ -158,6 +157,8 @@ void main() {
     await tester.pumpWidget(app(c));
     await tester.tap(find.text('导出入口'));
     await tester.pumpAndSettle();
+    expect(find.widgetWithText(ChoiceChip, 'PDF'), findsOneWidget);
+    expect(find.byType(ChoiceChip), findsNWidgets(4));
     await tester.runAsync(() async {
       await tester.tap(find.widgetWithText(FilledButton, '导出'));
       final deadline = DateTime.now().add(const Duration(seconds: 12));
@@ -168,7 +169,7 @@ void main() {
     });
     await tester.pumpAndSettle();
     final stamp = anchor.toIso8601String().substring(0, 10).replaceAll('-', '');
-    expect(picker.savedName, 'WeekGlass-$stamp-彩色.pdf');
+    expect(picker.savedName, 'WeekGlass-$stamp.pdf');
     final pdf = latin1.decode(picker.savedBytes!);
     expect(RegExp(r'/Type\s*/Page\b').allMatches(pdf).length, 1);
     expect(picker.savedMime, 'application/pdf');

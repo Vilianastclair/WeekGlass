@@ -400,7 +400,16 @@ class _CalendarImportDialogState extends State<CalendarImportDialog> {
   }
 }
 
-enum CalendarExportFormat { colorPdf, monochromePdf, ics, json, csv }
+enum CalendarExportFormat {
+  pdf('PDF'),
+  ics('ICS', '兼容主流日历；已展开的周/月日程按各次时间导出。'),
+  json('JSON', '保留名称、时间、颜色、备注与批次，可重新导入 WeekGlass。'),
+  csv('CSV', '可用表格软件查看和编辑，中文以 UTF-8 保存。');
+
+  const CalendarExportFormat(this.label, [this.description]);
+  final String label;
+  final String? description;
+}
 
 class CalendarExportDialog extends StatefulWidget {
   const CalendarExportDialog({super.key, required this.controller});
@@ -411,7 +420,7 @@ class CalendarExportDialog extends StatefulWidget {
 
 class _CalendarExportDialogState extends State<CalendarExportDialog> {
   late DateTimeRange _range;
-  var _format = CalendarExportFormat.colorPdf;
+  var _format = CalendarExportFormat.pdf;
   bool _busy = false;
   String? _error;
 
@@ -445,10 +454,8 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
                 e.endLocal.isAfter(_range.start),
           )
           .toList();
-      final pdf =
-          _format == CalendarExportFormat.colorPdf ||
-          _format == CalendarExportFormat.monochromePdf;
-      final extension = pdf ? 'pdf' : _format.name;
+      final pdf = _format == CalendarExportFormat.pdf;
+      final extension = _format.name;
       final bytes = pdf
           ? await compute(
               _renderPdf,
@@ -458,7 +465,6 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
                 end,
                 widget.controller.timeZoneId,
                 await rootBundle.load('assets/fonts/NotoSansSC-Variable.ttf'),
-                _format == CalendarExportFormat.monochromePdf,
               ),
             )
           : Uint8List.fromList(
@@ -472,7 +478,7 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
       final saved = await saveCalendarFile(
         bytes: bytes,
         suggestedName:
-            'WeekGlass-${DateFormat('yyyyMMdd').format(_range.start)}${pdf ? (_format == CalendarExportFormat.monochromePdf ? '-黑白' : '-彩色') : ''}.$extension',
+            'WeekGlass-${DateFormat('yyyyMMdd').format(_range.start)}.$extension',
         extension: extension,
         mimeType: pdf
             ? 'application/pdf'
@@ -516,13 +522,7 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
                 children: [
                   for (final format in CalendarExportFormat.values)
                     ChoiceChip(
-                      label: Text(switch (format) {
-                        CalendarExportFormat.colorPdf => '彩色 PDF',
-                        CalendarExportFormat.monochromePdf => '黑白 PDF',
-                        CalendarExportFormat.ics => 'ICS',
-                        CalendarExportFormat.json => 'JSON',
-                        CalendarExportFormat.csv => 'CSV',
-                      }),
+                      label: Text(format.label),
                       selected: _format == format,
                       onSelected: _busy
                           ? null
@@ -552,15 +552,10 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
                         },
                 ),
               ),
-              const SizedBox(height: 12),
-              Text(switch (_format) {
-                CalendarExportFormat.colorPdf => 'A4 横向周表',
-                CalendarExportFormat.monochromePdf => '按周列出时间和备注，适合黑白打印。',
-                CalendarExportFormat.ics => '兼容主流日历；已展开的周/月日程按各次时间导出。',
-                CalendarExportFormat.json =>
-                  '保留名称、时间、颜色、备注与批次，可重新导入 WeekGlass。',
-                CalendarExportFormat.csv => '可用表格软件查看和编辑，中文以 UTF-8 保存。',
-              }, style: Theme.of(context).textTheme.bodySmall),
+              if (_format.description case final text?) ...[
+                const SizedBox(height: 12),
+                Text(text, style: Theme.of(context).textTheme.bodySmall),
+              ],
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
@@ -654,19 +649,11 @@ CalendarImportResult _decode(_ImportRequest r) => CalendarCodec().decode(
 );
 
 class _PdfRequest {
-  const _PdfRequest(
-    this.events,
-    this.start,
-    this.end,
-    this.zone,
-    this.font,
-    this.monochrome,
-  );
+  const _PdfRequest(this.events, this.start, this.end, this.zone, this.font);
   final List<CalendarEvent> events;
   final DateTime start, end;
   final String zone;
   final ByteData font;
-  final bool monochrome;
 }
 
 Future<Uint8List> _renderPdf(_PdfRequest r) => CalendarPdf.build(
@@ -675,5 +662,4 @@ Future<Uint8List> _renderPdf(_PdfRequest r) => CalendarPdf.build(
   rangeEnd: r.end,
   timeZoneId: r.zone,
   chineseFont: r.font,
-  monochrome: r.monochrome,
 );

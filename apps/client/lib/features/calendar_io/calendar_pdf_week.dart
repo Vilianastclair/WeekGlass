@@ -2,8 +2,8 @@ part of 'calendar_pdf.dart';
 
 // A paper week is read by day, then by time. Give a five-minute errand the
 // same readable line as a lecture; duration should not determine type size.
-class _ColorWeek {
-  _ColorWeek(this.week, this.first, this.last, this.zone, this.events);
+class _PrintWeek {
+  _PrintWeek(this.week, this.first, this.last, this.zone, this.events);
 
   final DateTime week, first, last;
   final tz.Location zone;
@@ -11,10 +11,9 @@ class _ColorWeek {
   static final _paper = PdfPageFormat.a4.landscape;
   static const _margin = 23.0, _dayWidth = 49.0, _gutter = 11.0;
   static const _topRule = 59.0, _bottom = 18.0;
-  static final _ink = PdfColor.fromHex('#252C2E');
-  static final _quiet = PdfColor.fromHex('#515C60');
-  static final _teal = PdfColor.fromHex('#285E62');
-  static final _rule = PdfColor.fromHex('#CDD5D4');
+  static const _ink = PdfColorGrey(.1);
+  static const _quiet = PdfColorGrey(.30);
+  static const _rule = PdfColorGrey(.80);
   double get _column => (_paper.width - 2 * _margin - _dayWidth) / 3;
   double get _height => _paper.height - _topRule - _bottom;
 
@@ -53,7 +52,7 @@ class _ColorWeek {
     final days = _days();
     final clock = PdfFont.helvetica(doc.document);
     final timeWidth = clock.stringMetrics('00:00-00:00').advanceWidth * 7.6 + 6;
-    final textWidth = _column - _gutter - timeWidth - 6;
+    final textWidth = _column - _gutter - timeWidth;
     var compact = false, periods = true;
     List<_Band> layout() => [
       for (final day in days)
@@ -96,19 +95,9 @@ class _ColorWeek {
         free = _height;
       } while (offset < band.count);
     }
-    for (var i = 0; i < pages.length; i++) {
+    for (final page in pages) {
       final canvas = PdfPage(doc.document, pageFormat: _paper).getGraphics();
-      _paint(
-        canvas,
-        font,
-        clock,
-        timeWidth,
-        days,
-        pages[i],
-        periods,
-        i,
-        pages.length,
-      );
+      _paint(canvas, font, clock, timeWidth, days, page, periods);
     }
   }
 
@@ -208,8 +197,6 @@ class _ColorWeek {
     List<_DayAgenda> weekDays,
     List<_Band> bands,
     bool periods,
-    int page,
-    int pages,
   ) {
     double y(double fromTop) => _paper.height - fromTop;
     void text(
@@ -236,7 +223,7 @@ class _ColorWeek {
 
     void rule(double top, {bool major = false}) {
       g
-        ..setStrokeColor(major ? _teal : _rule)
+        ..setStrokeColor(major ? _ink : _rule)
         ..setLineWidth(major ? .8 : .4)
         ..drawLine(_margin, y(top), _paper.width - _margin, y(top))
         ..strokePath();
@@ -250,9 +237,6 @@ class _ColorWeek {
         ? '${b.month}月${b.day}日'
         : '${b.day}日';
     text(a == b ? begin : '$begin至$end', _margin, 31, 15, _ink, weight: .037);
-    final meta = pages == 1 ? zone.name : '${zone.name}   ${page + 1}/$pages';
-    final metaWidth = f.stringMetrics(meta).advanceWidth * 7.6;
-    text(meta, _paper.width - _margin - metaWidth, 30, 7.6, _quiet);
     if (periods) {
       for (var c = 0; c < 3; c++) {
         text(
@@ -260,7 +244,7 @@ class _ColorWeek {
           _margin + _dayWidth + c * _column,
           _topRule - 6,
           8.4,
-          _teal,
+          _ink,
           weight: .04,
         );
       }
@@ -280,7 +264,7 @@ class _ColorWeek {
         _margin,
         baseline,
         10.0,
-        _teal,
+        _ink,
         weight: .045,
       );
       text('${d.month}/${d.day}', _margin, baseline + 11, 7.6, _quiet);
@@ -301,12 +285,8 @@ class _ColorWeek {
                 y(base),
                 mode: PdfTextRenderingMode.fillAndStroke,
               );
-            g
-              ..setFillColor(_dot(entry.event.color))
-              ..drawEllipse(x + timeWidth + 1.1, y(base - 2.5), 1.35, 1.35)
-              ..fillPath();
           }
-          final titleX = x + timeWidth + 6;
+          final titleX = x + timeWidth;
           text(line.title, titleX, base, line.size, _ink, weight: .033);
           text(
             line.note,
@@ -321,16 +301,6 @@ class _ColorWeek {
       rule(top);
     }
   }
-
-  static PdfColor _dot(EventColor c) => PdfColor.fromHex(switch (c) {
-    EventColor.mistBlue => '#687E9B',
-    EventColor.lavender => '#86759A',
-    EventColor.sageGreen => '#668577',
-    EventColor.softPeach => '#A78269',
-    EventColor.rose => '#A2757E',
-    EventColor.warmSand => '#9B8A61',
-    EventColor.slate => '#798389',
-  });
 }
 
 class _DayAgenda {
