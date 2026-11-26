@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Produce one signed-bundle Sparkle delta from the preceding public Mac release."""
-import argparse, contextlib, hashlib, json, os, pathlib, plistlib, re, subprocess, tempfile, urllib.request
+import argparse, contextlib, hashlib, json, os, plistlib, re, subprocess, tempfile
 from pathlib import Path
 REPO='Vilianastclair/WeekGlass'
 RELEASE='https://github.com/'+REPO+'/releases/download/'

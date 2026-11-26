@@ -133,6 +133,7 @@ jobs:
           fi
 
       - name: Generate and verify the update from the preceding public disk image
+        id: incremental
         if: github.ref_name == 'ci/macos-validation'
         env:
           GH_TOKEN: ${{ github.token }}
@@ -161,7 +162,7 @@ jobs:
           retention-days: 7
 
       - name: Upload the validated distribution candidate
-        if: ${{ !cancelled() && steps.distribution.outcome == 'success' }}
+        if: ${{ !cancelled() && steps.distribution.outcome == 'success' && (github.ref_name != 'ci/macos-validation' || steps.incremental.outcome == 'success') }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: WeekGlass macOS ${{ matrix.arch }} distribution candidate
