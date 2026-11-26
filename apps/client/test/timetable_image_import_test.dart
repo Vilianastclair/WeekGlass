@@ -116,7 +116,7 @@ void main() {
           '1-15周(单)',
         ]);
         expect(
-          parsed.messages.any((message) => message.contains('特别核对')),
+          parsed.messages.any((message) => message.contains('补齐缺失的表头')),
           isTrue,
         );
         final preview = plan(parsed.courses).preview();
@@ -371,9 +371,6 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('选择课表图片'), findsNothing);
       expect(find.text('粘贴图片'), findsNothing);
-      await tester.ensureVisible(find.byKey(const Key('timetable-confirm')));
-      await tester.tap(find.byKey(const Key('timetable-confirm')));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('生成日程预览'));
       await tester.pumpAndSettle();
       expect(find.textContaining('请明确填写第一教学周'), findsOneWidget);
@@ -390,12 +387,9 @@ void main() {
         find.byKey(const Key('timetable-clock')),
         '1 08:00-08:45\n2 08:50-09:35',
       );
-      await tester.ensureVisible(find.byKey(const Key('timetable-confirm')));
-      await tester.tap(find.byKey(const Key('timetable-confirm')));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('生成日程预览'));
       await tester.pumpAndSettle();
-      expect(find.text('可导入 2 项 · 重复 0 项'), findsOneWidget);
+      expect(find.text('可导入 2 项，重复 0 项'), findsOneWidget);
       expect(repository.saveBatchCalls, 0);
       await tester.tap(find.text('导入 2 项'));
       await tester.pumpAndSettle();

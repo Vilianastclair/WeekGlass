@@ -148,14 +148,9 @@ void main() {
         await t.pumpAndSettle();
         await t.tap(find.text('打开学校教务'));
         await t.pumpAndSettle();
-        expect(find.text('核对课程，再放进一周'), findsOneWidget);
-        final confirm = find.byKey(const ValueKey('confirm-import-calendar'));
+        expect(find.text('课表预览'), findsOneWidget);
         final commit = find.byKey(const ValueKey('commit-course-import'));
-        expect(t.widget<FilledButton>(commit).onPressed, isNull);
         expect(c.events.length, i == 0 ? 0 : count);
-        await t.ensureVisible(confirm);
-        await t.tap(confirm);
-        await t.pumpAndSettle();
         expect(t.widget<FilledButton>(commit).onPressed, isNotNull);
         if (i == 1) expect(find.text('保存导入设置'), findsOneWidget);
         await t.tap(commit);

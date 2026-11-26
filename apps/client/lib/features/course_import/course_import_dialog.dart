@@ -63,13 +63,12 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
       ? DateTime.now().year
       : DateTime.now().year - 1;
   late int semester = DateTime.now().month >= 8 ? 3 : 12;
-  DateTime? firstMonday;
+  DateTime? firstMonday, savedFirstMonday;
   List<ClassPeriod> clock = [...ClassPeriod.standard];
   bool connecting = false,
       reading = false,
       saving = false,
-      attempted = false,
-      confirmed = false;
+      attempted = false;
   bool removeMissing = false, restoreDeleted = false;
   bool excludeHolidays = false;
   bool removeImportedHolidays = false;
@@ -88,6 +87,8 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   int sleepConflicts = 0, overlaps = 0, previewGeneration = 0;
   WhuTerm get term => WhuTerm(year, semester);
   bool get busy => reading || saving;
+  bool get canImport =>
+      !busy && plan != null && sleepConflicts == 0 && selected.isNotEmpty;
   bool get needsPeriodClock =>
       timetable?.meetings.any(
         (m) => selected.contains(m.courseKey) && m.fixedTime == null,
@@ -132,6 +133,10 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
         final periods = (value['periods'] as List)
             .map((p) => ClassPeriod(p[0] as int, p[1] as int))
             .toList();
+        if (date.weekday != DateTime.monday ||
+            (!externalSchool && periods.isEmpty)) {
+          return;
+        }
         final savedHolidays = (value['holidays'] as List? ?? [])
             .map(
               (h) =>
@@ -141,16 +146,16 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
         setState(() {
           if (fileSchool == null) {
             firstMonday = date;
+            savedFirstMonday = date;
             clock = periods;
           }
-          confirmed = !externalSchool;
           excludeHolidays = value['excludeHolidays'] == true;
           holidays = savedHolidays;
         });
         if (timetable != null) await _preview();
       }
     } catch (_) {
-      /* Invalid local settings fall back to explicit confirmation. */
+      /* Keep the source defaults when the saved settings cannot be read. */
     }
   }
 
@@ -208,8 +213,9 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
         selected = data.courseKeys;
         account.text = data.account;
       });
-      if (confirmed ||
-          firstMonday != null && firstMonday == school.firstMonday(term)) {
+      if (firstMonday != null &&
+          (firstMonday == savedFirstMonday ||
+              firstMonday == school.firstMonday(term))) {
         await _rememberTeachingCalendar();
       }
       await _preview();
@@ -226,11 +232,11 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   }
 
   void _resetSourceSettings() {
+    savedFirstMonday = null;
     firstMonday = externalSchool ? null : school.firstMonday(term);
     if (externalSchool) clock = [];
     holidays = [];
     excludeHolidays = false;
-    confirmed = false;
   }
 
   Future<void> _chooseSchool() async {
@@ -283,7 +289,6 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
         if (clock.isEmpty && data.suggestedClock != null) {
           clock = [...data.suggestedClock!];
         }
-        confirmed = false;
       });
       await _preview();
     } catch (e) {
@@ -449,7 +454,6 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
     if (date != null && mounted) {
       setState(() {
         firstMonday = date;
-        confirmed = false;
       });
       await _preview();
     }
@@ -469,7 +473,6 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
           start ? time.hour * 60 + time.minute : p.start,
           start ? p.end : time.hour * 60 + time.minute,
         );
-        confirmed = false;
       });
       await _preview();
     }
@@ -494,25 +497,19 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
     if (result != null && mounted) {
       setState(() {
         clock = result;
-        confirmed = false;
       });
       await _preview();
     }
   }
 
   Future<void> _save() async {
-    if (busy ||
-        plan == null ||
-        !confirmed ||
-        sleepConflicts > 0 ||
-        selected.isEmpty) {
-      return;
-    }
+    if (!canImport) return;
     setState(() => saving = true);
     try {
       // Re-read persistence immediately before committing so stale previews cannot overwrite changes.
       await _preview();
-      if (plan == null || sleepConflicts > 0) throw StateError('请重新核对导入预览。');
+      if (plan == null) throw StateError(error ?? '缺少课程日期或节次时间。');
+      if (sleepConflicts > 0) throw StateError('$sleepConflicts 节课与睡眠时段冲突。');
       final result = plan!;
       await widget.controller.applyCourseImport(result.changes);
       await _rememberTeachingCalendar();
@@ -590,7 +587,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
                                 Text(
-                                  preview ? '核对课程，再放进一周' : '导入学校课表',
+                                  preview ? '课表预览' : '导入学校课表',
                                   style: TextStyle(
                                     fontSize: 21,
                                     fontWeight: FontWeight.w600,
@@ -758,7 +755,6 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
       } else {
         holidays[index] = result;
       }
-      confirmed = false;
     });
     await _preview();
   }
@@ -805,7 +801,6 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                   setState(() {
                     excludeHolidays = value.single;
                     removeImportedHolidays = false;
-                    confirmed = false;
                   });
                   unawaited(_preview());
                 },
@@ -840,7 +835,6 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                 : (value) {
                     setState(() {
                       removeImportedHolidays = value!;
-                      confirmed = false;
                     });
                     unawaited(_preview());
                   },
@@ -875,7 +869,6 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                       : () {
                           setState(() {
                             holidays.removeAt(index);
-                            confirmed = false;
                           });
                           unawaited(_preview());
                         },
@@ -984,7 +977,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                     ? '在 SIS 打开「查看我的课表」，切到「按课程」，用右上角的下载按钮导出 ps.xls。'
                     : externalSchool
                     ? '在学校页面打开个人学期课表，点「读取当前课表」。'
-                    : '登录后核对课程，再导入日历。',
+                    : '登录后，软件会读取所选学期的课程。',
                 textAlign: TextAlign.center,
                 style: TextStyle(color: p.muted),
               ),
@@ -996,7 +989,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                       ? '选择原始导出文件即可预览，课程日期和上课时刻取自文件。'
                       : externalSchool
                       ? '课表在本机读取。没有标明开学日期或上下课时刻时，请按本校校历和作息表补齐。'
-                      : '密码和验证码只在学校官方页面填写。确认第一周、节次与假期后再保存。',
+                      : '密码和验证码只在学校官方页面填写。',
                   textAlign: TextAlign.center,
                   style: TextStyle(color: p.muted, fontSize: 12, height: 1.8),
                 ),
@@ -1184,7 +1177,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
           Padding(
             padding: const EdgeInsets.only(top: 10),
             child: Text(
-              '有 ${data.warnings.length} 项未自动安排，请核对提示。',
+              '有 ${data.warnings.length} 项未安排，原因见下方。',
               style: TextStyle(fontSize: 12, color: p.accentStrong),
             ),
           ),
@@ -1220,7 +1213,6 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                     helperText: '用于区分课表，不会作为登录凭据',
                   ),
             onChanged: (_) {
-              setState(() => confirmed = false);
               unawaited(_preview());
             },
           ),
@@ -1255,7 +1247,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
             key: const ValueKey('edit-course-school-clock'),
             onPressed: busy ? null : _editSchoolClock,
             icon: const Icon(Icons.schedule_rounded, size: 17),
-            label: Text(clock.isEmpty ? '填写节次时间' : '核对 ${clock.length} 节的时间'),
+            label: Text(clock.isEmpty ? '填写节次时间' : '编辑 ${clock.length} 节的时间'),
           )
         else
           Material(
@@ -1264,7 +1256,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
               tilePadding: EdgeInsets.zero,
               title: const Text('节次时间', style: TextStyle(fontSize: 13)),
               subtitle: Text(
-                '首次使用请对照学校课表核对',
+                '可调整每节课的起止时刻',
                 style: TextStyle(fontSize: 11, color: p.muted),
               ),
               children: [
@@ -1280,7 +1272,6 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
                                   clock.last.end + 50,
                                 ),
                               );
-                              confirmed = false;
                             });
                             unawaited(_preview());
                           },
@@ -1318,21 +1309,6 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
         const SizedBox(height: 10),
         _holidaySettings(p),
         const SizedBox(height: 8),
-        Material(
-          type: MaterialType.transparency,
-          child: CheckboxListTile(
-            key: const ValueKey('confirm-import-calendar'),
-            contentPadding: EdgeInsets.zero,
-            dense: true,
-            controlAffinity: ListTileControlAffinity.leading,
-            value: confirmed,
-            onChanged: busy ? null : (v) => setState(() => confirmed = v!),
-            title: Text(
-              fileSchool != null ? '已核对归档学期、课程日期和假期安排' : '已核对学期、第一周、节次与假期安排',
-              style: const TextStyle(fontSize: 12),
-            ),
-          ),
-        ),
         Material(
           type: MaterialType.transparency,
           child: ExpansionTile(
@@ -1467,14 +1443,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
         ),
       FilledButton.icon(
         key: const ValueKey('commit-course-import'),
-        onPressed:
-            busy ||
-                plan == null ||
-                !confirmed ||
-                sleepConflicts > 0 ||
-                selected.isEmpty
-            ? null
-            : _save,
+        onPressed: canImport ? _save : null,
         icon: Icon(
           saving ? Icons.hourglass_top_rounded : Icons.check_rounded,
           size: 17,
