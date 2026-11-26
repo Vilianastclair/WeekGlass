@@ -14,10 +14,19 @@ enum SidebarAction {
   const SidebarAction(this.label, this.icon);
   final String label;
   final IconData icon;
-  // The first iPhone build offers local planning only.
+  bool get isCalendarFileAction => this == importEvents || this == exportEvents;
+
   bool availableOn(TargetPlatform platform) =>
       platform != TargetPlatform.iOS ||
+      isCalendarFileAction ||
       const {create, undo, appearance, view}.contains(this);
 
   static const defaults = {create, undo, courses, cloud, view};
+  static const iPhoneDefaults = {
+    create,
+    undo,
+    view,
+    importEvents,
+    exportEvents,
+  };
 }

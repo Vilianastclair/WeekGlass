@@ -304,13 +304,12 @@ class _SettingsDialogState extends State<_SettingsDialog> {
               subtitle: _windows ? '自定义侧边栏' : '自定义底部和更多菜单',
               onTap: () => _open(_SettingsPage.shortcuts),
             ),
-            if (!_iPhone)
-              _SettingsRow(
-                icon: Icons.calendar_month_outlined,
-                title: _SettingsPage.data.label,
-                subtitle: '导入与导出',
-                onTap: () => _open(_SettingsPage.data),
-              ),
+            _SettingsRow(
+              icon: Icons.calendar_month_outlined,
+              title: _SettingsPage.data.label,
+              subtitle: '导入与导出',
+              onTap: () => _open(_SettingsPage.data),
+            ),
             if (!_iPhone)
               _SettingsRow(
                 icon: Icons.settings_suggest_outlined,
@@ -422,16 +421,17 @@ class _SettingsDialogState extends State<_SettingsDialog> {
 
   List<Widget> _dataContent(BuildContext context) => [
     for (final (action, text) in [
-      (SidebarAction.importEvents, '从日历文件或课表图片导入'),
+      (SidebarAction.importEvents, _iPhone ? 'ICS、CSV 或 JSON' : '从日历文件或课表图片导入'),
       (SidebarAction.courses, '从学校教务系统导入'),
       (SidebarAction.exportEvents, '导出或打印此设备的日程'),
     ])
-      _SettingsRow(
-        icon: action.icon,
-        title: action.label,
-        subtitle: text,
-        onTap: () => openPlannerAction(context, controller, action),
-      ),
+      if (action.availableOn(Theme.of(context).platform))
+        _SettingsRow(
+          icon: action.icon,
+          title: action.label,
+          subtitle: text,
+          onTap: () => openPlannerAction(context, controller, action),
+        ),
   ];
 
   List<Widget> _systemContent(BuildContext context) => [

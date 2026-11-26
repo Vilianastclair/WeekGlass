@@ -220,12 +220,19 @@ class _MobilePlannerScreenState extends State<MobilePlannerScreen> {
             final direct = showCloud && actions.length > 3 && box.maxWidth < 336
                 ? 2
                 : 3;
-            final overflow = actions.skip(direct).toList();
+            final iPhone = Theme.of(context).platform == TargetPlatform.iOS;
+            final slots = actions
+                .where((action) => !iPhone || !action.isCalendarFileAction)
+                .take(direct)
+                .toSet();
+            final overflow = actions
+                .where((action) => !slots.contains(action))
+                .toList();
             return IntrinsicHeight(
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  for (final action in actions.take(direct))
+                  for (final action in slots)
                     Expanded(
                       child: MobileDockButton(
                         key: ValueKey('mobile-action-${action.name}'),

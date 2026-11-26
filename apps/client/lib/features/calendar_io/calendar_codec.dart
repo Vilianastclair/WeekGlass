@@ -323,7 +323,12 @@ class CalendarCodec {
   }
 
   List<Map<String, dynamic>> _jsonRows(String text) {
-    final value = jsonDecode(text);
+    final Object? value;
+    try {
+      value = jsonDecode(text);
+    } on FormatException {
+      throw const FormatException('JSON 格式无效。');
+    }
     final cloud = value is Map && value['format'] == 'weekglass-json-v1';
     final native =
         cloud ||
@@ -772,17 +777,18 @@ class CalendarCodec {
       '${d.year.toString().padLeft(4, '0')}${_two(d.month)}${_two(d.day)}T${_two(d.hour)}${_two(d.minute)}${_two(d.second)}Z';
   static String _two(int n) => n.toString().padLeft(2, '0');
   static EventColor _color(String value) {
+    value = value.trim();
     for (final color in EventColor.values) {
       if (value == color.key || value == color.label) return color;
     }
     return switch (value.toLowerCase()) {
-      'blue' || '#7f9bc9' => EventColor.mistBlue,
-      'purple' || 'violet' => EventColor.lavender,
-      'green' || 'teal' => EventColor.sageGreen,
-      'orange' => EventColor.softPeach,
-      'red' || 'pink' => EventColor.rose,
-      'yellow' || 'gold' => EventColor.warmSand,
-      'gray' || 'grey' => EventColor.slate,
+      'blue' || '#7f9bc9' || '蓝色' => EventColor.mistBlue,
+      'purple' || 'violet' || '紫色' => EventColor.lavender,
+      'green' || 'teal' || '绿色' || '青色' => EventColor.sageGreen,
+      'orange' || '橙色' => EventColor.softPeach,
+      'red' || 'pink' || '红色' || '粉色' => EventColor.rose,
+      'yellow' || 'gold' || '黄色' || '金色' => EventColor.warmSand,
+      'gray' || 'grey' || '灰色' => EventColor.slate,
       _ => EventColor.mistBlue,
     };
   }

@@ -1,7 +1,5 @@
 import 'dart:convert';
-import 'dart:typed_data';
 
-import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -21,6 +19,7 @@ Future<void> openCalendarImport(
   PlannerController controller,
 ) => showDialog<void>(
   context: context,
+  barrierDismissible: Theme.of(context).platform != TargetPlatform.iOS,
   builder: (_) => CalendarImportDialog(controller: controller),
 );
 
@@ -29,6 +28,7 @@ Future<void> openCalendarExport(
   PlannerController controller,
 ) => showDialog<void>(
   context: context,
+  barrierDismissible: Theme.of(context).platform != TargetPlatform.iOS,
   builder: (_) => CalendarExportDialog(controller: controller),
 );
 
@@ -41,8 +41,8 @@ class CalendarImportDialog extends StatefulWidget {
 
 class _CalendarImportDialogState extends State<CalendarImportDialog> {
   late DateTimeRange _range;
-  String? _text, _name, _error;
-  CalendarFileFormat? _format;
+  ({String name, String text, CalendarFileFormat format})? _input;
+  String? _error, _phoneResult;
   CalendarImportResult? _preview;
   final _selected = <String>{};
   bool _busy = false;
@@ -67,51 +67,40 @@ class _CalendarImportDialogState extends State<CalendarImportDialog> {
     return [...widget.controller.events, ...imported];
   }
 
-  Future<CalendarImportResult> _parse() async => compute(
-    _decode,
-    _ImportRequest(
-      _text!,
-      _format!,
-      widget.controller.timeZoneId,
-      _range.start,
-      DateTime(_range.end.year, _range.end.month, _range.end.day + 1),
-      await _existing(),
-    ),
-  );
+  Future<CalendarImportResult> _parse() async {
+    final input = _input!;
+    return compute(
+      _decode,
+      _ImportRequest(
+        input.text,
+        input.format,
+        widget.controller.timeZoneId,
+        _range.start,
+        DateTime(_range.end.year, _range.end.month, _range.end.day + 1),
+        await _existing(),
+      ),
+    );
+  }
 
   Future<void> _chooseFile() async {
+    final iPhone = Theme.of(context).platform == TargetPlatform.iOS;
     setState(() {
       _busy = true;
-      _error = null;
     });
     try {
-      final file = await FilePicker.pickFile(
-        dialogTitle: '选择日历文件',
-        type: FileType.custom,
-        allowedExtensions: ['ics', 'json', 'csv'],
-        windowsOptions: const WindowsOptions(lockParentWindow: true),
-      );
-      if (file == null) return;
-      if ((await file.length() ?? 0) > CalendarCodec.maxBytes) {
-        throw const FormatException('文件超过 10 MB，请先拆分日历。');
-      }
-      final bytes = BytesBuilder(copy: false);
-      await for (final part in file.readAsByteStream()) {
-        bytes.add(part);
-        if (bytes.length > CalendarCodec.maxBytes) {
-          throw const FormatException('文件超过 10 MB，请先拆分日历。');
-        }
-      }
-      _format = switch (file.extension?.toLowerCase()) {
-        'ics' => CalendarFileFormat.ics,
-        'json' => CalendarFileFormat.json,
-        'csv' => CalendarFileFormat.csv,
-        _ => throw const FormatException('请选择 ICS、JSON 或 CSV 文件。'),
-      };
-      _text = CalendarCodec.decodeText(bytes.takeBytes());
-      _name = file.name;
+      final input = await pickCalendarFile();
+      if (input == null || !mounted) return;
+      setState(() {
+        _input = input;
+        _error = null;
+        _phoneResult = null;
+      });
       final result = await _parse();
       if (!mounted) return;
+      if (iPhone) {
+        await _importOnPhone(result);
+        return;
+      }
       setState(() {
         _preview = result;
         _selected
@@ -123,11 +112,30 @@ class _CalendarImportDialogState extends State<CalendarImportDialog> {
         setState(() {
           _error = _message(error);
           _preview = null;
+          _phoneResult = null;
         });
       }
     } finally {
-      if (mounted) setState(() => _busy = false);
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          if (iPhone) _input = null;
+        });
+      }
     }
+  }
+
+  Future<void> _importOnPhone(CalendarImportResult result) async {
+    final skipped = [
+      if (result.duplicateCount > 0) '${result.duplicateCount} 项重复',
+      if (result.skippedCount > 0) '${result.skippedCount} 项超出范围或格式不支持',
+    ];
+    final summary = skipped.isEmpty ? '' : '。已跳过 ${skipped.join('、')}';
+    if (result.events.isEmpty) {
+      setState(() => _phoneResult = '没有新的日程可导入$summary。');
+      return;
+    }
+    await _write(result.events, summary: summary, importedFile: true);
   }
 
   Future<void> _changeRange() async {
@@ -137,9 +145,10 @@ class _CalendarImportDialogState extends State<CalendarImportDialog> {
       _range = range;
       _busy = true;
       _error = null;
+      _phoneResult = null;
     });
     try {
-      if (_text != null) {
+      if (_input != null) {
         final result = await _parse();
         if (mounted) {
           setState(() {
@@ -181,31 +190,7 @@ class _CalendarImportDialogState extends State<CalendarImportDialog> {
       if (conflicts > 0) {
         throw FormatException('$conflicts 项日程与睡眠时间重叠。请取消勾选这些日程，或先在设置中调整睡眠时段。');
       }
-      await widget.controller.saveEvents(events);
-      if (!mounted) return;
-      final controller = widget.controller;
-      final messenger = ScaffoldMessenger.of(context);
-      messenger.showSnackBar(
-        SnackBar(
-          content: Text('已导入 ${events.length} 项日程'),
-          duration: const Duration(seconds: 5),
-          action: SnackBarAction(
-            label: '撤销',
-            onPressed: () async {
-              try {
-                await controller.undo();
-              } catch (error) {
-                if (messenger.mounted) {
-                  messenger.showSnackBar(
-                    SnackBar(content: Text(_message(error))),
-                  );
-                }
-              }
-            },
-          ),
-        ),
-      );
-      Navigator.of(context).pop();
+      await _write(events);
     } catch (error) {
       if (mounted) setState(() => _error = _message(error));
     } finally {
@@ -213,8 +198,101 @@ class _CalendarImportDialogState extends State<CalendarImportDialog> {
     }
   }
 
+  Future<void> _write(
+    List<CalendarEvent> events, {
+    String summary = '',
+    bool importedFile = false,
+  }) async {
+    final controller = widget.controller;
+    if (importedFile) {
+      await controller.importCalendarEvents(events);
+    } else {
+      await controller.saveEvents(events);
+    }
+    if (!mounted) return;
+    final messenger = ScaffoldMessenger.of(context);
+    _showFileResult(
+      context,
+      '已导入 ${events.length} 项日程$summary',
+      duration: const Duration(seconds: 5),
+      action: importedFile
+          ? null
+          : SnackBarAction(
+              label: '撤销',
+              onPressed: () async {
+                try {
+                  await controller.undo();
+                } catch (error) {
+                  if (messenger.mounted) {
+                    messenger.showSnackBar(
+                      SnackBar(content: Text(_message(error))),
+                    );
+                  }
+                }
+              },
+            ),
+    );
+    Navigator.of(context).pop();
+  }
+
+  Widget _buildPhoneImport(BuildContext context) => PopScope(
+    canPop: !_busy,
+    child: GlassAlertDialog(
+      title: const Text('导入日程'),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 18, vertical: 20),
+      content: SingleChildScrollView(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Text('ICS、CSV 或 JSON'),
+            const SizedBox(height: 12),
+            Container(
+              decoration: WeekGlassPalette.of(context).glassDecoration(),
+              child: ListTile(
+                leading: const Icon(Icons.date_range_rounded),
+                title: const Text('日期范围'),
+                subtitle: Text(_rangeLabel(_range)),
+                trailing: const Icon(Icons.chevron_right_rounded),
+                onTap: _busy ? null : _changeRange,
+              ),
+            ),
+            if (_error != null || _phoneResult != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 12),
+                child: Text(
+                  _error ?? _phoneResult!,
+                  style: _error == null
+                      ? null
+                      : TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ),
+            if (_busy)
+              const Padding(
+                padding: EdgeInsets.only(top: 12),
+                child: LinearProgressIndicator(minHeight: 2),
+              ),
+          ],
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _busy ? null : () => Navigator.pop(context),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: _busy ? null : _chooseFile,
+          child: const Text('选择文件并导入'),
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
+    if (Theme.of(context).platform == TargetPlatform.iOS) {
+      return _buildPhoneImport(context);
+    }
     final preview = _preview;
     final palette = WeekGlassPalette.of(context);
     return PopScope(
@@ -255,7 +333,7 @@ class _CalendarImportDialogState extends State<CalendarImportDialog> {
                   OutlinedButton.icon(
                     onPressed: _busy ? null : _chooseFile,
                     icon: const Icon(Icons.folder_open_rounded, size: 18),
-                    label: Text(_name == null ? '选择文件' : '更换文件'),
+                    label: Text(_input == null ? '选择文件' : '更换文件'),
                   ),
                   TextButton.icon(
                     onPressed: _busy ? null : _changeRange,
@@ -264,11 +342,11 @@ class _CalendarImportDialogState extends State<CalendarImportDialog> {
                   ),
                 ],
               ),
-              if (_name != null)
+              if (_input case final input?)
                 Padding(
                   padding: const EdgeInsets.only(top: 4),
                   child: Text(
-                    _name!,
+                    input.name,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                   ),
@@ -489,11 +567,10 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
             : 'text/csv',
       );
       if (saved == null || !mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('已导出 ${events.length} 项日程'),
-          duration: const Duration(seconds: 4),
-        ),
+      _showFileResult(
+        context,
+        '已导出 ${events.length} 项日程',
+        duration: const Duration(seconds: 4),
       );
       Navigator.pop(context);
     } catch (error) {
@@ -524,6 +601,8 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
                     ChoiceChip(
                       label: Text(format.label),
                       selected: _format == format,
+                      showCheckmark:
+                          Theme.of(context).platform != TargetPlatform.iOS,
                       onSelected: _busy
                           ? null
                           : (_) => setState(() => _format = format),
@@ -552,10 +631,11 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
                         },
                 ),
               ),
-              if (_format.description case final text?) ...[
-                const SizedBox(height: 12),
-                Text(text, style: Theme.of(context).textTheme.bodySmall),
-              ],
+              if (Theme.of(context).platform != TargetPlatform.iOS)
+                if (_format.description case final text?) ...[
+                  const SizedBox(height: 12),
+                  Text(text, style: Theme.of(context).textTheme.bodySmall),
+                ],
               if (_error != null)
                 Padding(
                   padding: const EdgeInsets.only(top: 12),
@@ -587,7 +667,35 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
 }
 
 String _rangeLabel(DateTimeRange range) =>
-    '${DateFormat('yyyy/M/d').format(range.start)} — ${DateFormat('yyyy/M/d').format(range.end)}';
+    '${DateFormat('yyyy/M/d').format(range.start)} 至 ${DateFormat('yyyy/M/d').format(range.end)}';
+
+void _showFileResult(
+  BuildContext context,
+  String result, {
+  required Duration duration,
+  SnackBarAction? action,
+}) {
+  final messenger = ScaffoldMessenger.of(context);
+  final iPhone = Theme.of(context).platform == TargetPlatform.iOS;
+  if (iPhone) messenger.clearSnackBars();
+  messenger.showSnackBar(
+    SnackBar(
+      content: Text(result),
+      duration: duration,
+      action: action,
+      behavior: iPhone ? SnackBarBehavior.floating : null,
+      margin: iPhone
+          ? EdgeInsets.fromLTRB(
+              12,
+              0,
+              12,
+              62 + MediaQuery.paddingOf(messenger.context).bottom,
+            )
+          : null,
+    ),
+  );
+}
+
 String _message(Object error) {
   final message = error is FormatException
       ? error.message.toString()

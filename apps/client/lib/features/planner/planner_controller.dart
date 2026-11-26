@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart' show defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:uuid/uuid.dart';
@@ -216,7 +217,11 @@ class PlannerController extends ChangeNotifier {
   WeekGlassSkin _skin = WeekGlassSkin.moonstone;
   double _glassStrength = LiquidGlass.defaultStrength;
   bool _glassMotion = true;
-  Set<SidebarAction> _sidebarActions = {...SidebarAction.defaults};
+  Set<SidebarAction> _sidebarActions = {
+    ...(defaultTargetPlatform == TargetPlatform.iOS
+        ? SidebarAction.iPhoneDefaults
+        : SidebarAction.defaults),
+  };
   Set<SidebarAction> get sidebarActions => Set.unmodifiable(_sidebarActions);
   Future<void> saveSidebarActions(Set<SidebarAction> actions) async {
     await _preferences.setStringList(
@@ -539,6 +544,11 @@ class PlannerController extends ChangeNotifier {
 
   Future<void> saveEvents(List<CalendarEvent> events) => _saveEvents(events);
 
+  /// A calendar file already specifies its times. Store them as provided;
+  /// the sleep schedule still controls the default visible hours.
+  Future<void> importCalendarEvents(List<CalendarEvent> events) =>
+      _saveEvents(events, keepImportedTimes: true);
+
   List<String> batchChangeLabels(CalendarEvent edited) =>
       batchChangedFields(edited).map((e) => e.label).toList();
 
@@ -709,18 +719,20 @@ class PlannerController extends ChangeNotifier {
   Future<void> _saveEvents(
     List<CalendarEvent> events, {
     Set<String> replacingIds = const {},
+    bool keepImportedTimes = false,
   }) async {
     if (_writing) throw StateError('正在保存，请稍后再试。');
     if (events.isEmpty) return;
-    if (events.any((event) {
-      if (event.deletedAtUtc != null || _sleep.allows(event)) return false;
-      final previous = _findEvent(event.id);
-      // A visibility change can leave an existing timed event partially or
-      // fully hidden. Editing other fields must not require moving it.
-      return previous == null ||
-          previous.startUtc != event.startUtc ||
-          previous.endUtc != event.endUtc;
-    })) {
+    if (!keepImportedTimes &&
+        events.any((event) {
+          if (event.deletedAtUtc != null || _sleep.allows(event)) return false;
+          final previous = _findEvent(event.id);
+          // A visibility change can leave an existing timed event partially or
+          // fully hidden. Editing other fields must not require moving it.
+          return previous == null ||
+              previous.startUtc != event.startUtc ||
+              previous.endUtc != event.endUtc;
+        })) {
       throw ArgumentError('日程与睡眠时段重叠，请调整时间或在设置中修改睡眠时段。');
     }
     if (events.map((e) => e.id).toSet().length != events.length ||
