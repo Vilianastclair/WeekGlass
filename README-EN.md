@@ -4,7 +4,7 @@
 
 WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointments, and focus time in one view. Plan offline without an account.
 
-- [Download the Windows x64 installer](https://github.com/Vilianastclair/WeekGlass/releases/download/v0.22.0/WeekGlass-Setup-0.22.0-Windows-x64.exe)
+- [Download the Windows x64 installer](https://cloud.viliana.cn/download/windows)
 - [Download the Android ARM64 APK](https://cloud.viliana.cn/download/WeekGlass-Android-arm64.apk)
 
 [GitHub releases](https://github.com/Vilianastclair/WeekGlass/releases) | [Website](https://cloud.viliana.cn/) | [简体中文](README.md)
@@ -18,7 +18,7 @@ WeekGlass is a weekly calendar for Windows and Android. Keep classes, appointmen
 - **Make time by dragging on the calendar.** Open an event to see its notes. Create and edit recurring events as a group.
 - **Pinch the time axis on your phone.** Pinch inward to fit the day or spread vertically for detail. Your display scale is remembered on this device.
 - **Set your visible hours.** Changing wake and sleep times clips the calendar view without modifying saved events. Both times can sync between devices on a compatible server.
-- **Bring in an existing schedule.** Choose your school, sign in to its academic portal, open your personal timetable and review the courses before saving. Wuhan University has a dedicated import flow. The in-app reader handles supported school-specific pages and systems including Zhengfang, Qiangzhi and URP. Choose the undergraduate or graduate portal you actually use. You can also import ICS, CSV or JSON, or export a color or black-and-white PDF.
+- **Bring in an existing schedule.** Choose your school, sign in to its academic portal, open your personal timetable and import the courses. Wuhan University has a dedicated import flow. The in-app reader handles supported school-specific pages and systems including Zhengfang, Qiangzhi and URP. Choose the undergraduate or graduate portal you actually use. You can also import ICS, CSV or JSON, or export a black-and-white weekly agenda as a PDF.
 - **Keep your calendar on your device.** To sync across devices, choose the paid WeekGlass Cloud service or [use your own server for free](server/README.md).
 
 ## Use WeekGlass Cloud
@@ -29,7 +29,7 @@ Visit [your cloud account](https://cloud.viliana.cn/account) to manage orders, d
 
 ## Build from source
 
-[What changed in 0.22.0 (Chinese)](docs/releases/0.22.0.md)
+Check out the source tag for the release you want to build: [Windows 0.22.10](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.10) or [Android 0.22.11](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.11).
 
 Use Flutter 3.47.9 (Dart 3.13.7). From the repository root:
 
