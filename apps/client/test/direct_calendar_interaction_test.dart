@@ -90,7 +90,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.text('11月3日 · 短日程'), findsOneWidget);
+    expect(find.text('11月3日短日程'), findsOneWidget);
     await tester.tap(find.text('tiny'));
     await tester.pumpAndSettle();
     expect(find.text('调整'), findsOneWidget);

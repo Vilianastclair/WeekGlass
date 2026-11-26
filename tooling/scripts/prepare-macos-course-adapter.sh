@@ -16,7 +16,7 @@ host="$(uname -m)"
   die 'Use a complete native JDK 17.'
 [[ ! -e "$output" && ! -L "$output" ]] || die "Course output already exists: $output"
 
-xcrun lipo -verify_arch "$host" "$java_home/bin/java"
+xcrun lipo "$java_home/bin/java" -verify_arch "$host"
 jdk_version="$(/usr/bin/awk -F '"' '$1 == "JAVA_VERSION=" { print $2 }' "$java_home/release")"
 [[ "$jdk_version" == 17 || "$jdk_version" == 17.* ]] || die "Use JDK 17; found $jdk_version."
 "$java_home/bin/java" -version

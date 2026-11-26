@@ -121,7 +121,7 @@ verify_app() {
     die 'The app version or build number changed.'
   [[ "$(xcrun lipo -archs "$executable")" == "$host" && "$(xcrun lipo -archs "$aot")" == "$host" ]] ||
     die "The app executable and Flutter AOT framework must both target $host."
-  xcrun lipo -verify_arch "$host" "$candidate/Contents/Frameworks/FlutterMacOS.framework/FlutterMacOS"
+  xcrun lipo "$candidate/Contents/Frameworks/FlutterMacOS.framework/FlutterMacOS" -verify_arch "$host"
   /usr/bin/codesign --verify --deep --strict --verbose=2 "$candidate"
   signature="$(/usr/bin/codesign --display --verbose=4 "$candidate" 2>&1)"
   printf '%s\n' "$signature"
@@ -149,7 +149,7 @@ if [[ -n "$course_asset" ]]; then
     [[ -s "$course/engine.jar" && -s "$course/parser.policy" && -s "${jars[0]}" && -s "${licenses[0]}" ]] ||
       die 'The course assets are missing the engine, dependencies, policy, or licenses.'
     [[ -x "$course/runtime/bin/java" && -s "$course/runtime/lib/modules" ]] || die 'The linked course runtime is incomplete.'
-    xcrun lipo -verify_arch "$host" "$course/runtime/bin/java"
+    xcrun lipo "$course/runtime/bin/java" -verify_arch "$host"
     /usr/bin/codesign --verify --strict "$course/runtime/bin/java"
     "$course/runtime/bin/java" -version
     installed_course="$app/Contents/Resources/course_adapter"
