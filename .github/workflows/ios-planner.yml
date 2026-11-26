@@ -1,0 +1,61 @@
+name: iPhone planner verification
+
+on:
+  push:
+    branches: [ci/ios-planner]
+
+permissions:
+  contents: read
+
+jobs:
+  planner:
+    if: github.repository == 'Vilianastclair/WeekGlass-macOS-validation' && github.event.repository.private
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      FLUTTER_SUPPRESS_ANALYTICS: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          persist-credentials: false
+      - name: Prepare the pinned SDK
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(plutil -extract flutter.version raw -o - tooling/versions.json)"
+          archive="$RUNNER_TEMP/iphone-flutter.zip"
+          curl --fail --location --retry 3 --silent --show-error \
+            "https://storage.googleapis.com/flutter_infra_release/releases/stable/macos/flutter_macos_arm64_${version}-stable.zip" -o "$archive"
+          ditto -x -k "$archive" "$RUNNER_TEMP"
+          rm "$archive"
+          echo "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
+      - name: Run the iPhone journey
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          {
+            sw_vers
+            xcodebuild -version
+            xcrun simctl list runtimes
+            flutter --version
+            python3 -u tooling/scripts/test_ios_planner.py
+          } 2>&1 | tee evidence/iphone.log
+      - name: Export the test evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          shopt -s nullglob
+          for result in apps/client/build/ios-planner-test/run-*/Planner.xcresult; do
+            xcrun xcresulttool get test-results summary --path "$result" > evidence/tests.json
+            xcrun xcresulttool export attachments --path "$result" --output-path evidence/attachments
+          done
+      - name: Retain the iPhone evidence
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
+        with:
+          name: iPhone planner evidence
+          path: evidence/
+          retention-days: 1
+          if-no-files-found: ignore
