@@ -2,6 +2,20 @@
 
 本分支 `client/ios` 基于 Android 0.22.11+60 的 `57dd4a3`。比对 macOS 0.22.12+61 后，两边的领域、数据和设计系统代码一致；此处沿用移动分支的周历、手势和编辑器。Runner 使用项目固定的 Flutter 3.47.9（Dart 3.13.7）Swift 模板，目标为 iOS 15 及以上的 iPhone。工程位于 [Runner 工作区](../../apps/client/ios/Runner.xcworkspace)。
 
+## 设备发行包
+
+在 Mac 上使用 Xcode 26.2、Python 3 与上方固定版本的 Flutter，从源码根目录运行：
+
+```sh
+python3 tooling/scripts/package_ios_device.py
+```
+
+[设备构建脚本](../../tooling/scripts/package_ios_device.py)编译正常入口的 iOS Release AOT 版本，检查应用和框架的设备平台、arm64 架构、版本、离线素材、字体及插件注册，再以 `Payload/Runner.app` 打包。IPA 和同名 JSON 收据写入 `apps/client/build/ios/device-package/`。收据列出 Git 提交、文件大小、SHA256 和实测的包内容。包内不含证书或描述文件，安装前须个人签名。
+
+将 iOS 源码提交推至公开构建分支 `ci/ios-device` 后，[设备工作流](../../.github/workflows/ios-device.yml)使用标准 macOS 15 托管机执行同一入口，收件名称为 `WeekGlass iOS device package`。本流程不开模拟器。
+
+## 模拟器开发验收
+
 准备好 Xcode、iOS 模拟器运行时、Python 3 和上述 Flutter 后，在 Mac 上从本分支源码根目录运行：
 
 ```sh
