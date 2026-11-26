@@ -44,6 +44,25 @@ class CloudApiException extends SyncRequestException {
 
 enum CloudLoginPhase { checkingServer, waitingForBrowser, exchanging, saving }
 
+enum CloudDevicePlatform {
+  windows('windows', 'WeekGlass Windows'),
+  android('android', 'WeekGlass Android'),
+  macOS('macos', 'WeekGlass macOS');
+
+  const CloudDevicePlatform(this.id, this.label);
+  final String id;
+  final String label;
+
+  static CloudDevicePlatform? forOperatingSystem(String operatingSystem) {
+    return switch (operatingSystem) {
+      'windows' => windows,
+      'android' => android,
+      'macos' => macOS,
+      _ => null,
+    };
+  }
+}
+
 class CloudLoginException extends StateError {
   CloudLoginException(super.message);
 }
@@ -86,7 +105,9 @@ abstract interface class CloudTokenVault {
 }
 
 class SecureCloudTokenVault implements CloudTokenVault {
-  static const _storage = FlutterSecureStorage();
+  static const _storage = FlutterSecureStorage(
+    mOptions: MacOsOptions(usesDataProtectionKeychain: false),
+  );
   static const _key = 'weekglass.cloud.session.v1';
   @override
   Future<String?> read() => _storage.read(key: _key);
@@ -183,15 +204,20 @@ class CloudAuthService {
     CloudTokenVault? vault,
     CloudHttpTransport? transport,
     Future<bool> Function(Uri)? browserLauncher,
+    CloudDevicePlatform? devicePlatform,
     this.callbackTimeout = const Duration(minutes: 5),
   }) : _vault = vault ?? SecureCloudTokenVault(),
        _transportOverride = transport,
+       _devicePlatform =
+           devicePlatform ??
+           CloudDevicePlatform.forOperatingSystem(Platform.operatingSystem),
        _launch =
            browserLauncher ??
            ((uri) => launchUrl(uri, mode: LaunchMode.externalApplication));
 
   final CloudTokenVault _vault;
   final CloudHttpTransport? _transportOverride;
+  final CloudDevicePlatform? _devicePlatform;
   final Duration callbackTimeout;
   final Future<bool> Function(Uri) _launch;
   bool Function()? syncTransportAllowed;
@@ -563,16 +589,16 @@ class CloudAuthService {
     String device,
     String access,
   ) async {
+    final platform = _devicePlatform;
+    if (platform == null) return;
     try {
       await _transport(
         base.resolve('/v1/devices/$device'),
         'PATCH',
         {
           'device_id': device,
-          'display_name': Platform.isWindows
-              ? 'WeekGlass Windows'
-              : 'WeekGlass Android',
-          'platform': Platform.isWindows ? 'windows' : 'android',
+          'display_name': platform.label,
+          'platform': platform.id,
           'app_version':
               '${UpdateService.currentVersion}+${UpdateService.currentBuild}',
         },

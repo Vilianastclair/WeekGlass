@@ -41,6 +41,7 @@ flutter test
 
 - **Windows**：准备 Python 3.9 以上版本、[指定的 JDK 17](docs/product/wakeup-engine-runtime.md) 和 Visual Studio 的 C++ 桌面开发工具（含 ATL、CMake 和 Windows SDK），开启开发人员模式。运行 `flutter build windows --release`。[构建 EXE 安装包](tooling/windows-installer/README.md)。
 - **Android**：准备 JDK 17、Android SDK 36 和 NDK 28.2.13676358。运行 `flutter build apk --release --target-platform android-arm64`。
+- **macOS**：复用桌面周历，开发构建由 Xcode 生成 `WeekGlass.app`。见 [macOS 开发与验收](docs/macos.md)。
 
 <a name="support"></a>
 

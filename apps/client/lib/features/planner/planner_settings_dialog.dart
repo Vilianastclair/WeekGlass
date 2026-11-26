@@ -53,10 +53,15 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   _SettingsPage _page = _SettingsPage.home;
   PlannerController get controller => widget.controller;
   bool get _windows => Theme.of(context).platform == TargetPlatform.windows;
+  bool get _macOS => Theme.of(context).platform == TargetPlatform.macOS;
+  bool get _desktop => _windows || _macOS;
   bool get _home => _page == _SettingsPage.home;
 
-  String _pageLabel(_SettingsPage page) =>
-      page == _SettingsPage.system && !_windows ? '软件更新' : page.label;
+  String _pageLabel(_SettingsPage page) => switch (page) {
+    _SettingsPage.system when _macOS => '版本信息',
+    _SettingsPage.system when !_windows => '软件更新',
+    _ => page.label,
+  };
   bool get _editable => switch (_page) {
     _SettingsPage.calendar || _SettingsPage.shortcuts => true,
     _SettingsPage.system => _windows,
@@ -300,7 +305,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
             _SettingsRow(
               icon: Icons.dashboard_customize_outlined,
               title: _SettingsPage.shortcuts.label,
-              subtitle: _windows ? '自定义侧边栏' : '自定义底部和更多菜单',
+              subtitle: _desktop ? '自定义侧边栏' : '自定义底部和更多菜单',
               onTap: () => _open(_SettingsPage.shortcuts),
             ),
             _SettingsRow(
@@ -312,7 +317,11 @@ class _SettingsDialogState extends State<_SettingsDialog> {
             _SettingsRow(
               icon: Icons.settings_suggest_outlined,
               title: _pageLabel(_SettingsPage.system),
-              subtitle: _windows ? '日程提醒与软件更新' : '检查或安装新版本',
+              subtitle: _windows
+                  ? '日程提醒与软件更新'
+                  : _macOS
+                  ? '查看已安装的版本'
+                  : '检查或安装新版本',
               onTap: () => _open(_SettingsPage.system),
             ),
           ],
@@ -391,7 +400,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
     Padding(
       padding: const EdgeInsets.only(bottom: 8),
       child: Text(
-        _windows ? '选择侧边栏要显示的工具。设置始终保留。' : '选择底部和更多菜单的工具。设置始终保留。',
+        _desktop ? '选择侧边栏要显示的工具。设置始终保留。' : '选择底部和更多菜单的工具。设置始终保留。',
         style: Theme.of(context).textTheme.bodyMedium,
       ),
     ),
@@ -418,7 +427,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
 
   List<Widget> _dataContent(BuildContext context) => [
     for (final (action, text) in [
-      (SidebarAction.importEvents, '从日历文件或课表图片导入'),
+      (SidebarAction.importEvents, _macOS ? '从日历文件导入' : '从日历文件或课表图片导入'),
       (SidebarAction.courses, '从学校教务系统导入'),
       (SidebarAction.exportEvents, '导出或打印此设备的日程'),
     ])

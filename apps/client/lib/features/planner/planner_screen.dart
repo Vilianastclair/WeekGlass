@@ -24,27 +24,23 @@ class PlannerScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = WeekGlassPalette.of(context);
+    final platform = Theme.of(context).platform;
+    final macOS = platform == TargetPlatform.macOS;
+    SingleActivator shortcut(LogicalKeyboardKey key) =>
+        SingleActivator(key, meta: macOS, control: !macOS);
     return CallbackShortcuts(
       bindings: {
-        const SingleActivator(
-          LogicalKeyboardKey.arrowLeft,
-          control: true,
-        ): () =>
+        shortcut(LogicalKeyboardKey.arrowLeft): () =>
             controller.navigatePeriod(-1),
-        const SingleActivator(
-          LogicalKeyboardKey.arrowRight,
-          control: true,
-        ): () =>
+        shortcut(LogicalKeyboardKey.arrowRight): () =>
             controller.navigatePeriod(1),
-        const SingleActivator(LogicalKeyboardKey.keyZ, control: true): () =>
-            controller.undo(),
-        const SingleActivator(LogicalKeyboardKey.keyN, control: true): () =>
-            openEventEditor(
-              context,
-              controller: controller,
-              date: controller.anchorDate,
-            ),
-        const SingleActivator(LogicalKeyboardKey.keyI, control: true): () =>
+        shortcut(LogicalKeyboardKey.keyZ): () => controller.undo(),
+        shortcut(LogicalKeyboardKey.keyN): () => openEventEditor(
+          context,
+          controller: controller,
+          date: controller.anchorDate,
+        ),
+        shortcut(LogicalKeyboardKey.keyI): () =>
             openCourseImport(context, controller),
       },
       child: Focus(
@@ -253,6 +249,8 @@ class _CompactBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final p = WeekGlassPalette.of(context);
+    final platform = Theme.of(context).platform;
+    final shortcutModifier = platform == TargetPlatform.macOS ? '⌘' : 'Ctrl+';
     final start = controller.visibleDays.first;
     final end = controller.visibleDays.last;
     final fullRange =
@@ -286,13 +284,13 @@ class _CompactBar extends StatelessWidget {
                       _RailButton(
                         icon: Icons.chevron_left_rounded,
                         label: '上一时段',
-                        hint: '上一时段 · Ctrl+←',
+                        hint: '上一时段 $shortcutModifier←',
                         onTap: () => controller.navigatePeriod(-1),
                       ),
                       Flexible(
                         flex: compact ? 1 : 0,
                         child: Tooltip(
-                          message: '$fullRange · 跳转到日期',
+                          message: '$fullRange，跳转到日期',
                           child: Semantics(
                             button: true,
                             label: '$fullRange，跳转到日期',
@@ -364,7 +362,7 @@ class _CompactBar extends StatelessWidget {
                       _RailButton(
                         icon: Icons.chevron_right_rounded,
                         label: '下一时段',
-                        hint: '下一时段 · Ctrl+→',
+                        hint: '下一时段 $shortcutModifier→',
                         onTap: () => controller.navigatePeriod(1),
                       ),
                     ],
@@ -376,7 +374,7 @@ class _CompactBar extends StatelessWidget {
                 Flexible(
                   flex: compact ? 4 : 0,
                   child: Tooltip(
-                    message: '${term.year}–${term.year + 1} 学年 · $teaching',
+                    message: '${term.year} 至 ${term.year + 1} 学年，$teaching',
                     child: _ChronologySurface(
                       child: Padding(
                         padding: EdgeInsets.symmetric(
@@ -442,7 +440,7 @@ class _CompactBar extends StatelessWidget {
                 _RailButton(
                   icon: Icons.crop_square_rounded,
                   label: '最大化或还原',
-                  hint: '最大化 / 还原 · 拖动空白处移动窗口',
+                  hint: '最大化或还原，拖动空白处移动窗口',
                   onTap: () async {
                     if (await windowManager.isMaximized()) {
                       await windowManager.unmaximize();

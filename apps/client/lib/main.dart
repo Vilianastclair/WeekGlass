@@ -19,10 +19,16 @@ import 'features/mobile/mobile_planner_screen.dart';
 import 'features/updates/startup_update_prompt.dart';
 import 'features/updates/update_service.dart';
 
-Future<void> main(List<String> args) async {
+Future<void> main(List<String> args) => runWeekGlass(args);
+
+Future<void> runWeekGlass(
+  List<String> args, {
+  Future<AppServices> Function()? createServices,
+  Widget Function(Widget)? wrapApp,
+}) async {
+  WidgetsFlutterBinding.ensureInitialized();
   UpdateService.launchArguments = args;
   final updater = UpdateService.instance;
-  WidgetsFlutterBinding.ensureInitialized();
   LicenseRegistry.addLicense(() async* {
     yield LicenseEntryWithLineBreaks([
       'WakeUp CourseAdapter',
@@ -59,7 +65,7 @@ Future<void> main(List<String> args) async {
     await windowManager.waitUntilReadyToShow(options);
   }
 
-  final services = await AppServices.create();
+  final services = await (createServices?.call() ?? AppServices.create());
   final controller = PlannerController(
     repository: services.eventRepository,
     timeZoneId: services.timeZoneId,
@@ -83,7 +89,8 @@ Future<void> main(List<String> args) async {
     ).start();
   }
 
-  runApp(WeekGlassApp(controller: controller, updater: updater));
+  final app = WeekGlassApp(controller: controller, updater: updater);
+  runApp(wrapApp?.call(app) ?? app);
   WidgetsBinding.instance.addPostFrameCallback((_) {
     unawaited(UpdateService.completePendingUpdateBoot());
     unawaited(services.cloud.initialize());

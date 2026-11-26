@@ -373,6 +373,7 @@ void main() {
       var exchanges = 0;
       final auth = CloudAuthService(
         vault: vault,
+        devicePlatform: CloudDevicePlatform.macOS,
         browserLauncher: (uri) async {
           browser.complete(uri);
           return true;
@@ -380,6 +381,8 @@ void main() {
         transport: (uri, method, body, _, _) async {
           if (uri.path.endsWith('/server-info')) return _discovery();
           if (method == 'PATCH') {
+            expect(body!['platform'], 'macos');
+            expect(body['display_name'], 'WeekGlass macOS');
             metadataStarted.complete();
             return metadata.future;
           }

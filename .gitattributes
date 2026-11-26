@@ -1,4 +1,5 @@
 * text=auto
+*.sh text eol=lf
 *.bin binary
 *.zlib binary
 *.png binary

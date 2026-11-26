@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
@@ -17,6 +18,42 @@ void main() {
     SharedPreferencesAsyncPlatform.instance =
         InMemorySharedPreferencesAsync.empty();
   });
+
+  testWidgets(
+    'macOS desktop uses Command and desktop settings captions',
+    (tester) async {
+      await initializeDateFormatting('zh_CN');
+      tester.view.physicalSize = const Size(1000, 700);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      final controller = PlannerController(
+        repository: _EmptyEventRepository(),
+        timeZoneId: 'Asia/Shanghai',
+      );
+      await controller.initialize();
+      await tester.pumpWidget(WeekGlassApp(controller: controller));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('下一时段 ⌘→'), findsOneWidget);
+      final before = controller.weekStart;
+      await tester.sendKeyDownEvent(LogicalKeyboardKey.metaLeft);
+      await tester.sendKeyEvent(LogicalKeyboardKey.arrowRight);
+      await tester.sendKeyUpEvent(LogicalKeyboardKey.metaLeft);
+      await tester.pumpAndSettle();
+      expect(controller.weekStart.difference(before).inDays, 7);
+
+      await tester.tap(find.byTooltip('打开设置'));
+      await tester.pumpAndSettle();
+      expect(find.text('自定义侧边栏'), findsOneWidget);
+      expect(find.text('版本信息'), findsOneWidget);
+      expect(find.text('检查或安装新版本'), findsNothing);
+      expect(tester.takeException(), isNull);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.macOS}),
+  );
 
   testWidgets(
     'sleep settings hide nighttime and Windows exposes only essential controls',

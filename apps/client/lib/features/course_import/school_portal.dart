@@ -319,7 +319,7 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
             }),
           ),
         ]);
-      } else if (Platform.isAndroid) {
+      } else if (Platform.isAndroid || Platform.isMacOS) {
         final m = android = mobile.WebViewController();
         await m.setJavaScriptMode(mobile.JavaScriptMode.unrestricted);
         await m.setNavigationDelegate(
@@ -361,7 +361,7 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
           ),
         );
       } else {
-        throw StateError('学校教务网页支持 Windows 和 Android。');
+        throw StateError('此平台暂不支持学校网页登录。');
       }
       if (closed) return;
       update(() => ready = true);
@@ -454,6 +454,7 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
       final result = await SchoolPortalReader.read(
         page: page,
         term: widget.term,
+        allowBundledEngine: !Platform.isMacOS,
         parsers: system == SchoolPortalSystem.auto
             ? widget.site.parsers
             : system.parsers,

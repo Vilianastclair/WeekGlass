@@ -12,6 +12,58 @@ import 'package:weekglass/features/course_import/whu_timetable.dart';
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
   final enabled = Platform.environment['WG_SCHOOL_ENGINE_DIR'] != null;
+  final samplePage = Uri.parse('https://portal.example.edu/kbcx');
+  test(
+    'macOS can read a direct timetable without the bundled engine',
+    () async {
+      final data = await SchoolPortalReader.read(
+        page: samplePage,
+        term: const WhuTerm(2026, 3),
+        parsers: const ['UrpParser'],
+        allowBundledEngine: false,
+        listAdapters: () async => fail('No bundled engine on macOS'),
+        execute: (_) async => {
+          'rows': [
+            {
+              'kind': 'qz',
+              'title': '离散数学',
+              'day': 7,
+              'time': '1-3周 [1-2节]',
+              'teacher': '示例教师',
+              'room': '理学楼',
+            },
+          ],
+        },
+        current: () => true,
+      );
+      final meeting = data.meetings.single;
+      expect(meeting.title, '离散数学');
+      expect(meeting.weekday, 7);
+      expect(meeting.weeks, [1, 2, 3]);
+      expect(meeting.periods, [1, 2]);
+    },
+  );
+
+  test('macOS reports layouts that still need the bundled engine', () async {
+    await expectLater(
+      SchoolPortalReader.read(
+        page: samplePage,
+        term: const WhuTerm(2026, 3),
+        parsers: const ['UrpParser'],
+        allowBundledEngine: false,
+        listAdapters: () async => fail('No bundled engine on macOS'),
+        execute: (_) async => {'error': 'missing', 'rows': []},
+        current: () => true,
+      ),
+      throwsA(
+        isA<FormatException>().having(
+          (e) => e.message,
+          'message',
+          contains('尚未适配 macOS'),
+        ),
+      ),
+    );
+  });
   test(
     'Beihang timetable model uses only course fields and preserves exact times',
     () async {

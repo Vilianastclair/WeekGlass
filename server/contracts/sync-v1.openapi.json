@@ -2993,7 +2993,8 @@
             "type": "string",
             "enum": [
               "windows",
-              "android"
+              "android",
+              "macos"
             ]
           },
           "app_version": {
