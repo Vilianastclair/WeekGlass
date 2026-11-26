@@ -13,7 +13,7 @@ jobs:
     runs-on: macos-15
     timeout-minutes: 30
     env:
-      FLUTTER_SUPPRESS_ANALYTICS: true
+      FLUTTER_SUPPRESS_ANALYTICS: 'true'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
         with:

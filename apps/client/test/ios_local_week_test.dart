@@ -21,7 +21,7 @@ void main() {
   LiveTestWidgetsFlutterBinding.ensureInitialized().framePolicy =
       LiveTestWidgetsFlutterBindingFramePolicy.onlyPumps;
   testWidgets(
-    'iPhone week editor retains a Sunday event after reopening SQLite',
+    'iPhone week retains saved edits and deletion after reopening SQLite',
     (tester) async {
       SharedPreferencesAsyncPlatform.instance =
           InMemorySharedPreferencesAsync.empty();
@@ -90,33 +90,42 @@ void main() {
         await c.repository.close();
       }
 
+      Future<void> applyAndWait(
+        String action,
+        bool Function() persisted,
+      ) async {
+        final done = Completer<void>();
+        void changed() {
+          if (persisted() && !done.isCompleted) done.complete();
+        }
+
+        c.addListener(changed);
+        try {
+          await tester.tap(find.text(action));
+          await done.future.timeout(const Duration(seconds: 10));
+        } finally {
+          c.removeListener(changed);
+        }
+        await tester.pumpAndSettle();
+      }
+
+      Future<void> reopen() async {
+        await close();
+        c = await open();
+        await showWeek();
+      }
+
       await showWeek();
       await tester.tap(find.bySemanticsLabel('新建日程'));
       await tester.pumpAndSettle();
       const title = '排练前碰面';
       await tester.enterText(find.byType(TextField).first, title);
-      {
-        final saved = Completer<void>();
-        void changed() {
-          if (c.events.isNotEmpty && !saved.isCompleted) saved.complete();
-        }
-
-        c.addListener(changed);
-        try {
-          await tester.tap(find.text('保存日程'));
-          await saved.future.timeout(const Duration(seconds: 10));
-        } finally {
-          c.removeListener(changed);
-        }
-      }
-      await tester.pumpAndSettle();
+      await applyAndWait('保存日程', () => c.events.length == 1);
       expect(c.events.single.title, title);
       final id = c.events.single.id;
       expect(c.events.single.startLocal, DateTime(2026, 11, 29, 9));
       expect(c.events.single.endLocal, DateTime(2026, 11, 29, 10));
-      await close();
-      c = await open();
-      await showWeek();
+      await reopen();
       expect(c.events.single.id, id);
       expect(find.byType(GlassEventCard).hitTestable(), findsOneWidget);
       expect(find.bySemanticsLabel('$title，09:00 – 10:00'), findsOneWidget);
@@ -137,6 +146,24 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text(title).hitTestable(), findsOneWidget);
       expect(find.text('11月29日 星期日\n09:00 — 10:00'), findsOneWidget);
+      await tester.tap(find.text('调整'));
+      await tester.pumpAndSettle();
+      const editedTitle = '排练后碰面';
+      await tester.enterText(find.byType(TextField).first, editedTitle);
+      await applyAndWait('保存日程', () => c.events.single.title == editedTitle);
+      await reopen();
+      expect(c.events.single.id, id);
+      expect(c.events.single.title, editedTitle);
+      expect(find.bySemanticsLabel('$title，09:00 – 10:00'), findsNothing);
+      await tester.tap(find.bySemanticsLabel('$editedTitle，09:00 – 10:00'));
+      await tester.pumpAndSettle();
+      expect(find.text('11月29日 星期日\n09:00 — 10:00'), findsOneWidget);
+      await tester.tap(find.text('删除'));
+      await tester.pumpAndSettle();
+      await applyAndWait('确认删除', () => c.events.isEmpty);
+      await reopen();
+      expect(c.events, isEmpty);
+      expect(find.byType(GlassEventCard), findsNothing);
       await close();
     },
     variant: TargetPlatformVariant.only(TargetPlatform.iOS),
