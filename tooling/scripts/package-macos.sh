@@ -87,7 +87,15 @@ printf 'Package evidence: %s\n' "$evidence"
 } 2>&1 | tee "$evidence/toolchain.log"
 
 # Use the normal entry point. The configuration matches the architecture of the test Mac.
-printf 'ARCHS = %s\n' "$host" > "$scratch/release.xcconfig"
+update_config="$root/tooling/macos-update.json"
+feed_url="$(/usr/bin/plutil -extract "$arch" raw -o - "$update_config")"
+public_ed_key="$(/usr/bin/plutil -extract public_ed_key raw -o - "$update_config")"
+# Xcode treats // as a comment in xcconfig, even with quotes.
+{
+  printf 'ARCHS = %s\n' "$host"
+  printf 'WG_MAC_UPDATE_FEED_URL = https:/$()/%s\n' "${feed_url#https://}"
+  printf 'WG_MAC_UPDATE_PUBLIC_KEY = %s\n' "$public_ed_key"
+} > "$scratch/release.xcconfig"
 {
   flutter --suppress-analytics pub get --enforce-lockfile
   XCODE_XCCONFIG_FILE="$scratch/release.xcconfig" \
@@ -122,6 +130,16 @@ verify_app() {
     die 'The app version or build number changed.'
   [[ "$(xcrun lipo -archs "$executable")" == "$host" && "$(xcrun lipo -archs "$aot")" == "$host" ]] ||
     die "The app executable and Flutter AOT framework must both target $host."
+  [[ "$(/usr/bin/plutil -extract SUFeedURL raw -o - "$info")" == "$feed_url" &&
+     "$(/usr/bin/plutil -extract SUPublicEDKey raw -o - "$info")" == "$public_ed_key" ]] ||
+    die 'The installed app does not pin the production update feed and key.'
+  for key in SUVerifyUpdateBeforeExtraction SURequireSignedFeed SUEnableInstallerLauncherService SUEnableAutomaticChecks SUAutomaticallyUpdate; do
+    [[ "$(/usr/bin/plutil -extract "$key" raw -o - "$info")" == true ]] || die "Missing Sparkle setting $key."
+  done
+  [[ "$(/usr/bin/plutil -extract SUSignedFeedFailureExpirationInterval raw -o - "$info")" == 0 ]] ||
+    die 'A failed feed signature must never expire.'
+  [[ -d "$candidate/Contents/Frameworks/Sparkle.framework/Versions/B/XPCServices/Installer.xpc" ]] ||
+    die 'The installed app is missing the Sparkle installer.'
   xcrun lipo "$candidate/Contents/Frameworks/FlutterMacOS.framework/FlutterMacOS" -verify_arch "$host"
   /usr/bin/codesign --verify --deep --strict --verbose=2 "$candidate"
   signature="$(/usr/bin/codesign --display --verbose=4 "$candidate" 2>&1)"
@@ -221,14 +239,14 @@ parser_included=false
 [[ -z "$course_asset" ]] || parser_included=true
 python3 - "$manifest" "$(git rev-parse HEAD)" "$version" "$build" "$arch" \
   "$filename" "$bytes" "$digest" "$parser_included" "$gatekeeper_status" \
-  "$evidence/gatekeeper-assessment.log" "$quarantined" <<'PY'
+  "$evidence/gatekeeper-assessment.log" "$quarantined" "$feed_url" "$public_ed_key" "$(sysctl -n hw.optional.arm64 2>/dev/null || echo 0)" <<'PY'
 import json
 from pathlib import Path
 import sys
 
 (
     manifest, commit, version, build, arch, filename, size, digest,
-    parser_included, gatekeeper_status, assessment_log, quarantined,
+    parser_included, gatekeeper_status, assessment_log, quarantined, feed_url, public_ed_key, host_arm,
 ) = sys.argv[1:]
 receipt = {
     "commit": commit,
@@ -237,6 +255,9 @@ receipt = {
     "arch": arch,
     "asset": {"name": filename, "bytes": int(size), "digest": f"sha256:{digest}"},
     "native_launch": True,
+    "build_host": "arm64" if host_arm == "1" else "x64",
+    "updater": {"feed_url": feed_url, "public_ed_key": public_ed_key, "require_signed_feed": True,
+                "verify_before_extraction": True, "installer_xpc": True},
     "adhoc_verified": True,
     "course_adapter": parser_included == "true",
     "gatekeeper": {

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -109,12 +110,51 @@ class SecureCloudTokenVault implements CloudTokenVault {
     mOptions: MacOsOptions(usesDataProtectionKeychain: false),
   );
   static const _key = 'weekglass.cloud.session.v1';
+  static const _slotPreference = 'weekglass.cloud.keychain.slot';
+  bool _requiresAuthorization = false;
+
+  Future<String> _slot() async => Platform.isMacOS
+      ? await SharedPreferencesAsync().getString(_slotPreference) ?? _key
+      : _key;
+
   @override
-  Future<String?> read() => _storage.read(key: _key);
+  Future<String?> read() async {
+    try {
+      final result = await _storage.read(key: await _slot());
+      _requiresAuthorization = false;
+      return result;
+    } on PlatformException catch (error) {
+      // If macOS denies the old app's item, leave its ACL and data alone.
+      // A fresh browser grant may create a new item owned by this build.
+      if (!Platform.isMacOS || !{-25293, -128}.contains(error.details)) rethrow;
+      _requiresAuthorization = true;
+      throw CloudLoginException('macOS 未授权读取原登录。请点击连接，在浏览器中重新授权。');
+    }
+  }
+
   @override
-  Future<void> write(String value) => _storage.write(key: _key, value: value);
+  Future<void> write(String value) async {
+    if (!_requiresAuthorization) {
+      await _storage.write(key: await _slot(), value: value);
+      return;
+    }
+    final next = '$_key.${const Uuid().v4()}';
+    await _storage.write(key: next, value: value);
+    try {
+      // This preference is only a lookup name. All tokens stay in Keychain.
+      await SharedPreferencesAsync().setString(_slotPreference, next);
+    } catch (_) {
+      await _storage.delete(key: next);
+      rethrow;
+    }
+    _requiresAuthorization = false;
+  }
+
   @override
-  Future<void> clear() => _storage.delete(key: _key);
+  Future<void> clear() async {
+    if (_requiresAuthorization) return;
+    await _storage.delete(key: await _slot());
+  }
 }
 
 typedef CloudHttpTransport = Future<Map<String, dynamic>> Function(

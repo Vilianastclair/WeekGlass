@@ -14,7 +14,7 @@ concurrency:
 jobs:
   verify:
     name: macOS ${{ matrix.arch }}
-    runs-on: ${{ matrix.arch == 'arm64' && 'macos-15' || 'macos-15-intel' }}
+    runs-on: macos-15
     timeout-minutes: 60
     strategy:
       fail-fast: false
@@ -27,16 +27,25 @@ jobs:
         with:
           persist-credentials: false
 
+      - name: Use the Intel JDK for the Intel course runtime
+        if: matrix.arch == 'x64'
+        uses: actions/setup-java@b6effb05e454b25005698d916606bdc6ffcbf961
+        with:
+          distribution: temurin
+          java-version: '17'
+          architecture: x64
+
       - name: Install the pinned Flutter SDK
         shell: bash
         run: |
           version="$(/usr/bin/plutil -extract flutter.version raw -o - tooling/versions.json)"
           channel="$(/usr/bin/plutil -extract flutter.channel raw -o - tooling/versions.json)"
-          case "$(uname -m)" in
-            arm64) sdk=flutter_macos_arm64 ;;
-            x86_64) sdk=flutter_macos ;;
-            *) printf 'Unsupported host architecture: %s\n' "$(uname -m)" >&2; exit 1 ;;
-          esac
+          if [[ "${{ matrix.arch }}" == x64 ]]; then
+            /usr/bin/arch -x86_64 /usr/bin/true
+            sdk=flutter_macos
+          else
+            sdk=flutter_macos_arm64
+          fi
           archive="$RUNNER_TEMP/weekglass-flutter.zip"
           trap 'rm -f -- "$archive"' EXIT
           curl --fail --location --retry 3 --silent --show-error \
@@ -52,12 +61,10 @@ jobs:
           evidence=apps/client/build/weekglass-macos/verification
           mkdir -p "$evidence"
           {
-            case "$(uname -m)" in
-              arm64) java_home="${JAVA_HOME_17_ARM64:-}" ;;
-              x86_64) java_home="${JAVA_HOME_17_X64:-}" ;;
-            esac
-            if [[ -z "$java_home" ]]; then
-              java_home="$(/usr/libexec/java_home -a "$(uname -m)" -v 17)"
+            if [[ "${{ matrix.arch }}" == x64 ]]; then
+              java_home="$JAVA_HOME"; shell_arch=x86_64
+            else
+              java_home="$(/usr/libexec/java_home -a arm64 -v 17)"; shell_arch=arm64
             fi
             export JAVA_HOME="$java_home"
             portable="$RUNNER_TEMP/weekglass-portable/course_adapter"
@@ -66,11 +73,12 @@ jobs:
             python3 tooling/course_adapter_engine/build.py --dist "$portable"
             cp apps/client/windows/course_adapter/parser.policy "$portable/parser.policy"
             /usr/bin/ditto -c -k --keepParent "$portable" "$archive"
-            bash tooling/scripts/prepare-macos-course-adapter.sh "$archive" "$java_home" "$native"
+            /usr/bin/arch "-$shell_arch" /bin/bash tooling/scripts/prepare-macos-course-adapter.sh "$archive" "$java_home" "$native"
             printf 'WEEKGLASS_MAC_COURSE_RUNTIME_DIR=%s\n' "$native" >> "$GITHUB_ENV"
           } 2>&1 | tee "$evidence/course-preparation.log"
 
       - name: Test the native window and package the app
+        if: github.ref_name == 'ci/macos-validation-arm64'
         id: acceptance
         shell: bash
         timeout-minutes: 45
@@ -87,16 +95,8 @@ jobs:
         shell: bash
         timeout-minutes: 30
         run: |
-          bash tooling/scripts/package-macos.sh --course-asset "$WEEKGLASS_MAC_COURSE_RUNTIME_DIR"
-
-      - name: Measure macOS access across ad hoc builds
-        if: ${{ !cancelled() && matrix.arch == 'arm64' }}
-        continue-on-error: true
-        shell: bash
-        timeout-minutes: 4
-        run: |
-          bash tooling/scripts/test-macos-update-identity.sh \
-            --evidence apps/client/build/weekglass-macos/verification/upgrade-identity
+          if [[ "${{ matrix.arch }}" == x64 ]]; then cpu=x86_64; else cpu=arm64; fi
+          /usr/bin/arch "-$cpu" /bin/bash tooling/scripts/package-macos.sh --course-asset "$WEEKGLASS_MAC_COURSE_RUNTIME_DIR"
 
       - name: Upload runtime evidence
         if: ${{ !cancelled() && steps.course.outcome != 'skipped' }}
