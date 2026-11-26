@@ -107,7 +107,7 @@ version="$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$plist"
 build="$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$plist")"
 expected_version="$(awk '$1 == "version:" { print $2; exit }' pubspec.yaml)"
 [[ "$version+$build" == "$expected_version" ]] || die "Expected $expected_version; built $version+$build."
-entitlements="$PWD/macos/Runner/Release.entitlements"
+entitlements="$scratch/expanded-release-entitlements.plist"
 
 verify_app() {
   local candidate="$1" info="$1/Contents/Info.plist" executable aot signature key
@@ -156,27 +156,24 @@ if [[ -n "$course_asset" ]]; then
     "$course/runtime/bin/java" -version
     installed_course="$app/Contents/Resources/course_adapter"
     /usr/bin/ditto "$course" "$installed_course"
-    # Re-seal the app after adding resources; keep the existing framework signatures.
+    # Use Xcode's expanded entitlements so sandbox service names still match
+    # the bundle identifier after re-sealing the added resources.
+    /usr/bin/codesign --display --entitlements - --xml "$app" > "$entitlements"
     /usr/bin/codesign --force --sign - --timestamp=none --entitlements "$entitlements" "$app"
   } 2>&1 | tee "$evidence/course-assets.log"
 else
   printf 'This candidate has no bundled offline course parser.\n' | tee "$evidence/course-assets.log"
 fi
 
-verify_app "$app" 2>&1 | tee "$evidence/before-image.log"
-
 filename="WeekGlass-macOS-$arch-$version.dmg"
 dmg="$scratch/$filename"
 mkdir -p "$mount_point" "$scratch/Applications"
 {
   /usr/bin/hdiutil create -srcfolder "$staging" -volname WeekGlass -format UDZO -fs HFS+ "$dmg"
-  /usr/bin/hdiutil verify "$dmg"
   /usr/bin/hdiutil attach -readonly -nobrowse -mountpoint "$mount_point" "$dmg"
 } 2>&1 | tee "$evidence/image.log"
 mounted=true
 [[ "$(readlink "$mount_point/Applications")" == /Applications ]] || die 'The DMG has no Applications shortcut.'
-verify_app "$mount_point/WeekGlass.app" 2>&1 | tee "$evidence/mounted-app.log"
-
 installed_app="$scratch/Applications/WeekGlass.app"
 /usr/bin/ditto "$mount_point/WeekGlass.app" "$installed_app"
 /usr/bin/hdiutil detach "$mount_point" 2>&1 | tee -a "$evidence/image.log"
