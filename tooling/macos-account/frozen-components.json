@@ -1,0 +1,36 @@
+{
+  "arm64": {
+    "repo": "Vilianastclair/WeekGlass-macOS-validation",
+    "run": 45790371273,
+    "commit": "524b14a3d513ca8b20e2e1e30a60c66ebbfaf046",
+    "artifact": 15102093252,
+    "key": "xpc-arm64",
+    "identifier": "com.viliana.weekglass.account",
+    "signer": "942a2793eb98f519a4d23e5626c96d2eed0fa03c",
+    "cdhashes": [
+      "1b8eaf3089941ef28940612c48886e3ede7c7b3e"
+    ],
+    "tag": "native-signed-45790371273",
+    "signed_files": {
+      "xpc-arm64.macho": "sha256:2153e034de3e01c48abc0dbd029aa33fc43762e456c4e873812c4e224ae2095e",
+      "xpc-arm64.tar.gz": "sha256:be4d250afb91ef9dac8f619fd378a2a9c3bf49ccdf59949bca6bfcb55ad51eb1"
+    }
+  },
+  "x64": {
+    "repo": "Vilianastclair/WeekGlass-macOS-validation",
+    "run": 45790371273,
+    "commit": "524b14a3d513ca8b20e2e1e30a60c66ebbfaf046",
+    "artifact": 15102308579,
+    "key": "xpc-x64",
+    "identifier": "com.viliana.weekglass.account",
+    "signer": "942a2793eb98f519a4d23e5626c96d2eed0fa03c",
+    "cdhashes": [
+      "913fd261b8f99f36ec69b84789addbb9cbe7ee00"
+    ],
+    "tag": "native-signed-45790371273",
+    "signed_files": {
+      "xpc-x64.macho": "sha256:09e9f85341f376dbb026435c3b546a70f4c969235ed2d43b046347323c05e3e5",
+      "xpc-x64.tar.gz": "sha256:a0b5c19b1209e8807a3ab7740a92a89e376c64d59b3bc602237f70589a8c703b"
+    }
+  }
+}

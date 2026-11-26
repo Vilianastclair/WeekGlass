@@ -90,29 +90,13 @@ jobs:
             bash tooling/scripts/test-macos.sh --package --verify-launch
           } 2>&1 | tee "$evidence/workflow.log"
 
-      - name: Seal the native xpc signing input
+      - name: Restore the signed credential service for this architecture
         if: github.ref_name == 'ci/macos-validation'
-        shell: bash
-        run: |
-          if [[ "${{ matrix.arch }}" == x64 ]]; then cpu=x86_64; else cpu=arm64; fi
-          /usr/bin/arch "-$cpu" /bin/bash tooling/macos-account/native-stage.sh seal xpc-${{ matrix.arch }}
-      - name: Send the xpc request to the maintainer
-        if: github.ref_name == 'ci/macos-validation'
-        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
-        with:
-          name: WeekGlass native request xpc-${{ matrix.arch }}
-          path: ${{ runner.temp }}/weekglass-signing/request-xpc-${{ matrix.arch }}/
-          compression-level: 0
-          if-no-files-found: error
-          retention-days: 3
-      - name: Verify and install the returned xpc signature
-        if: github.ref_name == 'ci/macos-validation'
-        shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          if [[ "${{ matrix.arch }}" == x64 ]]; then cpu=x86_64; else cpu=arm64; fi
-          /usr/bin/arch "-$cpu" /bin/bash tooling/macos-account/native-stage.sh receive xpc-${{ matrix.arch }}
+          bash tooling/macos-account/restore-frozen.sh ${{ matrix.arch }}
+          echo "PRIVATE_SUCCESSOR=$(python3 tooling/macos-account/version.py fixture)" >> "$GITHUB_ENV"
       - name: Seal the native app-a signing input
         if: github.ref_name == 'ci/macos-validation'
         shell: bash
@@ -180,13 +164,13 @@ jobs:
           retention-days: 7
 
       - name: Seal the native app-b signing input
-        if: github.ref_name == 'ci/macos-validation' && matrix.arch == 'arm64'
+        if: github.ref_name == 'ci/macos-validation' && matrix.arch == 'arm64' && env.PRIVATE_SUCCESSOR != ''
         shell: bash
         run: |
           if [[ "${{ matrix.arch }}" == x64 ]]; then cpu=x86_64; else cpu=arm64; fi
           /usr/bin/arch "-$cpu" /bin/bash tooling/macos-account/native-stage.sh seal app-b-${{ matrix.arch }}
       - name: Send the app-b request to the maintainer
-        if: github.ref_name == 'ci/macos-validation' && matrix.arch == 'arm64'
+        if: github.ref_name == 'ci/macos-validation' && matrix.arch == 'arm64' && env.PRIVATE_SUCCESSOR != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: WeekGlass native request app-b-${{ matrix.arch }}
@@ -195,7 +179,7 @@ jobs:
           if-no-files-found: error
           retention-days: 3
       - name: Verify and install the returned app-b signature
-        if: github.ref_name == 'ci/macos-validation' && matrix.arch == 'arm64'
+        if: github.ref_name == 'ci/macos-validation' && matrix.arch == 'arm64' && env.PRIVATE_SUCCESSOR != ''
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
@@ -203,18 +187,18 @@ jobs:
           if [[ "${{ matrix.arch }}" == x64 ]]; then cpu=x86_64; else cpu=arm64; fi
           /usr/bin/arch "-$cpu" /bin/bash tooling/macos-account/native-stage.sh receive app-b-${{ matrix.arch }}
       - name: Create the private signed successor disk image
-        if: github.ref_name == 'ci/macos-validation' && matrix.arch == 'arm64'
+        if: github.ref_name == 'ci/macos-validation' && matrix.arch == 'arm64' && env.PRIVATE_SUCCESSOR != ''
         shell: bash
         run: |
           mkdir "$RUNNER_TEMP/private-image"
           ditto "$RUNNER_TEMP/weekglass-signing/B/WeekGlass.app" "$RUNNER_TEMP/private-image/WeekGlass.app"
           ln -s /Applications "$RUNNER_TEMP/private-image/Applications"
-          hdiutil create -srcfolder "$RUNNER_TEMP/private-image" -volname WeekGlass -format UDZO -fs HFS+ "$RUNNER_TEMP/WeekGlass-private-arm64-0.22.13.dmg"
+          hdiutil create -srcfolder "$RUNNER_TEMP/private-image" -volname WeekGlass -format UDZO -fs HFS+ "$RUNNER_TEMP/WeekGlass-private-arm64-$PRIVATE_SUCCESSOR.dmg"
       - name: Save only the private successor
-        if: github.ref_name == 'ci/macos-validation' && matrix.arch == 'arm64'
+        if: github.ref_name == 'ci/macos-validation' && matrix.arch == 'arm64' && env.PRIVATE_SUCCESSOR != ''
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9
         with:
           name: WeekGlass private successor arm64
-          path: ${{ runner.temp }}/WeekGlass-private-arm64-0.22.13.dmg
+          path: ${{ runner.temp }}/WeekGlass-private-arm64-${{ env.PRIVATE_SUCCESSOR }}.dmg
           compression-level: 0
           retention-days: 3
