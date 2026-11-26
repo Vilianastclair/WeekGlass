@@ -72,8 +72,10 @@ def prepare_payload(bundle, version, build):
         shutil.rmtree(signature)
 
     symbols = output("xcrun", "nm", "-gU", aot)
-    require("kDartIsolateSnapshotInstructions" in symbols and "kDartIsolateSnapshotData" in symbols,
-            "Dart AOT snapshot not found in App.framework")
+    # Shared VM/isolate symbol names from the pinned engine runtime/dart_snapshot.cc.
+    snapshots = ["kDartSnapshotData", "kDartSnapshotText"]
+    require(all(f"_{name}" in symbols.split() for name in snapshots),
+            f"Dart AOT exports missing in App.framework: {symbols[:3000]}")
     assets = aot.parent / "flutter_assets"
     for name in ("kernel_blob.bin", "vm_snapshot_data", "isolate_snapshot_data"):
         require(not (assets / name).exists(), f"Debug runtime data present: {name}")
@@ -96,7 +98,8 @@ def prepare_payload(bundle, version, build):
         require(plugin.encode() in runner_code, f"Missing plugin registration in Runner: {plugin}")
 
     return {"bundle_id": info["CFBundleIdentifier"], "minimum_os": info["MinimumOSVersion"],
-            "executables": platforms, "aot": True, "source_assets": len(source_assets),
+            "executables": platforms, "aot": True, "snapshot_exports": snapshots,
+            "source_assets": len(source_assets),
             "plugins": plugins}
 
 
