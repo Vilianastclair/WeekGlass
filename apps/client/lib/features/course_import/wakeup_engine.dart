@@ -52,15 +52,15 @@ abstract final class WakeUpEngine {
         raw = await _channel
             .invokeMethod<String>('handle', input)
             .timeout(_deadline);
-      } else if (defaultTargetPlatform == TargetPlatform.windows) {
+      } else if (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS) {
+        final executableDirectory = path.dirname(Platform.resolvedExecutable);
         final home = Directory(
-          path.join(
-            path.dirname(Platform.resolvedExecutable),
-            'data',
-            'course_adapter',
-          ),
+          Platform.isMacOS
+              ? path.join(path.dirname(executableDirectory), 'Resources', 'course_adapter')
+              : path.join(executableDirectory, 'data', 'course_adapter'),
         );
-        raw = await WindowsWakeUpRunner(home).handle(input);
+        raw = await DesktopWakeUpRunner(home).handle(input);
       } else {
         throw const WakeUpEngineException('UNAVAILABLE', '当前平台没有内置课表解析器。');
       }
@@ -259,19 +259,21 @@ abstract final class WakeUpEngine {
 
 /// One local process per read. No PATH lookup, files of timetable contents,
 /// shell interpolation or JVM options inherited from the user's environment.
-final class WindowsWakeUpRunner {
-  const WindowsWakeUpRunner(this.home);
+final class DesktopWakeUpRunner {
+  const DesktopWakeUpRunner(this.home);
   final Directory home;
 
   Future<String> handle(String request) async {
-    final java = path.join(home.path, 'runtime', 'bin', 'java.exe');
+    final java = path.join(home.path, 'runtime', 'bin', Platform.isWindows ? 'java.exe' : 'java');
     final process = await Process.start(
       java,
       [
         '-Xmx96m',
         '-XX:+PerfDisableSharedMem',
         '-XX:-CreateCoredumpOnCrash',
-        '-XX:ErrorFile=NUL',
+        '-XX:ErrorFile=${Platform.isWindows ? 'NUL' : '/dev/null'}',
+        if (Platform.isMacOS) '-Xint',
+        if (Platform.isMacOS) '-XX:-UsePerfData',
         '-Dfile.encoding=UTF-8',
         '-Djava.security.manager',
         '-Djava.security.policy==parser.policy',

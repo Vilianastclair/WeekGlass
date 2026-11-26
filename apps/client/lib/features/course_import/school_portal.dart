@@ -454,7 +454,6 @@ class _SchoolPortalPageState extends State<SchoolPortalPage> {
       final result = await SchoolPortalReader.read(
         page: page,
         term: widget.term,
-        allowBundledEngine: !Platform.isMacOS,
         parsers: system == SchoolPortalSystem.auto
             ? widget.site.parsers
             : system.parsers,

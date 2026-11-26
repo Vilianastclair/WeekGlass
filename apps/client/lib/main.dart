@@ -82,11 +82,11 @@ Future<void> runWeekGlass(
   };
   updater.afterInstallFailure = services.cloud.resume;
   updater.beforeAndroidInstall = controller.waitForPendingWrites;
-  if (Platform.isWindows) {
-    await WindowsReminders(
+  if (Platform.isWindows || Platform.isMacOS) {
+    await DesktopReminders(
       controller,
-      onAppOpen: updater.checkOnWindowsReopen,
-    ).start();
+      onAppOpen: Platform.isWindows ? updater.checkOnWindowsReopen : null,
+    ).start(signalReady: Platform.isMacOS);
   }
 
   final app = WeekGlassApp(controller: controller, updater: updater);

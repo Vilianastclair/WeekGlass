@@ -141,9 +141,9 @@ void main() {
     expect(retried.meetings.single.weeks.last, 17);
   });
   test(
-    'shipped Windows JRE and pinned parser run using the client transport',
+    'shipped desktop JRE and pinned parser run using the client transport',
     () async {
-      final runner = WindowsWakeUpRunner(Directory(home!));
+      final runner = DesktopWakeUpRunner(Directory(home!));
       final list = jsonDecode(await runner.handle('{"op":"list"}'));
       expect(list['adapters'], isNotEmpty);
       final result = jsonDecode(
@@ -179,8 +179,8 @@ void main() {
         ],
       );
     },
-    skip: !Platform.isWindows || home == null
-        ? 'Set WEEKGLASS_TEST_COURSE_RUNTIME to the built Windows data/course_adapter.'
+    skip: !(Platform.isWindows || Platform.isMacOS) || home == null
+        ? 'Set WEEKGLASS_TEST_COURSE_RUNTIME to the installed course_adapter directory.'
         : false,
   );
 }

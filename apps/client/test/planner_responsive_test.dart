@@ -46,7 +46,10 @@ void main() {
       await tester.tap(find.byTooltip('打开设置'));
       await tester.pumpAndSettle();
       expect(find.text('自定义侧边栏'), findsOneWidget);
-      expect(find.text('版本信息'), findsOneWidget);
+      await tester.tap(find.text('软件与通知'));
+      await tester.pumpAndSettle();
+      expect(find.text('关闭窗口后继续提醒，退出应用后停止'), findsOneWidget);
+      expect(find.text('发送测试通知'), findsOneWidget);
       expect(find.text('检查或安装新版本'), findsNothing);
       expect(tester.takeException(), isNull);
       await tester.pumpWidget(const SizedBox.shrink());

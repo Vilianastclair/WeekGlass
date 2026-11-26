@@ -7,8 +7,11 @@ Usage: bash tooling/scripts/test-macos.sh [--package] [--verify-launch]
 
 Run the isolated macOS interaction tests and build the normal debug app.
   --package        Save the debug app as a ZIP under apps/client/build/weekglass-macos.
-  --verify-launch  Open the built app and verify its window. Use a clean macOS login
-                   without existing WeekGlass data, because this opens the normal app.
+  --verify-launch  Check the normal app window; with --package, launch the extracted ZIP.
+                   Use a clean macOS login without existing WeekGlass data.
+
+Set WEEKGLASS_MAC_COURSE_RUNTIME_DIR to an absolute prepared macOS course_adapter
+directory to exercise the bundled Java engine as well.
 EOF
 }
 
@@ -69,36 +72,71 @@ app="$PWD/build/macos/Build/Products/Debug/WeekGlass.app"
 plist="$app/Contents/Info.plist"
 bundle_id=com.viliana.weekglass
 target=integration_test/macos_smoke_test.dart
+course_runtime="${WEEKGLASS_MAC_COURSE_RUNTIME_DIR:-}"
+embedded_runtime="$app/Contents/Resources/course_adapter"
+if [[ -n "$course_runtime" ]]; then
+  if [[ "$course_runtime" != /* || ! -f "$course_runtime/engine.jar" || ! -x "$course_runtime/runtime/bin/java" ]]; then
+    printf 'Invalid prepared macOS course_adapter directory: %s\n' "$course_runtime" >&2
+    exit 1
+  fi
+  course_runtime="$(cd "$course_runtime" && pwd -P)"
+  if [[ "$course_runtime" == "$(pwd -P)/build/"* ]]; then
+    echo 'Prepare the reusable course adapter outside the Flutter build directory.' >&2
+    exit 1
+  fi
+fi
+
+embed_course_runtime() {
+  if [[ -n "$course_runtime" ]]; then
+    /usr/bin/ditto "$course_runtime" "$embedded_runtime"
+    # The runtime has separately signed nested binaries. Sign only this app
+    # after embedding, preserving the normal debug sandbox permissions.
+    /usr/bin/codesign --force --sign - --entitlements macos/Runner/DebugProfile.entitlements "$app"
+  fi
+}
+
+# This directory exists only when this script embedded a previous test runtime.
+rm -rf -- "$embedded_runtime"
 
 # The test build has its own sandbox and is reused by both test processes.
+course_fixture="$(/usr/bin/base64 < test/fixtures/school_portal/zhengfang.html | tr -d '\r\n')"
 printf 'WEEKGLASS_MACOS_BUNDLE_SUFFIX = .smoke\n' > "$scratch/smoke.xcconfig"
 XCODE_XCCONFIG_FILE="$scratch/smoke.xcconfig" \
   flutter --suppress-analytics build macos --debug --no-pub --target "$target" \
     --dart-define=INTEGRATION_TEST_SHOULD_REPORT_RESULTS_TO_NATIVE=false \
+    --dart-define=WEEKGLASS_MAC_SMOKE_BUILD=true \
+    --dart-define="WEEKGLASS_MAC_COURSE_FIXTURE=$course_fixture" \
     2>&1 | tee "$evidence/smoke-build.log"
 if [[ "$(/usr/bin/plutil -extract CFBundleIdentifier raw -o - "$plist")" != "$bundle_id.smoke" ]]; then
   echo 'The smoke build requires its own macOS sandbox.' >&2
   exit 1
 fi
+embed_course_runtime 2>&1 | tee -a "$evidence/smoke-build.log"
 smoke_id="$(uuidgen)"
+image_fixture="$(/usr/bin/base64 < test/fixtures/timetable_image/fictional-timetable.png | tr -d '\r\n')"
 for phase in create reopen; do
   printf '\nNative interaction test: %s\n' "$phase"
   WEEKGLASS_MAC_SMOKE_ID="$smoke_id" \
+  WEEKGLASS_MAC_IMAGE_FIXTURE="$image_fixture" \
   WEEKGLASS_MAC_SMOKE_ARTIFACTS="$evidence/screenshots" \
   WEEKGLASS_MAC_SMOKE_PHASE="$phase" \
     flutter --suppress-analytics drive --debug --no-pub -d macos \
       --target "$target" --driver test_driver/macos_smoke_driver.dart \
       --use-application-binary="$app" 2>&1 | tee "$evidence/$phase.log"
 done
-for screenshot in create-planner.png reopen-details.png; do
+for screenshot in create-planner.png course-preview.png reopen-details.png; do
   if [[ ! -s "$evidence/screenshots/$screenshot" ]]; then
     printf 'Missing smoke screenshot: %s\n' "$screenshot" >&2
     exit 1
   fi
+  /usr/bin/sips -g pixelWidth -g pixelHeight "$evidence/screenshots/$screenshot" \
+    >> "$evidence/screenshots.log"
 done
 
 # Replace the test entry point with the normal app.
+rm -rf -- "$embedded_runtime"
 flutter --suppress-analytics build macos --debug --no-pub 2>&1 | tee "$evidence/build.log"
+embed_course_runtime 2>&1 | tee -a "$evidence/build.log"
 executable="$app/Contents/MacOS/$(/usr/bin/plutil -extract CFBundleExecutable raw -o - "$plist")"
 version="$(/usr/bin/plutil -extract CFBundleShortVersionString raw -o - "$plist")"
 build="$(/usr/bin/plutil -extract CFBundleVersion raw -o - "$plist")"
@@ -113,85 +151,25 @@ xcrun lipo "$executable" -verify_arch "$(uname -m)"
 printf 'Built %s (%s; %s)\n' "$app" "$version+$build" "$(xcrun lipo -archs "$executable")" \
   | tee "$evidence/bundle.log"
 
+launch_app="$app"
+if $package; then
+  archive="$artifact_root/WeekGlass-macOS-debug.zip"
+  staged_archive="$scratch/WeekGlass-macOS-debug.zip"
+  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app" "$staged_archive"
+  if $verify_launch; then
+    /usr/bin/ditto -x -k "$staged_archive" "$scratch/package"
+    launch_app="$scratch/package/WeekGlass.app"
+  fi
+fi
+/usr/bin/codesign --verify --deep --strict --verbose=1 "$launch_app" 2>&1 \
+  | tee -a "$evidence/bundle.log"
+
 if $verify_launch; then
-  cat > "$scratch/VerifyLaunch.swift" <<'SWIFT'
-import AppKit
-import CoreGraphics
-import Darwin
-
-struct LaunchFailure: LocalizedError {
-  let message: String
-  var errorDescription: String? { message }
-}
-
-@main
-struct VerifyLaunch {
-  @MainActor
-  static func main() async {
-    do {
-      try await verify()
-    } catch {
-      FileHandle.standardError.write(Data("\(error.localizedDescription)\n".utf8))
-      exit(1)
-    }
-  }
-
-  @MainActor
-  static func verify() async throws {
-    let url = URL(fileURLWithPath: CommandLine.arguments[1])
-    guard let identifier = Bundle(url: url)?.bundleIdentifier else {
-      throw LaunchFailure(message: "The candidate bundle has no identifier.")
-    }
-    guard NSRunningApplication.runningApplications(withBundleIdentifier: identifier).isEmpty else {
-      throw LaunchFailure(message: "WeekGlass is running. Use a clean macOS login with WeekGlass closed.")
-    }
-
-    let options = NSWorkspace.OpenConfiguration()
-    options.createsNewApplicationInstance = true
-    let app = try await NSWorkspace.shared.openApplication(at: url, configuration: options)
-
-    var window: CGRect?
-    let deadline = ProcessInfo.processInfo.systemUptime + 30
-    while !app.isTerminated && ProcessInfo.processInfo.systemUptime < deadline {
-      let windows = CGWindowListCopyWindowInfo(
-        [.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID
-      ) as? [[String: Any]] ?? []
-      window = windows.lazy.compactMap { info -> CGRect? in
-        guard info[kCGWindowOwnerPID as String] as? Int32 == app.processIdentifier,
-              info[kCGWindowLayer as String] as? Int == 0,
-              let bounds = info[kCGWindowBounds as String] as? NSDictionary,
-              let rect = CGRect(dictionaryRepresentation: bounds as CFDictionary),
-              rect.width > 0, rect.height > 0 else { return nil }
-        return rect
-      }.first
-      if window != nil { break }
-      try? await Task.sleep(nanoseconds: 250_000_000)
-    }
-    let exitedEarly = app.isTerminated
-    if !exitedEarly {
-      _ = app.terminate()
-      let quitDeadline = ProcessInfo.processInfo.systemUptime + 5
-      while !app.isTerminated && ProcessInfo.processInfo.systemUptime < quitDeadline {
-        try? await Task.sleep(nanoseconds: 250_000_000)
-      }
-      if !app.isTerminated { _ = app.forceTerminate() }
-    }
-    if exitedEarly { throw LaunchFailure(message: "The candidate quit before showing a window.") }
-    guard let window else {
-      throw LaunchFailure(message: "The candidate did not show an on-screen window within 30 seconds.")
-    }
-    print("LaunchServices opened WeekGlass with a native window (\(Int(window.width)) × \(Int(window.height))).")
-  }
-}
-SWIFT
-  xcrun swiftc -parse-as-library "$scratch/VerifyLaunch.swift" -o "$scratch/verify-launch"
-  "$scratch/verify-launch" "$app" 2>&1 | tee "$evidence/launch.log"
+  xcrun swiftc -parse-as-library "$root/tooling/scripts/verify-macos-launch.swift" -o "$scratch/verify-launch"
+  "$scratch/verify-launch" "$launch_app" 2>&1 | tee "$evidence/launch.log"
 fi
 
 if $package; then
-  archive="$artifact_root/WeekGlass-macOS-debug.zip"
-  staged_archive="$evidence/WeekGlass-macOS-debug.zip"
-  /usr/bin/ditto -c -k --sequesterRsrc --keepParent "$app" "$staged_archive"
   mv -f -- "$staged_archive" "$archive"
   printf 'Debug package: %s (%s bytes)\n' "$archive" "$(stat -f '%z' "$archive")" \
     | tee -a "$evidence/bundle.log"

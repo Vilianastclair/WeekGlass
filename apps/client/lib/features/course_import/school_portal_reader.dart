@@ -74,7 +74,6 @@ abstract final class SchoolPortalReader {
     required Uri page,
     required WhuTerm term,
     required List<String> parsers,
-    bool allowBundledEngine = true,
     Future<List<Map<String, dynamic>>> Function() listAdapters =
         WakeUpEngine.list,
     Future<WhuTimetable> Function({
@@ -137,12 +136,9 @@ abstract final class SchoolPortalReader {
     // Keep the established day/period corrections and source IDs for these
     // grids. The bundled engine is used only when an adapter needs it.
     final directFirst = parsers.isEmpty || _direct.contains(parsers.first);
-    if (directFirst || !allowBundledEngine) {
+    if (directFirst) {
       final resolved = await direct();
       if (resolved != null) return resolved;
-    }
-    if (!allowBundledEngine) {
-      throw const FormatException('此课表格式尚未适配 macOS，请使用学校导出的日历文件。');
     }
     final registry = await listAdapters();
     final pending = <String, String>{};

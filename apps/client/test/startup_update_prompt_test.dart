@@ -304,7 +304,7 @@ void main() {
           return feed.metadata(path, limit);
         },
       );
-      final reminders = WindowsReminders(
+      final reminders = DesktopReminders(
         controller,
         onAppOpen: service.checkOnWindowsReopen,
       );

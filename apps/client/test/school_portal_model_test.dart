@@ -14,14 +14,13 @@ void main() {
   final enabled = Platform.environment['WG_SCHOOL_ENGINE_DIR'] != null;
   final samplePage = Uri.parse('https://portal.example.edu/kbcx');
   test(
-    'macOS can read a direct timetable without the bundled engine',
+    'direct timetable formats need no separate parser process',
     () async {
       final data = await SchoolPortalReader.read(
         page: samplePage,
         term: const WhuTerm(2026, 3),
-        parsers: const ['UrpParser'],
-        allowBundledEngine: false,
-        listAdapters: () async => fail('No bundled engine on macOS'),
+        parsers: const [],
+        listAdapters: () async => fail('The direct reader already recognized the timetable'),
         execute: (_) async => {
           'rows': [
             {
@@ -44,26 +43,6 @@ void main() {
     },
   );
 
-  test('macOS reports layouts that still need the bundled engine', () async {
-    await expectLater(
-      SchoolPortalReader.read(
-        page: samplePage,
-        term: const WhuTerm(2026, 3),
-        parsers: const ['UrpParser'],
-        allowBundledEngine: false,
-        listAdapters: () async => fail('No bundled engine on macOS'),
-        execute: (_) async => {'error': 'missing', 'rows': []},
-        current: () => true,
-      ),
-      throwsA(
-        isA<FormatException>().having(
-          (e) => e.message,
-          'message',
-          contains('尚未适配 macOS'),
-        ),
-      ),
-    );
-  });
   test(
     'Beihang timetable model uses only course fields and preserves exact times',
     () async {

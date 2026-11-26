@@ -67,7 +67,7 @@ class ReminderEngine {
       final at = b.at.toLocal();
       final time =
           '${at.hour.toString().padLeft(2, '0')}:${at.minute.toString().padLeft(2, '0')}';
-      return '${b.start ? '开始' : '结束'} $time · $name';
+      return '${b.start ? '开始' : '结束'} $time  $name';
     }).toList();
     if (boundaries.length > 4) lines.add('另有 ${boundaries.length - 4} 项日程');
     return ScheduleNotice(
@@ -78,8 +78,8 @@ class ReminderEngine {
   }
 }
 
-class WindowsReminders {
-  WindowsReminders(this.controller, {MethodChannel? channel, this.onAppOpen})
+class DesktopReminders {
+  DesktopReminders(this.controller, {MethodChannel? channel, this.onAppOpen})
     : _channel = channel ?? const MethodChannel('weekglass/desktop');
   final PlannerController controller;
   final Future<void> Function()? onAppOpen;
@@ -90,7 +90,7 @@ class WindowsReminders {
   bool _busy = false;
   bool _enabled = true;
 
-  Future<void> start() async {
+  Future<void> start({bool signalReady = false}) async {
     _engine = ReminderEngine(
       startedAt: DateTime.now().toUtc(),
       delivered:
@@ -110,6 +110,9 @@ class WindowsReminders {
         }
       }
     });
+    if (signalReady) {
+      await _channel.invokeMethod<void>('remindersReady');
+    }
     _timer = Timer.periodic(const Duration(seconds: 1), (_) => tick());
   }
 
@@ -146,7 +149,7 @@ class WindowsReminders {
     } on PlatformException {
       // Retry transient shell failures within 90 seconds.
     } on MissingPluginException {
-      // Non-Windows test hosts have no shell channel.
+      // Other hosts have no desktop channel.
     } catch (_) {
       // Notification/persistence failures must never interrupt the calendar.
     } finally {
@@ -158,7 +161,7 @@ class WindowsReminders {
       await const MethodChannel('weekglass/desktop')
           .invokeMethod<bool>('notify', {
             'title': 'WeekGlass 通知已连接',
-            'body': '日程开始或结束时会在这里提醒你。收起到托盘后仍然有效。',
+            'body': '日程开始或结束时会在这里提醒你。',
             'eventId': '',
           }) ??
       false;

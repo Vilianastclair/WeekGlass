@@ -2,6 +2,11 @@ import Cocoa
 import FlutterMacOS
 
 class MainFlutterWindow: NSWindow {
+  // Keep the engine, reminder timer and any open editor alive in the menu bar.
+  override func performClose(_ sender: Any?) {
+    orderOut(sender)
+  }
+
   override func awakeFromNib() {
     animationBehavior = .none
     let flutterViewController = FlutterViewController()

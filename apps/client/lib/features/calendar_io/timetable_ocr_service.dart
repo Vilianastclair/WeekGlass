@@ -11,11 +11,13 @@ class TimetableOcrService {
   static const maxImageBytes = 25 * 1024 * 1024;
   static const _channel = MethodChannel('weekglass/timetable_ocr');
   bool get supportsImages =>
-      !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS);
 
   Future<Uint8List?> clipboardImage() async {
     if (!supportsImages) {
-      throw const FormatException('当前平台支持粘贴课表文字；图片识别暂在 Windows 提供。');
+      throw const FormatException('当前设备支持粘贴课表文字。');
     }
     try {
       final bytes = await _channel.invokeMethod<Uint8List>('clipboardImage');
@@ -27,7 +29,7 @@ class TimetableOcrService {
 
   Future<TimetableOcrPage> recognize(Uint8List bytes) async {
     if (!supportsImages) {
-      throw const FormatException('图片本地识别暂在 Windows 提供。可在下方粘贴或填写课表文字继续导入。');
+      throw const FormatException('请粘贴或填写课表文字继续导入。');
     }
     if (bytes.isEmpty || bytes.length > maxImageBytes) {
       throw const FormatException('请选择不超过 25 MB 的课表图片。');

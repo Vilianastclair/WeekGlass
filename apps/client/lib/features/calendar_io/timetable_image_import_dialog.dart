@@ -50,7 +50,7 @@ class _TimetableImageImportDialogState
   List<String> _messages = [];
   Uint8List? _image;
   String? _imageName, _error;
-  bool _busy = false, _reviewed = false, _sourceDirty = false;
+  bool _busy = false, _sourceDirty = false;
   CalendarImportResult? _preview;
 
   @override
@@ -76,7 +76,7 @@ class _TimetableImageImportDialogState
 
   void _changed() => setState(() {
     _preview = null;
-    _reviewed = false;
+
     _error = null;
   });
 
@@ -88,7 +88,7 @@ class _TimetableImageImportDialogState
     _courses.addAll(recognition.courses.map(_CourseEditor.new));
     _messages = recognition.messages;
     _preview = null;
-    _reviewed = false;
+
     _sourceDirty = false;
     _selected.clear();
   }
@@ -211,7 +211,6 @@ class _TimetableImageImportDialogState
       setState(() {
         _firstMonday.text = DateFormat('yyyy-MM-dd').format(chosen);
         _preview = null;
-        _reviewed = false;
       });
     }
   }
@@ -249,9 +248,9 @@ class _TimetableImageImportDialogState
 
   Future<void> _makePreview() => _work(() async {
     if (_sourceDirty) {
-      throw const FormatException('识别原文已修改，请先点“按文字重新整理课程”，再核对下方课程。');
+      final parsed = TimetableImageParser().parseText(_text.text);
+      setState(() => _accept(parsed));
     }
-    if (!_reviewed) throw const FormatException('请先核对课程、第一教学周和节次时刻，再勾选确认。');
     final plan = _plan();
     final preview = plan.preview(existing: await _existing());
     if (!mounted) return;
@@ -309,7 +308,7 @@ class _TimetableImageImportDialogState
     return PopScope(
       canPop: !_busy,
       child: GlassAlertDialog(
-        title: Text(preview == null ? '从课表图片导入' : '核对课程日程'),
+        title: Text(preview == null ? '从课表图片导入' : '课程日程预览'),
         insetPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 16),
         content: SizedBox(
           width: 760,
@@ -350,7 +349,6 @@ class _TimetableImageImportDialogState
                   ? null
                   : () => setState(() {
                       _preview = null;
-                      _reviewed = false;
                     }),
               child: const Text('返回修改'),
             ),
@@ -358,7 +356,7 @@ class _TimetableImageImportDialogState
             onPressed: _busy
                 ? null
                 : preview == null
-                ? (_courses.isEmpty || !_reviewed ? null : _makePreview)
+                ? (_courses.isEmpty && !_sourceDirty ? null : _makePreview)
                 : (_selected.isEmpty ? null : _save),
             child: Text(
               preview == null ? '生成日程预览' : '导入 ${_selected.length} 项',
@@ -375,7 +373,7 @@ class _TimetableImageImportDialogState
       Text(
         widget.ocr.supportsImages
             ? '本地识别，图片不会上传。支持 PNG、JPEG、WebP、BMP、GIF、TIFF；动画仅识别首帧。'
-            : '当前平台可粘贴或填写课表文字并核对导入。图片本地识别暂在 Windows 提供。',
+            : '粘贴或输入课表文字即可导入。',
         style: Theme.of(context).textTheme.bodySmall,
       ),
       const SizedBox(height: 10),
@@ -409,7 +407,7 @@ class _TimetableImageImportDialogState
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                '${_imageName ?? '课表图片'} · 可缩放核对',
+                _imageName ?? '课表图片',
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
               ),
@@ -426,7 +424,7 @@ class _TimetableImageImportDialogState
                       fit: BoxFit.contain,
                       cacheWidth: 1300,
                       errorBuilder: (_, _, _) =>
-                          const Center(child: Text('此图片格式无法缩略预览，识别结果仍可在下方核对。')),
+                          const Center(child: Text('此格式没有缩略图，识别结果见下方。')),
                     ),
                   ),
                 ),
@@ -436,7 +434,7 @@ class _TimetableImageImportDialogState
         ),
       ExpansionTile(
         key: ValueKey('timetable-raw-${_courses.isEmpty}'),
-        title: const Text('识别原文 / 手动填写'),
+        title: const Text('课表原文'),
         initiallyExpanded: _courses.isEmpty,
         tilePadding: EdgeInsets.zero,
         children: [
@@ -446,7 +444,7 @@ class _TimetableImageImportDialogState
             enabled: !_busy,
             onChanged: (_) => setState(() {
               _sourceDirty = true;
-              _reviewed = false;
+
               _preview = null;
             }),
             minLines: 4,
@@ -466,7 +464,7 @@ class _TimetableImageImportDialogState
             ),
           ),
           const Text(
-            '每门课程用空行分隔。重新整理会替换下方课程核对项。',
+            '每门课程用空行分隔。重新整理会替换下方课程。',
             style: TextStyle(fontSize: 12),
           ),
         ],
@@ -477,7 +475,7 @@ class _TimetableImageImportDialogState
           child: Text(message, style: Theme.of(context).textTheme.bodySmall),
         ),
       const SizedBox(height: 18),
-      Text('1  核对课程', style: Theme.of(context).textTheme.titleMedium),
+      Text('识别出的课程', style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: 8),
       if (_courses.isEmpty) const Text('选择图片或整理文字后，课程会出现在这里。也可以直接添加课程。'),
       for (var index = 0; index < _courses.length; index++) _courseCard(index),
@@ -498,14 +496,13 @@ class _TimetableImageImportDialogState
                     ),
                   );
                   _preview = null;
-                  _reviewed = false;
                 }),
           icon: const Icon(Icons.add, size: 18),
           label: const Text('添加一门课程'),
         ),
       ),
       const SizedBox(height: 14),
-      Text('2  确认学期与时刻', style: Theme.of(context).textTheme.titleMedium),
+      Text('学期与上课时刻', style: Theme.of(context).textTheme.titleMedium),
       const SizedBox(height: 10),
       TextField(
         key: const Key('timetable-first-monday'),
@@ -558,24 +555,13 @@ class _TimetableImageImportDialogState
                       '${i + 1} ${ClassPeriod.clock(ClassPeriod.standard[i].start)}-${ClassPeriod.clock(ClassPeriod.standard[i].end)}',
                   ].join('\n');
                   _preview = null;
-                  _reviewed = false;
                 }),
-          child: const Text('填入武大参考节次，再核对'),
+          child: const Text('使用武汉大学参考节次'),
         ),
       ),
       Text(
-        '按 ${widget.controller.timeZoneId} 排程；日期、重复周次和时刻都以本页确认内容为准。',
+        '时区：${widget.controller.timeZoneId}',
         style: Theme.of(context).textTheme.bodySmall,
-      ),
-      CheckboxListTile(
-        key: const Key('timetable-confirm'),
-        contentPadding: EdgeInsets.zero,
-        controlAffinity: ListTileControlAffinity.leading,
-        value: _reviewed,
-        onChanged: _busy
-            ? null
-            : (value) => setState(() => _reviewed = value == true),
-        title: const Text('已逐项核对课程，并确认第一周、重复周次和节次时刻'),
       ),
     ],
   );
@@ -612,11 +598,11 @@ class _TimetableImageImportDialogState
             editor.weeks.text.isEmpty,
         title: Text(
           editor.title.text.isEmpty
-              ? '课程 ${index + 1} · 待填写'
+              ? '课程 ${index + 1} 待填写'
               : editor.title.text,
         ),
         subtitle: Text(
-          '${editor.day == null ? '星期待填写' : '周${'一二三四五六日'[editor.day! - 1]}'} · ${editor.periods.text.isEmpty ? '节次待填写' : '${editor.periods.text}节'} · ${editor.weeks.text.isEmpty ? '周次待填写' : editor.weeks.text}\n点开核对与修改',
+          '${editor.day == null ? '星期待填写' : '周${'一二三四五六日'[editor.day! - 1]}'}，${editor.periods.text.isEmpty ? '节次待填写' : '${editor.periods.text}节'}，${editor.weeks.text.isEmpty ? '周次待填写' : editor.weeks.text}',
         ),
         leading: Checkbox(
           value: editor.included,
@@ -625,7 +611,6 @@ class _TimetableImageImportDialogState
               : (value) => setState(() {
                   editor.included = value == true;
                   _preview = null;
-                  _reviewed = false;
                 }),
         ),
         children: [
@@ -633,7 +618,7 @@ class _TimetableImageImportDialogState
             children: [
               Expanded(
                 child: Text(
-                  '课程 ${index + 1}${editor.source.layoutSuggestion ? ' · 表格识别待核对' : ''}',
+                  '课程 ${index + 1}${editor.source.layoutSuggestion ? ' 来自课表图片' : ''}',
                 ),
               ),
               IconButton(
@@ -642,7 +627,7 @@ class _TimetableImageImportDialogState
                     ? null
                     : () => setState(() {
                         _courses.removeAt(index).dispose();
-                        _reviewed = false;
+
                         _preview = null;
                       }),
                 icon: const Icon(Icons.close, size: 18),
@@ -667,7 +652,7 @@ class _TimetableImageImportDialogState
                 ? null
                 : (value) => setState(() {
                     editor.day = value;
-                    _reviewed = false;
+
                     _preview = null;
                   }),
           ),
@@ -740,12 +725,12 @@ class _TimetableImageImportDialogState
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Text(
-            '可导入 ${preview.events.length} 项 · 重复 ${preview.duplicateCount} 项',
+            '可导入 ${preview.events.length} 项，重复 ${preview.duplicateCount} 项',
             style: Theme.of(context).textTheme.titleMedium,
           ),
           const SizedBox(height: 6),
           Text(
-            '第一周：${_firstMonday.text} · 学期 ${_weeks.text} 周。课程已展开为具体日期，保存前还会再次去重。',
+            '第一周：${_firstMonday.text}，学期 ${_weeks.text} 周。课程已展开为具体日期，保存前还会再次去重。',
           ),
           const SizedBox(height: 8),
           if (preview.events.isNotEmpty)

@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
 import 'package:weekglass_domain/weekglass_domain.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
@@ -82,10 +83,14 @@ class _CloudDialogState extends State<_CloudDialog> {
   }
 
   Future<void> _returnToWindow() async {
-    if (!Platform.isWindows || !mounted) return;
+    if (!mounted) return;
     try {
-      await windowManager.show();
-      if (mounted) await windowManager.focus();
+      if (Platform.isMacOS) {
+        await const MethodChannel('weekglass/desktop').invokeMethod<void>('showPlanner');
+      } else if (Platform.isWindows) {
+        await windowManager.show();
+        if (mounted) await windowManager.focus();
+      }
     } catch (_) {
       // The confirmed connection remains visible when the user returns.
     }

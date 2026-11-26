@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:weekglass_domain/weekglass_domain.dart';
 import 'package:weekglass_design_system/weekglass_design_system.dart';
 
@@ -58,13 +59,12 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   bool get _home => _page == _SettingsPage.home;
 
   String _pageLabel(_SettingsPage page) => switch (page) {
-    _SettingsPage.system when _macOS => '版本信息',
-    _SettingsPage.system when !_windows => '软件更新',
+    _SettingsPage.system when !_desktop => '软件更新',
     _ => page.label,
   };
   bool get _editable => switch (_page) {
     _SettingsPage.calendar || _SettingsPage.shortcuts => true,
-    _SettingsPage.system => _windows,
+    _SettingsPage.system => _desktop,
     _ => false,
   };
 
@@ -320,7 +320,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
               subtitle: _windows
                   ? '日程提醒与软件更新'
                   : _macOS
-                  ? '查看已安装的版本'
+                  ? '日程提醒与版本信息'
                   : '检查或安装新版本',
               onTap: () => _open(_SettingsPage.system),
             ),
@@ -427,7 +427,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
 
   List<Widget> _dataContent(BuildContext context) => [
     for (final (action, text) in [
-      (SidebarAction.importEvents, _macOS ? '从日历文件导入' : '从日历文件或课表图片导入'),
+      (SidebarAction.importEvents, '从日历文件或课表图片导入'),
       (SidebarAction.courses, '从学校教务系统导入'),
       (SidebarAction.exportEvents, '导出或打印此设备的日程'),
     ])
@@ -440,12 +440,12 @@ class _SettingsDialogState extends State<_SettingsDialog> {
   ];
 
   List<Widget> _systemContent(BuildContext context) => [
-    if (_windows) ...[
+    if (_desktop) ...[
       CheckboxListTile(
         contentPadding: EdgeInsets.zero,
         controlAffinity: ListTileControlAffinity.leading,
         title: const Text('日程开始或结束时通知'),
-        subtitle: const Text('收起到托盘后继续提醒'),
+        subtitle: Text(_macOS ? '关闭窗口后继续提醒，退出应用后停止' : '收起到托盘后继续提醒'),
         value: _notifications,
         onChanged: _saving
             ? null
@@ -463,21 +463,26 @@ class _SettingsDialogState extends State<_SettingsDialog> {
         Text(status, style: Theme.of(context).textTheme.bodySmall),
       const Divider(height: 24),
     ],
-    UpdateSettingsTile(service: widget.updateService, showTitle: _windows),
+    UpdateSettingsTile(service: widget.updateService, showTitle: _desktop),
   ];
 
   Future<void> _testNotification() async {
     var sent = false;
+    String? failure;
     try {
-      sent = await WindowsReminders.testNotification();
+      sent = await DesktopReminders.testNotification();
+    } on PlatformException catch (error) {
+      if (error.code == 'notifications_disabled') {
+        failure = '请在系统设置的“通知”中允许 WeekGlass 通知。';
+      }
     } catch (_) {
-      // The Windows notification service can be unavailable.
+      // A desktop notification service can be unavailable.
     }
     if (mounted && _page == _SettingsPage.system) {
       setState(
         () => _notificationStatus = sent
-            ? '已发送。如未收到，请检查 Windows 通知与勿扰设置。'
-            : '发送失败，请稍后重试。',
+            ? (_macOS ? '已发送。如未收到，请检查系统通知与专注模式。' : '已发送。如未收到，请检查 Windows 通知与勿扰设置。')
+            : (failure ?? '发送失败，请稍后重试。'),
       );
     }
   }

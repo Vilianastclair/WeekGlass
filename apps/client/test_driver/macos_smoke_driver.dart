@@ -14,6 +14,7 @@ Future<void> main() async {
     onScreenshot: (name, bytes, [args]) async {
       if (!const {
         'create-planner',
+        'course-preview',
         'reopen-details',
         'create-failure',
         'reopen-failure',

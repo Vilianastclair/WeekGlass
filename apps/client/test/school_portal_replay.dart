@@ -6,7 +6,7 @@ import 'package:weekglass/features/course_import/school_portal_reader.dart';
 import 'package:weekglass/features/course_import/wakeup_engine.dart';
 import 'package:weekglass/features/course_import/whu_timetable.dart';
 
-// Uses the actual Dart read/poll/parse coordinator and Windows production
+// Uses the actual Dart read/poll/parse coordinator and desktop production
 // runner. Only the WebView transport and installed app location are injected.
 Future<WhuTimetable> replaySchoolPage(
   String file, {
@@ -23,7 +23,7 @@ Future<WhuTimetable> replaySchoolPage(
     process.stdout.transform(utf8.decoder).transform(const LineSplitter()),
   );
   final errors = process.stderr.transform(utf8.decoder).join();
-  final engine = WindowsWakeUpRunner(
+  final engine = DesktopWakeUpRunner(
     Directory(
       Platform.environment['WG_SCHOOL_ENGINE_DIR'] ??
           'build/windows/x64/runner/Release/data/course_adapter',
