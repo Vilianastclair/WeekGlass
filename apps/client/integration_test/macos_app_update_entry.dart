@@ -38,6 +38,8 @@ Future<void> main(List<String> args) async {
   final fixture = File('${dir.path}/upgrade-input.json');
   final evidence = File('${dir.path}/upgrade-result.json');
   final build = int.parse(bundle!['build']!);
+  var phase = 'setKeychainInteraction';
+  final passed = <String, bool>{};
   try {
     // Fail instead of authorizing access interactively. This switch belongs
     // only to this process in the disposable integration login.
@@ -51,9 +53,13 @@ Future<void> main(List<String> args) async {
     if (allowUI(0) != 0) {
       throw StateError('Could not require non-interactive Keychain access.');
     }
+    phase = 'openDatabase';
     final services = await AppServices.create();
     final preferences = SharedPreferencesAsync();
     final old = !await fixture.exists();
+    if (old != (build == 57) || (!old && build != 58)) {
+      throw StateError('Build $build found an unexpected fixture state.');
+    }
     final input = old
         ? <String, dynamic>{
             'marker': const Uuid().v4(),
@@ -66,6 +72,7 @@ Future<void> main(List<String> args) async {
     final start = DateTime.utc(2026, 11, 26, 9, 15);
     final end = start.add(const Duration(minutes: 45));
     if (old) {
+      phase = 'writeSchedule';
       await services.eventRepository.save(
         CalendarEvent.timed(
           id: marker,
@@ -75,7 +82,9 @@ Future<void> main(List<String> args) async {
           timeZoneId: 'UTC',
         ),
       );
+      phase = 'writeAppearance';
       await preferences.setString('appearance_v1', _appearance);
+      phase = 'writeKeychain';
       await _vault.write(key: marker, value: 'fixture:$marker');
       await fixture.writeAsString(jsonEncode(input), flush: true);
     } else {
@@ -84,24 +93,32 @@ Future<void> main(List<String> args) async {
           'A different successor build and process are required.',
         );
       }
+      phase = 'readSchedule';
       final event = (await services.eventRepository.getAllEvents()).singleWhere(
         (e) => e.id == marker,
       );
       if (event.title != title ||
           event.startUtc != start ||
-          event.endUtc != end ||
-          await preferences.getString('appearance_v1') != _appearance) {
-        throw StateError(
-          'The successor did not preserve the schedule or appearance.',
-        );
+          event.endUtc != end) {
+        throw StateError('The successor did not preserve the schedule.');
       }
+      passed['schedule'] = true;
+      phase = 'readAppearance';
+      if (await preferences.getString('appearance_v1') != _appearance) {
+        throw StateError('The successor did not preserve the appearance.');
+      }
+      passed['appearance'] = true;
+      phase = 'readKeychain';
       if (await _vault.read(key: marker) != 'fixture:$marker') {
         throw StateError(
           'The successor did not read the file-based Keychain item.',
         );
       }
+      passed['fileKeychain'] = true;
+      phase = 'deleteFixtureKeychainItem';
       await _vault.delete(key: marker);
     }
+    phase = 'openPlanner';
     await weekglass.runWeekGlass(args, createServices: () async => services);
     await WidgetsBinding.instance.endOfFrame;
     if (!old) {
@@ -114,16 +131,19 @@ Future<void> main(List<String> args) async {
           'previousPid': input['pid'],
           'executable': Platform.resolvedExecutable,
           'plannerFrame': true,
-          'schedule': true,
-          'appearance': true,
-          'fileKeychain': true,
+          ...passed,
         }),
         flush: true,
       );
     }
   } catch (error) {
     await evidence.writeAsString(
-      jsonEncode({'build': build, 'error': error.toString()}),
+      jsonEncode({
+        'build': build,
+        'phase': phase,
+        'passed': passed,
+        'error': error.toString(),
+      }),
       flush: true,
     );
     rethrow;

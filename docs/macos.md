@@ -32,4 +32,8 @@ bash tooling/scripts/test-macos.sh --package
 
 ## 当前验收状态
 
+2026 年 11 月 26 日，私有仓库的[单次升级验收](https://github.com/Vilianastclair/WeekGlass-macOS-validation/actions/runs/45780998382)在 Apple Silicon、macOS 15.8.2、Xcode 16.4 上执行了提交 `374c2be`。两版通过原生代码签名校验，绑定同一证书和应用标识。旧版请求更新源和后继包，服务器均返回 HTTP 200；新启动的构建 58 写出了错误回执。测试在文件钥匙串操作时收到 `errSecAuthFailed`（`-25293`），未生成周历窗口截图。该次回执没有区分读取凭据和删除测试项。正式发行等待登录凭据在新版中无交互读回的证据。
+
+[Apple 的安全服务源码](https://github.com/apple-oss-distributions/Security/blob/main/securityd/src/clientid.cpp#L254-L274)为符合其证书规则的开发者分配团队分区；其他签名程序按代码目录摘要分区。重建后的自签主程序可以通过同一身份要求，却落入不同的钥匙串分区。这与本次拒绝相符；记录中没有系统给出的具体分区判定。
+
 初版 `0326a87` 在 Apple Silicon 的 macOS 15.8.2 图形会话用 Xcode 16.4 构建。LaunchServices 打开了 1024 × 681 的原生窗口，隔离测试从周历新建日程后退出，重开时核对了标题、备注和时间。当前公开发行仍等待正式包安装、跨版本数据留存、同步和课表等验收。
