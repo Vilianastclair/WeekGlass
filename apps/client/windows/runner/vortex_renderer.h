@@ -24,6 +24,7 @@ class VortexRenderer {
   enum class Result { presented, busy, unavailable };
   Result Draw(float openness, bool reduced);
   void Reset(bool retain = false);
+  void Release();
 
  private:
   struct State;

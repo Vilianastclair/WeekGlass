@@ -289,7 +289,7 @@ class _WindowMotionControls extends StatelessWidget {
                 label: Text(switch (option) {
                   WindowsWindowMotionMode.liquidGlass => '液态玻璃',
                   WindowsWindowMotionMode.gentle => '轻柔',
-                  WindowsWindowMotionMode.system => '系统默认',
+                  WindowsWindowMotionMode.system => '关闭',
                 }),
                 selected: option == mode,
                 onSelected: onSelected == null
@@ -300,7 +300,7 @@ class _WindowMotionControls extends StatelessWidget {
         ),
         const SizedBox(height: 6),
         Text(
-          error ?? '只在这台 Windows 设备生效，选择后立即保存。',
+          error ?? '关闭时使用 Windows 的窗口行为。选择后立即保存。',
           style: Theme.of(context).textTheme.bodySmall?.copyWith(
             color: error == null
                 ? palette.muted

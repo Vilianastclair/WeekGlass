@@ -382,3 +382,8 @@ VortexRenderer::Result VortexRenderer::Draw(float openness, bool reduced) {
 void VortexRenderer::Reset(bool retain) {
   if (state_) state_->Reset(retain);
 }
+
+void VortexRenderer::Release() {
+  state_.reset();
+  warmup_.reset();
+}

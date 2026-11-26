@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
 import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
+import 'package:weekglass/app/windows_window_motion.dart';
 import 'package:weekglass/features/planner/planner_controller.dart';
 import 'package:weekglass/features/planner/planner_settings_dialog.dart';
 import 'package:weekglass/features/planner/skin_picker_dialog.dart';
@@ -18,6 +19,83 @@ void main() {
     SharedPreferencesAsyncPlatform.instance =
         InMemorySharedPreferencesAsync.empty();
   });
+
+  testWidgets(
+    'Windows window motion starts off and preserves explicit choices',
+    (tester) async {
+      const channel = MethodChannel('weekglass/desktop');
+      const key = 'windows_window_motion_v1';
+      final messenger =
+          TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+      final applied = <String>[];
+      messenger.setMockMethodCallHandler(channel, (call) async {
+        expect(call.method, 'setWindowMotion');
+        applied.add(call.arguments as String);
+        return null;
+      });
+      addTearDown(() => messenger.setMockMethodCallHandler(channel, null));
+      final preferences = SharedPreferencesAsync();
+      final motion = WindowsWindowMotion.instance;
+      for (final (stored, expected) in [
+        (null, 'system'),
+        ('future', 'system'),
+        ('liquidGlass', 'liquidGlass'),
+        ('gentle', 'gentle'),
+        ('system', 'system'),
+      ]) {
+        if (stored == null) {
+          await preferences.remove(key);
+        } else {
+          await preferences.setString(key, stored);
+        }
+        await motion.initialize();
+        expect(motion.mode.name, expected);
+        expect(applied.last, expected);
+      }
+      await preferences.remove(key);
+      await motion.initialize();
+
+      _size(tester, const Size(1000, 820));
+      final controller = await _controller();
+      await tester.pumpWidget(_host(controller));
+      await tester.tap(find.text('打开皮肤'));
+      await tester.pumpAndSettle();
+      final off = find.byKey(const ValueKey('window-motion-system'));
+      final gentle = find.byKey(const ValueKey('window-motion-gentle'));
+      expect(tester.widget<ChoiceChip>(off).selected, isTrue);
+      expect(
+        find.descendant(of: off, matching: find.text('关闭')),
+        findsOneWidget,
+      );
+      await tester.ensureVisible(gentle);
+      await tester.tap(gentle);
+      await tester.pumpAndSettle();
+      expect(applied.last, 'gentle');
+      expect(await preferences.getString(key), 'gentle');
+      expect(tester.widget<ChoiceChip>(gentle).selected, isTrue);
+
+      await tester.tap(off);
+      await tester.pumpAndSettle();
+      expect(applied.last, 'system');
+      expect(await preferences.getString(key), 'system');
+      expect(tester.widget<ChoiceChip>(off).selected, isTrue);
+      await tester.pumpWidget(const SizedBox.shrink());
+      controller.dispose();
+    },
+    variant: const TargetPlatformVariant({TargetPlatform.windows}),
+  );
+
+  testWidgets('macOS appearance has no window motion control', (tester) async {
+    _size(tester, const Size(1000, 820));
+    final controller = await _controller();
+    await tester.pumpWidget(_host(controller));
+    await tester.tap(find.text('打开皮肤'));
+    await tester.pumpAndSettle();
+    expect(find.text('窗口动效'), findsNothing);
+    expect(find.byKey(const ValueKey('glass-motion')), findsOneWidget);
+    await tester.pumpWidget(const SizedBox.shrink());
+    controller.dispose();
+  }, variant: const TargetPlatformVariant({TargetPlatform.macOS}));
 
   test('appearance commits one pair, keeps legacy mode and falls back on unknown skin', () async {
     final preferences = SharedPreferencesAsync();

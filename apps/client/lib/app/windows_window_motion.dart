@@ -2,7 +2,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-enum WindowsWindowMotionMode { liquidGlass, gentle, system }
+enum WindowsWindowMotionMode { system, gentle, liquidGlass }
 
 /// Windows shell appearance is stored locally, separate from planner settings.
 final class WindowsWindowMotion {
@@ -15,7 +15,7 @@ final class WindowsWindowMotion {
   static bool get isSupported =>
       !kIsWeb && defaultTargetPlatform == TargetPlatform.windows;
 
-  WindowsWindowMotionMode _mode = WindowsWindowMotionMode.liquidGlass;
+  WindowsWindowMotionMode _mode = WindowsWindowMotionMode.system;
   WindowsWindowMotionMode get mode => _mode;
 
   Future<void> initialize() async {
@@ -24,9 +24,9 @@ final class WindowsWindowMotion {
       _mode = switch (await SharedPreferencesAsync().getString(
         _preferenceKey,
       )) {
+        'liquidGlass' => WindowsWindowMotionMode.liquidGlass,
         'gentle' => WindowsWindowMotionMode.gentle,
-        'system' => WindowsWindowMotionMode.system,
-        _ => WindowsWindowMotionMode.liquidGlass,
+        _ => WindowsWindowMotionMode.system,
       };
       await _apply(_mode);
     } catch (error) {

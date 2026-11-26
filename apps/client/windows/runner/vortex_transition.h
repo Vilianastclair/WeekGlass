@@ -72,7 +72,7 @@ class VortexTransition {
   HMONITOR monitor_ = nullptr;
   RECT bounds_{};
   Frame frame_;
-  Mode mode_ = Mode::liquid;
+  Mode mode_ = Mode::system;
   int minimize_command_ = SW_MINIMIZE;
   Phase phase_ = Phase::idle;
   Target target_ = Target::open;

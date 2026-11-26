@@ -79,7 +79,6 @@ VortexTransition::VortexTransition(HWND window, flutter::BinaryMessenger* messen
     minmax_hook_ = SetWindowsHookExW(WH_CBT, OnMinMax, nullptr, GetCurrentThreadId());
     if (minmax_hook_) ui_transition = this;
   }
-  if (CanAnimate()) renderer_.Warm(window_, kGpuReady, instance_token_);
   channel_.SetMethodCallHandler([this](const auto& call, auto result) {
     if (call.method_name() == "minimize") {
       Minimize();
@@ -125,12 +124,20 @@ bool VortexTransition::CanAnimate() const {
       animations.iMinAnimate;
 }
 bool VortexTransition::SetMode(const std::string& name) {
-  if (name == "liquidGlass") mode_ = Mode::liquid;
-  else if (name == "gentle") mode_ = Mode::gentle;
-  else if (name == "system") mode_ = Mode::system;
+  Mode mode;
+  if (name == "liquidGlass") mode = Mode::liquid;
+  else if (name == "gentle") mode = Mode::gentle;
+  else if (name == "system") mode = Mode::system;
   else return false;
+  if (mode == mode_) return true;
+  const bool was_system = mode_ == Mode::system;
+  mode_ = mode;
   if (mode_ == Mode::system) {
     if (phase_ != Phase::idle) System(target_); else Reset(false);
+    renderer_.Release();
+  } else if (was_system && CanAnimate()) {
+    // Only an explicitly selected effect may warm the device before a frame.
+    renderer_.Warm(window_, kGpuReady, instance_token_);
   }
   return true;
 }
@@ -138,6 +145,7 @@ void VortexTransition::FirstFrame() {
   if (first_frame_) return;
   first_frame_ = true;
   if (parked_ != Target::open || IsWindowVisible(window_)) return;
+  if (!CanAnimate()) { System(Target::open); return; }
   MONITORINFO info{};
   info.cbSize = sizeof(info);
   if (!GetMonitorInfoW(MonitorFromWindow(window_, MONITOR_DEFAULTTONEAREST), &info)) {
@@ -464,7 +472,7 @@ std::optional<LRESULT> VortexTransition::Handle(UINT message, WPARAM wparam, LPA
     Reset(false);
   }
   if (message == kRequestRestore) { if (IsIconic(window_)) Open(); return 0; }
-  if (message == WM_SYSCOMMAND) {
+  if (message == WM_SYSCOMMAND && mode_ != Mode::system) {
     if ((wparam & 0xfff0) == SC_MINIMIZE) { Minimize(); return 0; }
     if ((wparam & 0xfff0) == SC_RESTORE &&
         (IsIconic(window_) || (phase_ != Phase::idle && target_ != Target::open))) { Open(); return 0; }
