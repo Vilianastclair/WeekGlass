@@ -88,10 +88,12 @@ fi
 
 embed_course_runtime() {
   if [[ -n "$course_runtime" ]]; then
+    local entitlements="$scratch/debug-entitlements.plist"
+    /usr/bin/codesign --display --entitlements - --xml "$app" > "$entitlements"
     /usr/bin/ditto "$course_runtime" "$embedded_runtime"
     # The runtime has separately signed nested binaries. Sign only this app
     # after embedding, preserving the normal debug sandbox permissions.
-    /usr/bin/codesign --force --sign - --entitlements macos/Runner/DebugProfile.entitlements "$app"
+    /usr/bin/codesign --force --sign - --entitlements "$entitlements" "$app"
   fi
 }
 

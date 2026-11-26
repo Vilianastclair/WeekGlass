@@ -6,6 +6,7 @@ import UserNotifications
 class AppDelegate: FlutterAppDelegate, UNUserNotificationCenterDelegate {
   private var statusItem: NSStatusItem?
   private var desktop: FlutterMethodChannel?
+  private var macUpdater: MacUpdater?
   private var remindersReady = false
   private var pendingEvent: String?
 
@@ -42,6 +43,7 @@ class AppDelegate: FlutterAppDelegate, UNUserNotificationCenterDelegate {
       }
     }
     TimetableOCR.register(with: messenger)
+    macUpdater = MacUpdater(messenger: messenger)
 
     let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
     item.button?.image = NSImage(systemSymbolName: "calendar", accessibilityDescription: "WeekGlass")

@@ -61,7 +61,7 @@ class _StartupUpdatePromptState extends State<StartupUpdatePrompt> {
 
   void _observe(UpdateService service) {
     _observedOffer = service.startupOffer;
-    _sealing = service.sealingWindowsInstall;
+    _sealing = service.sealingForInstall;
     service.canInstallAutomatically = _plannerGate;
     service.addListener(_updateChanged);
   }
@@ -75,8 +75,8 @@ class _StartupUpdatePromptState extends State<StartupUpdatePrompt> {
 
   void _updateChanged() {
     final service = widget.service;
-    if (service.sealingWindowsInstall != _sealing) {
-      setState(() => _sealing = service.sealingWindowsInstall);
+    if (service.sealingForInstall != _sealing) {
+      setState(() => _sealing = service.sealingForInstall);
     }
     if (service.startupOffer != _observedOffer) {
       _observedOffer = service.startupOffer;

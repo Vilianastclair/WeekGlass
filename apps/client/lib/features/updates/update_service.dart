@@ -14,6 +14,7 @@ import 'package:path_provider/path_provider.dart';
 import 'accepted_update.dart';
 import 'android_update_bridge.dart';
 import 'android_update_request.dart';
+import 'mac_update_bridge.dart';
 import 'update_object_download.dart';
 import 'update_protocol.dart';
 import 'update_reconstruction.dart';
@@ -51,7 +52,8 @@ class UpdateService extends ChangeNotifier {
     this._windowsInstallation,
     this._launchWindowsUpdate = _runWindowsHelper,
     this._origin = updateOrigin,
-  }) : isAndroid = android ?? Platform.isAndroid;
+  }) : isAndroid = android ?? Platform.isAndroid,
+       _isMac = android == null && Platform.isMacOS;
 
   @visibleForTesting
   UpdateService.androidForTesting({
@@ -94,6 +96,8 @@ class UpdateService extends ChangeNotifier {
   bool Function()? canInstallAutomatically;
   bool get _automaticInstallAllowed => canInstallAutomatically?.call() ?? true;
   bool get sealingWindowsInstall => _sealingWindowsInstall;
+  bool get sealingForInstall =>
+      _sealingWindowsInstall || (_isMac && _mac.sealing);
   bool _sealingWindowsInstall = false;
   bool _windowsAutoInstallPending = false;
   bool _androidRespectsPlanner = false;
@@ -121,8 +125,15 @@ class UpdateService extends ChangeNotifier {
   bool needsInstallPermission = false;
   bool androidBackgroundDownloadUnavailable = false;
   bool get supportsUpdates =>
-      Platform.isWindows || isAndroid || _windowsInstallation != null;
+      Platform.isWindows || isAndroid || _isMac || _windowsInstallation != null;
   final bool isAndroid;
+  final bool _isMac;
+  late final _mac = MacUpdateBridge(
+    canRelaunch: () => canInstallAutomatically?.call() == true,
+    prepare: () async => beforeInstall?.call(),
+    resume: () async => afterInstallFailure?.call(),
+    show: _show,
+  );
   bool get ready => isAndroid ? _androidArtifact != null : _stage != null;
   String get _platform => isAndroid ? 'android-arm64' : 'windows-x64';
   String get _floorKey => isAndroid
@@ -222,12 +233,19 @@ class UpdateService extends ChangeNotifier {
     }
   }
 
-  Future<void> check() => _runUpdateWork(() => _check(startup: false));
+  Future<void> check() => _isMac
+      ? _mac.check(startup: false)
+      : _runUpdateWork(() => _check(startup: false));
 
   /// Resume an already authorized job first. A normal startup reaches only
   /// the stable channel (ETag and signed cached body), not the manifest or APK.
   Future<void> checkOnStartup() async {
     if (_startupChecked || !supportsUpdates) return;
+    if (_isMac) {
+      _startupChecked = true;
+      await _mac.check(startup: true);
+      return;
+    }
     _queuedOpenCheck = _OpenUpdateCheck.startup;
     await _runQueuedOpenCheck();
   }
@@ -801,6 +819,10 @@ class UpdateService extends ChangeNotifier {
   /// Called by the planner when it has no modal or gesture in progress.
   /// Neither a failed handoff nor a cancelled system installer retries here.
   void resumePendingInstallation() {
+    if (_isMac) {
+      _mac.resumeWhenReady();
+      return;
+    }
     if (busy) {
       _resumeWhenIdle = true;
       return;
