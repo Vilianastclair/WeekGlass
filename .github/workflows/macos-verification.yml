@@ -45,6 +45,31 @@ jobs:
           /usr/bin/ditto -x -k "$archive" "$RUNNER_TEMP"
           printf '%s\n' "$RUNNER_TEMP/flutter/bin" >> "$GITHUB_PATH"
 
+      - name: Prepare the native offline course parser
+        id: course
+        shell: bash
+        run: |
+          evidence=apps/client/build/weekglass-macos/verification
+          mkdir -p "$evidence"
+          {
+            case "$(uname -m)" in
+              arm64) java_home="${JAVA_HOME_17_ARM64:-}" ;;
+              x86_64) java_home="${JAVA_HOME_17_X64:-}" ;;
+            esac
+            if [[ -z "$java_home" ]]; then
+              java_home="$(/usr/libexec/java_home -a "$(uname -m)" -v 17)"
+            fi
+            export JAVA_HOME="$java_home"
+            portable="$RUNNER_TEMP/weekglass-portable/course_adapter"
+            archive="$RUNNER_TEMP/weekglass-course-adapter.zip"
+            native="$RUNNER_TEMP/weekglass-native/course_adapter"
+            python3 tooling/course_adapter_engine/build.py --dist "$portable"
+            cp apps/client/windows/course_adapter/parser.policy "$portable/parser.policy"
+            /usr/bin/ditto -c -k --keepParent "$portable" "$archive"
+            bash tooling/scripts/prepare-macos-course-adapter.sh "$archive" "$java_home" "$native"
+            printf 'WEEKGLASS_MAC_COURSE_RUNTIME_DIR=%s\n' "$native" >> "$GITHUB_ENV"
+          } 2>&1 | tee "$evidence/course-preparation.log"
+
       - name: Test the native window and package the app
         id: acceptance
         shell: bash
@@ -57,8 +82,15 @@ jobs:
             bash tooling/scripts/test-macos.sh --package --verify-launch
           } 2>&1 | tee "$evidence/workflow.log"
 
+      - name: Validate the production app from a disk image
+        id: distribution
+        shell: bash
+        timeout-minutes: 30
+        run: |
+          bash tooling/scripts/package-macos.sh --course-asset "$WEEKGLASS_MAC_COURSE_RUNTIME_DIR"
+
       - name: Upload runtime evidence
-        if: ${{ !cancelled() && steps.acceptance.outcome != 'skipped' }}
+        if: ${{ !cancelled() && steps.course.outcome != 'skipped' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: WeekGlass macOS ${{ matrix.arch }} runtime evidence
@@ -67,10 +99,23 @@ jobs:
           retention-days: 7
 
       - name: Upload the validated debug candidate
+        if: ${{ !cancelled() && steps.acceptance.outcome == 'success' }}
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
         with:
           name: WeekGlass macOS ${{ matrix.arch }} debug candidate
           path: apps/client/build/weekglass-macos/WeekGlass-macOS-debug.zip
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+      - name: Upload the validated distribution candidate
+        if: ${{ !cancelled() && steps.distribution.outcome == 'success' }}
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: WeekGlass macOS ${{ matrix.arch }} distribution candidate
+          path: |
+            apps/client/build/weekglass-macos/WeekGlass-macOS-*.dmg
+            apps/client/build/weekglass-macos/WeekGlass-macOS-*.json
           if-no-files-found: error
           compression-level: 0
           retention-days: 7

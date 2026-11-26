@@ -50,6 +50,8 @@ void main() {
     // Keep the SQLite file in the test application's own cache directory.
     // The host never opens the application's sandbox container.
     final cache = await getTemporaryDirectory();
+    expect(p.split(cache.path), contains('com.viliana.weekglass.smoke'));
+    await cache.create(recursive: true);
     expect(
       p.split(await cache.resolveSymbolicLinks()),
       contains('com.viliana.weekglass.smoke'),

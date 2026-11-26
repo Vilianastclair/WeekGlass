@@ -1,6 +1,12 @@
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:shared_preferences_platform_interface/in_memory_shared_preferences_async.dart';
+import 'package:shared_preferences_platform_interface/shared_preferences_async_platform_interface.dart';
 import 'package:weekglass/app/event_reminders.dart';
+import 'package:weekglass/features/planner/planner_controller.dart';
 import 'package:weekglass_domain/weekglass_domain.dart';
+
+import 'whu_import_test.dart' show MemoryImportRepo;
 
 CalendarEvent event(String id, DateTime start, DateTime end) =>
     CalendarEvent.timed(
@@ -13,6 +19,38 @@ CalendarEvent event(String id, DateTime start, DateTime end) =>
 
 void main() {
   final at = DateTime.utc(2026, 11, 4, 12);
+  testWidgets('native notification click opens the correct stored event date', (tester) async {
+    SharedPreferencesAsyncPlatform.instance = InMemorySharedPreferencesAsync.empty();
+    final repo = MemoryImportRepo();
+    final meeting = event('class', at, at.add(const Duration(hours: 1)));
+    await repo.save(meeting);
+    final planner = PlannerController(repository: repo, timeZoneId: 'Asia/Shanghai');
+    await planner.initialize();
+    planner.setAnchorDate(DateTime(2026, 1, 1));
+    const channel = MethodChannel('weekglass/desktop');
+    final messenger = tester.binding.defaultBinaryMessenger;
+    final requests = <String>[];
+    messenger.setMockMethodCallHandler(channel, (call) async {
+      requests.add(call.method);
+      return null;
+    });
+    final reminders = DesktopReminders(planner);
+    try {
+      await reminders.start(signalReady: true);
+      expect(requests, ['remindersReady']);
+      await tester.runAsync(() => messenger.handlePlatformMessage(
+        channel.name,
+        channel.codec.encodeMethodCall(const MethodCall('openEvent', 'class')),
+        (_) {},
+      ));
+      final local = meeting.startLocal;
+      expect(planner.anchorDate, DateTime(local.year, local.month, local.day));
+    } finally {
+      reminders.dispose();
+      planner.dispose();
+      messenger.setMockMethodCallHandler(channel, null);
+    }
+  });
   test('start/end triggers once, adjacent boundaries form one notice', () {
     final engine = ReminderEngine(
       startedAt: at.subtract(const Duration(minutes: 2)),

@@ -139,6 +139,7 @@ Future<void> importMacosCourseFixture(
     await tester.pump(const Duration(milliseconds: 50));
   }
   expect(tester.widget<FilledButton>(commit).onPressed, isNotNull);
+  await tester.ensureVisible(course);
   await capturePreview();
   await _tap(tester, commit);
   while (importer.evaluate().isNotEmpty &&
