@@ -48,7 +48,7 @@ class TimetableOcrPage {
   }
 }
 
-/// All values are suggestions until the user confirms the review screen.
+/// Fields recognized from a single timetable course.
 /// Missing week/day/period information stays empty; dates never come from OCR.
 class TimetableCourseDraft {
   const TimetableCourseDraft({
@@ -166,7 +166,7 @@ class TimetableImageParser {
     if (days.length < 3 || header == null) {
       final parsed = parseText(page.text);
       return TimetableRecognition(parsed.courses, [
-        '未找到完整的星期表头，已按文字整理。请对照原图确认，或用空行分开课程。',
+        '未找到完整的星期表头，已按文字整理。',
         ...parsed.messages,
       ]);
     }
@@ -295,10 +295,10 @@ class TimetableImageParser {
       throw const FormatException('课程条目超过 200 条，请分开导入。');
     }
     return TimetableRecognition(courses, [
-      '已按星期列${anchors.isEmpty ? '' : '和节次行'}整理 ${courses.length} 个课程块。表格合并单元格、跨节课程和相邻课程可能分组不准，请逐项核对。',
-      if (interpolated) '部分星期表头未识别，已按等距星期列提出位置建议；请特别核对每门课程的星期。',
+      '已按星期列${anchors.isEmpty ? '' : '和节次行'}整理 ${courses.length} 门课程。',
+      if (interpolated) '已按相邻星期列的间距补齐缺失的表头。',
       if (anchors.isEmpty) '未识别到节次行标，请补齐每门课程的节次。',
-      '未使用图片中的学期日期自动排程。请填写第一教学周周一、学期周数并确认节次时刻。',
+      '请设置学期起始日期、总周数和每节课的时刻。',
     ], usedLayout: true);
   }
 
@@ -491,7 +491,7 @@ class TimetableImportPlan {
     if (courses.isEmpty) throw const FormatException('请至少保留一门课程。');
     if (courses.length > 200) throw const FormatException('一次最多导入 200 个课程块。');
     if (clock.isEmpty || clock.length > 24) {
-      throw const FormatException('请确认节次时刻。');
+      throw const FormatException('请设置每节课的时刻。');
     }
     for (var i = 0; i < clock.length; i++) {
       if (clock[i].start < 0 ||
@@ -527,7 +527,7 @@ class TimetableImportPlan {
         throw FormatException('$label：${error.message}');
       }
       if (weeks.last > totalWeeks) {
-        throw FormatException('$label：课程周次超出已确认的 $totalWeeks 周学期。');
+        throw FormatException('$label：课程周次超出设置的 $totalWeeks 周学期。');
       }
       if (periods.last > clock.length) {
         throw FormatException('$label：请补充第 ${periods.last} 节的时刻。');

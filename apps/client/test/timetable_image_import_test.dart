@@ -116,7 +116,7 @@ void main() {
           '1-15周(单)',
         ]);
         expect(
-          parsed.messages.any((message) => message.contains('特别核对')),
+          parsed.messages.any((message) => message.contains('补齐缺失的表头')),
           isTrue,
         );
         final preview = plan(parsed.courses).preview();
@@ -308,7 +308,7 @@ void main() {
 
   for (final size in [const Size(1080, 840), const Size(390, 760)]) {
     testWidgets(
-      'editable review fits $size and never reads clipboard on entry',
+      'image import fits $size and never reads clipboard on entry',
       (tester) async {
         await initializeDateFormatting('zh_CN');
         tester.view.physicalSize = size;
@@ -339,6 +339,24 @@ void main() {
         expect(ocr.recognitions, 1);
         expect(find.text('高等数学'), findsOneWidget);
         expect(controller.events, isEmpty);
+        if (size.width > 1000) {
+          final firstMonday = find.byKey(const Key('timetable-first-monday'));
+          await tester.ensureVisible(firstMonday);
+          await tester.enterText(firstMonday, '2026-09-07');
+          await tester.enterText(find.byKey(const Key('timetable-total-weeks')), '16');
+          final clock = find.text('使用武汉大学参考节次');
+          await tester.ensureVisible(clock);
+          await tester.tap(clock);
+          await tester.pumpAndSettle();
+          await tester.tap(find.text('生成日程预览'));
+          await tester.pumpAndSettle();
+          expect(find.text('可导入 32 项，重复 0 项'), findsOneWidget);
+          await tester.tap(find.text('导入 32 项'));
+          await tester.pumpAndSettle();
+          expect(controller.events.where((e) => e.title == '高等数学'), hasLength(16));
+          expect(controller.events.where((e) => e.title == '大学物理'), hasLength(8));
+          expect(controller.events.where((e) => e.title == '程序设计'), hasLength(8));
+        }
         expect(tester.takeException(), isNull);
         await tester.pumpWidget(const SizedBox.shrink());
         controller.dispose();
@@ -347,7 +365,7 @@ void main() {
   }
 
   testWidgets(
-    'text-only mobile review validates dates, previews, saves and undoes',
+    'text import validates dates, previews, saves and undoes',
     (tester) async {
       await initializeDateFormatting('zh_CN');
       tester.view.physicalSize = const Size(390, 760);
@@ -371,9 +389,6 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.text('选择课表图片'), findsNothing);
       expect(find.text('粘贴图片'), findsNothing);
-      await tester.ensureVisible(find.byKey(const Key('timetable-confirm')));
-      await tester.tap(find.byKey(const Key('timetable-confirm')));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('生成日程预览'));
       await tester.pumpAndSettle();
       expect(find.textContaining('请明确填写第一教学周'), findsOneWidget);
@@ -390,12 +405,9 @@ void main() {
         find.byKey(const Key('timetable-clock')),
         '1 08:00-08:45\n2 08:50-09:35',
       );
-      await tester.ensureVisible(find.byKey(const Key('timetable-confirm')));
-      await tester.tap(find.byKey(const Key('timetable-confirm')));
-      await tester.pumpAndSettle();
       await tester.tap(find.text('生成日程预览'));
       await tester.pumpAndSettle();
-      expect(find.text('可导入 2 项 · 重复 0 项'), findsOneWidget);
+      expect(find.text('可导入 2 项，重复 0 项'), findsOneWidget);
       expect(repository.saveBatchCalls, 0);
       await tester.tap(find.text('导入 2 项'));
       await tester.pumpAndSettle();

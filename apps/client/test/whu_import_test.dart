@@ -463,7 +463,7 @@ void main() {
         await tester.pumpAndSettle();
         await tester.tap(find.text('连接并读取课表'));
         await tester.pumpAndSettle();
-        expect(find.text('核对课程，再放进一周'), findsOneWidget);
+        expect(find.text('课表预览'), findsOneWidget);
         expect(find.text('高等数学'), findsOneWidget);
         expect(
           tester
@@ -547,7 +547,7 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.textContaining('学校未返回所选学期'), findsOneWidget);
       expect(find.text('打开学校课表'), findsOneWidget);
-      expect(find.text('核对课程，再放进一周'), findsNothing);
+      expect(find.text('课表预览'), findsNothing);
       expect(c.events, isEmpty);
       await tester.pumpWidget(const SizedBox.shrink());
       c.dispose();

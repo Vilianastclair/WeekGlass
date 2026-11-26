@@ -117,7 +117,7 @@ void main() {
   });
 
   testWidgets(
-    'holiday choices preview the count, require reconfirmation and persist',
+    'holiday choices recalculate the import and persist',
     (tester) async {
       final tuesday = _monday.add(const Duration(days: 1));
       await _settings(
@@ -143,12 +143,8 @@ void main() {
               find.byKey(const ValueKey('commit-course-import')),
             )
             .onPressed,
-        isNull,
+        isNotNull,
       );
-      final confirm = find.byKey(const ValueKey('confirm-import-calendar'));
-      await tester.ensureVisible(confirm);
-      await tester.tap(confirm);
-      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('commit-course-import')));
       await tester.pumpAndSettle();
       expect(c.events, hasLength(6));
@@ -244,12 +240,8 @@ void main() {
               find.byKey(const ValueKey('commit-course-import')),
             )
             .onPressed,
-        isNull,
+        isNotNull,
       );
-      final confirm = find.byKey(const ValueKey('confirm-import-calendar'));
-      await tester.ensureVisible(confirm);
-      await tester.tap(confirm);
-      await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('commit-course-import')));
       await tester.pumpAndSettle();
       expect(c.events, hasLength(5));
