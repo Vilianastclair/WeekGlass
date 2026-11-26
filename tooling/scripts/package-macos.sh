@@ -50,6 +50,7 @@ fi
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 versions="$root/tooling/versions.json"
 command -v flutter >/dev/null 2>&1 || die 'Put the pinned Flutter SDK from tooling/versions.json on PATH.'
+command -v python3 >/dev/null 2>&1 || die 'Put Python 3 on PATH to write the distribution receipt.'
 
 cd "$root/apps/client"
 artifact_root="$PWD/build/weekglass-macos"
@@ -221,22 +222,36 @@ digest="$(/usr/bin/shasum -a 256 < "$dmg" | awk '{print $1}')"
 bytes="$(stat -f '%z' "$dmg")"
 parser_included=false
 [[ -z "$course_asset" ]] || parser_included=true
-/usr/bin/plutil -create json "$manifest"
-/usr/bin/plutil -insert commit -string "$(git rev-parse HEAD)" "$manifest"
-/usr/bin/plutil -insert version -string "$version" "$manifest"
-/usr/bin/plutil -insert build -integer "$build" "$manifest"
-/usr/bin/plutil -insert arch -string "$arch" "$manifest"
-/usr/bin/plutil -insert asset -json '{}' "$manifest"
-/usr/bin/plutil -insert asset.name -string "$filename" "$manifest"
-/usr/bin/plutil -insert asset.bytes -integer "$bytes" "$manifest"
-/usr/bin/plutil -insert asset.digest -string "sha256:$digest" "$manifest"
-/usr/bin/plutil -insert native_launch -bool true "$manifest"
-/usr/bin/plutil -insert adhoc_verified -bool true "$manifest"
-/usr/bin/plutil -insert course_adapter -bool "$parser_included" "$manifest"
-/usr/bin/plutil -insert gatekeeper -json '{}' "$manifest"
-/usr/bin/plutil -insert gatekeeper.assessment_exit_status -integer "$gatekeeper_status" "$manifest"
-/usr/bin/plutil -insert gatekeeper.assessment -string "$(cat "$evidence/gatekeeper-assessment.log")" "$manifest"
-/usr/bin/plutil -insert gatekeeper.internet_quarantine -bool "$quarantined" "$manifest"
+python3 - "$manifest" "$(git rev-parse HEAD)" "$version" "$build" "$arch" \
+  "$filename" "$bytes" "$digest" "$parser_included" "$gatekeeper_status" \
+  "$evidence/gatekeeper-assessment.log" "$quarantined" <<'PY'
+import json
+from pathlib import Path
+import sys
+
+(
+    manifest, commit, version, build, arch, filename, size, digest,
+    parser_included, gatekeeper_status, assessment_log, quarantined,
+) = sys.argv[1:]
+receipt = {
+    "commit": commit,
+    "version": version,
+    "build": int(build),
+    "arch": arch,
+    "asset": {"name": filename, "bytes": int(size), "digest": f"sha256:{digest}"},
+    "native_launch": True,
+    "adhoc_verified": True,
+    "course_adapter": parser_included == "true",
+    "gatekeeper": {
+        "assessment_exit_status": int(gatekeeper_status),
+        "assessment": Path(assessment_log).read_text(encoding="utf-8").rstrip("\n"),
+        "internet_quarantine": quarantined == "true",
+    },
+}
+with open(manifest, "x", encoding="utf-8") as output:
+    json.dump(receipt, output, ensure_ascii=False, indent=2)
+    output.write("\n")
+PY
 
 mv -f -- "$dmg" "$artifact_root/$filename"
 mv -f -- "$manifest" "$artifact_root/${filename%.dmg}.json"
