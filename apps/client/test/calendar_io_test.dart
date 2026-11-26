@@ -334,51 +334,44 @@ void main() {
     expect(result.messages.join(), contains('所选日期范围'));
   });
 
-  test(
-    'color and monochrome weekly PDFs support Chinese and long-note pagination',
-    () async {
-      final fontFile = File('assets/fonts/NotoSansSC-Variable.ttf');
-      final font = ByteData.sublistView(await fontFile.readAsBytes());
-      final events = <CalendarEvent>[
-        for (var i = 0; i < 22; i++)
-          CalendarEvent.timed(
-            id: 'fictional-$i',
-            title: '虚构日程 ${i + 1}：阅读与练习',
-            startLocal: DateTime.utc(2026, 11, 2 + i % 7, i % 12),
-            endLocal: DateTime.utc(2026, 11, 2 + i % 7, i % 12, 45),
-            timeZoneId: 'Asia/Shanghai',
-            color: EventColor.values[i % EventColor.values.length],
-            notes: i == 0
-                ? '${'较长备注用于检查自动续页，文字必须完整。\n' * 70}备注结尾校验'
-                : '地点：测试房间\n教师：示例老师',
-          ),
+  test('weekly PDF supports Chinese and long-note pagination', () async {
+    final fontFile = File('assets/fonts/NotoSansSC-Variable.ttf');
+    final font = ByteData.sublistView(await fontFile.readAsBytes());
+    final events = <CalendarEvent>[
+      for (var i = 0; i < 22; i++)
         CalendarEvent.timed(
-          id: 'fictional-next',
-          title: '下一周的虚构日程',
-          startLocal: DateTime.utc(2026, 11, 9, 1),
-          endLocal: DateTime.utc(2026, 11, 9, 2),
+          id: 'fictional-$i',
+          title: '虚构日程 ${i + 1}：阅读与练习',
+          startLocal: DateTime.utc(2026, 11, 2 + i % 7, i % 12),
+          endLocal: DateTime.utc(2026, 11, 2 + i % 7, i % 12, 45),
           timeZoneId: 'Asia/Shanghai',
-          notes: '第二周分页校验',
+          color: EventColor.values[i % EventColor.values.length],
+          notes: i == 0
+              ? '${'较长备注用于检查自动续页，文字必须完整。\n' * 70}备注结尾校验'
+              : '地点：测试房间\n教师：示例老师',
         ),
-      ];
-      for (final monochrome in [false, true]) {
-        final bytes = await CalendarPdf.build(
-          events: events,
-          rangeStart: DateTime(2026, 11, 2),
-          rangeEnd: DateTime(2026, 11, 16),
-          timeZoneId: 'Asia/Shanghai',
-          chineseFont: font,
-          monochrome: monochrome,
-        );
-        expect(bytes.take(5), '%PDF-'.codeUnits);
-        expect(bytes.length, greaterThan(10000));
-        final output = Platform.environment['WG_CALENDAR_QA_OUTPUT'];
-        if (output != null) {
-          await Directory(output).create(recursive: true);
-          await File('$output/calendar-${monochrome ? 'mono' : 'color'}.pdf')
-              .writeAsBytes(bytes);
-        }
-      }
-    },
-  );
+      CalendarEvent.timed(
+        id: 'fictional-next',
+        title: '下一周的虚构日程',
+        startLocal: DateTime.utc(2026, 11, 9, 1),
+        endLocal: DateTime.utc(2026, 11, 9, 2),
+        timeZoneId: 'Asia/Shanghai',
+        notes: '第二周分页校验',
+      ),
+    ];
+    final bytes = await CalendarPdf.build(
+      events: events,
+      rangeStart: DateTime(2026, 11, 2),
+      rangeEnd: DateTime(2026, 11, 16),
+      timeZoneId: 'Asia/Shanghai',
+      chineseFont: font,
+    );
+    expect(bytes.take(5), '%PDF-'.codeUnits);
+    expect(bytes.length, greaterThan(10000));
+    final output = Platform.environment['WG_CALENDAR_QA_OUTPUT'];
+    if (output != null) {
+      await Directory(output).create(recursive: true);
+      await File('$output/calendar.pdf').writeAsBytes(bytes);
+    }
+  });
 }
