@@ -510,8 +510,6 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              const Text('彩色留存，黑白打印；也可以带到其他日历。'),
-              const SizedBox(height: 16),
               Wrap(
                 spacing: 8,
                 runSpacing: 8,
@@ -556,8 +554,8 @@ class _CalendarExportDialogState extends State<CalendarExportDialog> {
               ),
               const SizedBox(height: 12),
               Text(switch (_format) {
-                CalendarExportFormat.colorPdf ||
-                CalendarExportFormat.monochromePdf => '按周分页，包含备注；较长内容会自动续页。',
+                CalendarExportFormat.colorPdf => '每周一张彩色周历，完整时间和备注另附。',
+                CalendarExportFormat.monochromePdf => '按周列出时间和备注，适合黑白打印。',
                 CalendarExportFormat.ics => '兼容主流日历；已展开的周/月日程按各次时间导出。',
                 CalendarExportFormat.json =>
                   '保留名称、时间、颜色、备注与批次，可重新导入 WeekGlass。',

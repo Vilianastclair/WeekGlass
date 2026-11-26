@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
@@ -18,9 +19,13 @@ void main() {
     () => SharedPreferencesAsyncPlatform.instance =
         InMemorySharedPreferencesAsync.empty(),
   );
-  Future<PlannerController> controller() async {
+  Future<PlannerController> controller([
+    Iterable<CalendarEvent> events = const [],
+  ]) async {
+    final repository = _MemoryRepository();
+    await repository.saveBatch(events.toList());
     final c = PlannerController(
-      repository: _MemoryRepository(),
+      repository: repository,
       timeZoneId: 'Asia/Shanghai',
     );
     await c.initialize();
@@ -77,6 +82,73 @@ void main() {
       },
     );
   }
+
+  testWidgets('color PDF exports a busy week from the calendar dialog', (
+    tester,
+  ) async {
+    final previous = FilePickerPlatform.instance;
+    final output = Platform.environment['WG_COLOR_PDF_SAMPLE'];
+    final picker = _FixturePicker(
+      saveTarget: output == null ? null : File(output),
+    );
+    FilePickerPlatform.instance = picker;
+    addTearDown(() => FilePickerPlatform.instance = previous);
+    final events = [
+      for (var day = 0; day < 7; day++)
+        for (final (i, entry) in const [
+          (8 * 60, 35, '晨间阅读'),
+          (8 * 60 + 40, 45, '线性代数'),
+          (9 * 60 + 40, 80, '城市观察'),
+          (11 * 60 + 15, 20, '整理笔记'),
+          (12 * 60, 50, '午餐与休息'),
+          (14 * 60, 80, '工作室讨论'),
+          (16 * 60, 55, '样品制作'),
+          (18 * 60 + 20, 25, '校园散步'),
+          (19 * 60 + 10, 65, '个人练习'),
+        ].indexed)
+          CalendarEvent.timed(
+            id: 'pdf-$day-$i',
+            title: entry.$3,
+            startLocal: DateTime(2026, 11, 2 + day, 0, entry.$1),
+            endLocal: DateTime(2026, 11, 2 + day, 0, entry.$1 + entry.$2),
+            timeZoneId: 'Asia/Shanghai',
+            color: EventColor.values[(i + day) % EventColor.values.length],
+            notes: i == 2
+                ? '地点：图书馆二楼\n带上观察记录与草图。'
+                : day == 6 && i == 8
+                ? '整理本周作品，下周带齐纸样。'
+                : null,
+          ),
+      for (var i = 0; i < 2; i++)
+        CalendarEvent.timed(
+          id: 'pdf-overlap-$i',
+          title: i == 0 ? '实验室交流' : '取资料',
+          startLocal: DateTime(2026, 11, 3 + i, 14, 25),
+          endLocal: DateTime(2026, 11, 3 + i, 14, i == 0 ? 55 : 30),
+          timeZoneId: 'Asia/Shanghai',
+          color: EventColor.rose,
+        ),
+    ];
+    final c = await controller(events);
+    await tester.pumpWidget(app(c));
+    await tester.tap(find.text('导出入口'));
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(find.widgetWithText(FilledButton, '导出'));
+      final deadline = DateTime.now().add(const Duration(seconds: 12));
+      while (picker.savedBytes == null && DateTime.now().isBefore(deadline)) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+        await tester.pump(const Duration(milliseconds: 20));
+      }
+    });
+    await tester.pumpAndSettle();
+    expect(picker.savedName, 'WeekGlass-20261102-彩色.pdf');
+    expect(picker.savedMime, 'application/pdf');
+    expect(picker.savedBytes!.take(5), '%PDF-'.codeUnits);
+    expect(tester.takeException(), isNull);
+    await tester.pumpWidget(const SizedBox.shrink());
+    c.dispose();
+  });
 
   testWidgets(
     'fixture import previews, saves atomically, and undo removes the batch',
@@ -154,6 +226,9 @@ void main() {
 }
 
 class _FixturePicker extends FilePickerPlatform {
+  _FixturePicker({this.saveTarget});
+
+  final File? saveTarget;
   String? savedName, savedMime;
   Uint8List? savedBytes;
   @override
@@ -182,10 +257,14 @@ class _FixturePicker extends FilePickerPlatform {
     LinuxOptions linuxOptions = const LinuxOptions(),
     WebOptions webOptions = const WebOptions(),
   }) async {
+    if (saveTarget case final file?) {
+      await file.parent.create(recursive: true);
+      await file.writeAsBytes(bytes);
+    }
     savedName = fileName;
     savedMime = mimeType;
     savedBytes = bytes;
-    return null;
+    return saveTarget?.uri;
   }
 }
 
