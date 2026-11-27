@@ -8,6 +8,7 @@ import Sparkle
 final class MacUpdater: NSObject, SPUUpdaterDelegate {
   private let channel: FlutterMethodChannel
   private var engine: SPUUpdater?
+  private var presentPreparedUpdate = false
   private var pendingRelaunch: (() -> Void)?
   private var preparing = false
   private var sealed = false
@@ -91,8 +92,18 @@ final class MacUpdater: NSObject, SPUUpdaterDelegate {
 
   func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem,
                immediateInstallationBlock install: @escaping () -> Void) -> Bool {
-    DispatchQueue.main.async { install() }
-    return true
+    // Release the automatic driver first. Sparkle keeps the prepared installer
+    // and its standard UI can offer Install and Relaunch or Install on Quit.
+    // Sparkle already presents critical updates immediately.
+    presentPreparedUpdate = !item.isCriticalUpdate
+    return false
+  }
+
+  func updater(_ updater: SPUUpdater, didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
+               error: Error?) {
+    guard presentPreparedUpdate else { return }
+    presentPreparedUpdate = false
+    if error == nil && updater.canCheckForUpdates { updater.checkForUpdates() }
   }
 
   func updater(_ updater: SPUUpdater, shouldPostponeRelaunchForUpdate item: SUAppcastItem,
