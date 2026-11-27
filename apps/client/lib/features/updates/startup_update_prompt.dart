@@ -7,14 +7,24 @@ import 'update_service.dart';
 
 enum _UpdateChoice { skip, update }
 
-/// Presents the one startup offer only when the planner can yield the screen.
+/// Only the foreground route may offer an update; editors keep their focus.
 class StartupUpdatePrompt extends StatefulWidget {
   const StartupUpdatePrompt({
     super.key,
     required this.service,
     required this.child,
-  });
+  }) : settings = false,
+       allowRestart = true;
 
+  const StartupUpdatePrompt.inSettings({
+    super.key,
+    required this.service,
+    required this.child,
+    required this.allowRestart,
+  }) : settings = true;
+
+  final bool settings;
+  final bool allowRestart;
   final UpdateService service;
   final Widget child;
 
@@ -30,7 +40,7 @@ class _StartupUpdatePromptState extends State<StartupUpdatePrompt> {
   StartupUpdateOffer? _observedOffer;
   bool _scheduled = false;
   bool _showing = false;
-  bool _sealing = false;
+  bool _observedRestart = false;
 
   bool _plannerIsFree() =>
       mounted && _route?.isCurrent == true && _pointers.isEmpty;
@@ -55,14 +65,16 @@ class _StartupUpdatePromptState extends State<StartupUpdatePrompt> {
     if (oldWidget.service != widget.service) {
       _ignore(oldWidget.service);
       _observe(widget.service);
-      _schedule();
     }
+    if (oldWidget.service != widget.service ||
+        widget.allowRestart != oldWidget.allowRestart)
+      _schedule();
   }
 
   void _observe(UpdateService service) {
     _observedOffer = service.startupOffer;
-    _sealing = service.sealingWindowsInstall;
-    service.canInstallAutomatically = _plannerGate;
+    _observedRestart = service.shouldPromptForRestart;
+    if (!widget.settings) service.canInstallAutomatically = _plannerGate;
     service.addListener(_updateChanged);
   }
 
@@ -75,11 +87,10 @@ class _StartupUpdatePromptState extends State<StartupUpdatePrompt> {
 
   void _updateChanged() {
     final service = widget.service;
-    if (service.sealingWindowsInstall != _sealing) {
-      setState(() => _sealing = service.sealingWindowsInstall);
-    }
-    if (service.startupOffer != _observedOffer) {
+    if (service.startupOffer != _observedOffer ||
+        service.shouldPromptForRestart != _observedRestart) {
       _observedOffer = service.startupOffer;
+      _observedRestart = service.shouldPromptForRestart;
       _schedule();
     }
   }
@@ -97,12 +108,21 @@ class _StartupUpdatePromptState extends State<StartupUpdatePrompt> {
   Future<void> _presentWhenReady() async {
     if (_showing || !_plannerIsFree()) return;
     final service = widget.service;
-    service.resumePendingInstallation();
-    final offer = service.startupOffer;
-    if (offer == null ||
-        WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed) {
+    if (!widget.settings && service.isAndroid)
+      service.resumePendingInstallation();
+    if (WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed)
+      return;
+    if (widget.allowRestart && service.shouldPromptForRestart) {
+      _showing = true;
+      try {
+        await showWindowsRestartPrompt(context, service);
+      } finally {
+        _showing = false;
+      }
       return;
     }
+    final offer = service.startupOffer;
+    if (widget.settings || offer == null) return;
     _showing = true;
     try {
       final choice = await showDialog<_UpdateChoice>(
@@ -139,10 +159,7 @@ class _StartupUpdatePromptState extends State<StartupUpdatePrompt> {
       _pointers.remove(event.pointer);
       _schedule();
     },
-    child: AbsorbPointer(
-      absorbing: _sealing,
-      child: ExcludeFocus(excluding: _sealing, child: widget.child),
-    ),
+    child: widget.child,
   );
 
   @override
@@ -197,7 +214,7 @@ class _StartupUpdateDialog extends StatelessWidget {
             Text('WeekGlass ${offer.version} 已发布，是否更新？'),
             const SizedBox(height: 8),
             Text(
-              isAndroid ? '后台下载后，请在系统确认安装。' : '后台下载完成后，自动保存并重启。',
+              isAndroid ? '后台下载后，请在系统确认安装。' : '下载完成后会询问是否重启安装。',
               style: theme.textTheme.bodySmall?.copyWith(color: palette.muted),
             ),
           ],
@@ -216,3 +233,51 @@ class _StartupUpdateDialog extends StatelessWidget {
     );
   }
 }
+
+Future<void> showWindowsRestartPrompt(
+  BuildContext context,
+  UpdateService service,
+) => showDialog<void>(
+  context: context,
+  barrierDismissible: false,
+  barrierColor: Colors.black.withValues(alpha: .24),
+  animationStyle: MediaQuery.disableAnimationsOf(context)
+      ? AnimationStyle.noAnimation
+      : null,
+  builder: (context) => PopScope(
+    canPop: false,
+    child: ListenableBuilder(
+      listenable: service,
+      builder: (context, _) => GlassAlertDialog(
+        title: const Text('重启并更新？'),
+        content: Text(
+          service.busy
+              ? service.message
+              : 'WeekGlass ${service.available?['version'] ?? ''} 已就绪。重启前会保存日程。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: service.busy
+                ? null
+                : () async {
+                    if (service.busy) return;
+                    await service.deferWindowsRestart();
+                    if (context.mounted) Navigator.pop(context);
+                  },
+            child: const Text('稍后'),
+          ),
+          FilledButton(
+            onPressed: service.busy
+                ? null
+                : () async {
+                    if (service.busy) return;
+                    await service.install();
+                    if (context.mounted) Navigator.pop(context);
+                  },
+            child: const Text('重启更新'),
+          ),
+        ],
+      ),
+    ),
+  ),
+);

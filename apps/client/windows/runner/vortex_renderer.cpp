@@ -2,6 +2,7 @@
 
 #include <d3d11.h>
 #include <dcomp.h>
+#include <dwmapi.h>
 #include <dxgi1_3.h>
 #include <wrl/client.h>
 
@@ -21,6 +22,10 @@ using Microsoft::WRL::ComPtr;
 
 #ifdef WG_VORTEX_PROBE
 void VortexProbePresented();
+#endif
+
+#ifdef WG_VORTEX_CORNER_PROBE
+void VortexProbePixels(ID3D11Device*, ID3D11DeviceContext*, IDXGISwapChain1*, RECT);
 #endif
 
 namespace {
@@ -59,9 +64,25 @@ struct Frame {
   float size[2], sink[2];
   float axis[2], spin, openness;
   float texel[2], reduced, density;
-  float intake_inward[2], padding[2];
+  float intake_inward[2], corner_radius, padding;
 };
 static_assert(sizeof(Frame) == 5*16);
+
+// Flutter supplies client pixels before DWM clips the real window. Capture
+// the owner's shape with its texture, so a parked restore uses the same shape.
+float WindowCornerRadius(HWND owner, float density) {
+  DWM_WINDOW_CORNER_PREFERENCE preference{};
+  if (IsZoomed(owner) || GetSystemMetrics(SM_REMOTESESSION) ||
+      FAILED(DwmGetWindowAttribute(owner, DWMWA_WINDOW_CORNER_PREFERENCE,
+                                   &preference, sizeof(preference))) ||
+      preference == DWMWCP_DONOTROUND) return 0.f;
+  // Resolved dynamically to preserve startup on earlier Windows 10 releases.
+  using IsArranged = BOOL (WINAPI*)(HWND);
+  static const auto arranged = reinterpret_cast<IsArranged>(
+      GetProcAddress(GetModuleHandleW(L"user32.dll"), "IsWindowArranged"));
+  if (arranged && arranged(owner)) return 0.f;
+  return (preference == DWMWCP_ROUNDSMALL ? 4.f : 8.f)*density;
+}
 
 RECT OverlayBounds(RECT source, POINT anchor) {
   // Allow lateral sweep outside a normal window. The virtual desktop clips
@@ -168,6 +189,7 @@ struct VortexRenderer::State {
     frame.texel[0] = 1.f/static_cast<float>(texture_width);
     frame.texel[1] = 1.f/static_cast<float>(texture_height);
     frame.density = static_cast<float>(GetDpiForWindow(owner))/96.f;
+    frame.corner_radius = WindowCornerRadius(owner, frame.density);
     frame.intake_inward[0] = frame.intake_inward[1] = 0.f;
     if (has_monitor) {
       const RECT& r = monitor.rcMonitor;
@@ -361,6 +383,11 @@ VortexRenderer::Result VortexRenderer::Draw(float openness, bool reduced) {
   if (!frame_ready()) return Result::unavailable;
   auto& s = *state_;
   s.Paint(openness,reduced);
+#ifdef WG_VORTEX_CORNER_PROBE
+  const LONG x = static_cast<LONG>(s.frame.origin[0]), y = static_cast<LONG>(s.frame.origin[1]);
+  VortexProbePixels(s.gpu.Get(), s.context.Get(), s.chain.Get(), {x, y,
+      x + static_cast<LONG>(s.frame.size[0]), y + static_cast<LONG>(s.frame.size[1])});
+#endif
   const HRESULT presented = s.chain->Present(1,DXGI_PRESENT_DO_NOT_WAIT);
   if (presented == DXGI_ERROR_WAS_STILL_DRAWING) return Result::busy;
   if (FAILED(presented)) return Result::unavailable;

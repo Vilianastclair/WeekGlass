@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import 'startup_update_prompt.dart';
 import 'update_service.dart';
 
 class UpdateSettingsTile extends StatelessWidget {
@@ -9,11 +10,24 @@ class UpdateSettingsTile extends StatelessWidget {
     super.key,
     required this.service,
     this.showTitle = true,
+    this.allowRestart = true,
   });
   final UpdateService service;
   final bool showTitle;
+  final bool allowRestart;
   @override
-  Widget build(BuildContext context) => AnimatedBuilder(
+  Widget build(BuildContext context) {
+    final tile = _content(context);
+    return service.isAndroid
+        ? tile
+        : StartupUpdatePrompt.inSettings(
+            service: service,
+            allowRestart: allowRestart,
+            child: tile,
+          );
+  }
+
+  Widget _content(BuildContext context) => AnimatedBuilder(
     animation: service,
     builder: (context, _) => Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
@@ -35,7 +49,7 @@ class UpdateSettingsTile extends StatelessWidget {
         if (service.startupOffer case final offer?) ...[
           const SizedBox(height: 8),
           Text(
-            service.isAndroid ? '返回日程后，在系统确认安装。' : '下载后，返回日程即可自动保存并重启。',
+            service.isAndroid ? '返回日程后，在系统确认安装。' : '下载完成后会询问是否重启安装。',
             style: Theme.of(context).textTheme.bodySmall,
           ),
           const SizedBox(height: 8),
@@ -63,7 +77,9 @@ class UpdateSettingsTile extends StatelessWidget {
           Align(
             alignment: Alignment.centerRight,
             child: TextButton.icon(
-              onPressed: service.busy
+              onPressed:
+                  service.busy ||
+                      (!service.isAndroid && service.ready && !allowRestart)
                   ? null
                   : service.ready
                   ? () async {
@@ -71,24 +87,7 @@ class UpdateSettingsTile extends StatelessWidget {
                         await service.install();
                         return;
                       }
-                      final accepted = await showDialog<bool>(
-                        context: context,
-                        builder: (context) => AlertDialog(
-                          title: const Text('重启并更新？'),
-                          content: const Text('日程会先保存，随后关闭并重新打开 WeekGlass。'),
-                          actions: [
-                            TextButton(
-                              onPressed: () => Navigator.pop(context, false),
-                              child: const Text('稍后'),
-                            ),
-                            FilledButton(
-                              onPressed: () => Navigator.pop(context, true),
-                              child: const Text('重启更新'),
-                            ),
-                          ],
-                        ),
-                      );
-                      if (accepted == true) await service.install();
+                      await showWindowsRestartPrompt(context, service);
                     }
                   : service.canRetryAcceptedUpdate
                   ? service.retryAcceptedUpdate

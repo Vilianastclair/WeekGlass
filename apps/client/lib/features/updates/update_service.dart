@@ -93,9 +93,9 @@ class UpdateService extends ChangeNotifier {
   /// The planner supplies this gate so a new modal or a drag is not cut off.
   bool Function()? canInstallAutomatically;
   bool get _automaticInstallAllowed => canInstallAutomatically?.call() ?? true;
-  bool get sealingWindowsInstall => _sealingWindowsInstall;
-  bool _sealingWindowsInstall = false;
-  bool _windowsAutoInstallPending = false;
+  static const _laterKey = 'weekglass_deferred_restart_windows_x64';
+  bool _restartPromptPending = false;
+  bool get shouldPromptForRestart => _restartPromptPending && ready && !busy;
   bool _androidRespectsPlanner = false;
   bool _startupChecked = false;
   bool _openCheckInProgress = false;
@@ -409,16 +409,20 @@ class UpdateService extends ChangeNotifier {
         final bytes = _checkedChannel;
         if (!identical(offer, _startupOffer) || bytes == null) return;
         _startupOffer = null;
-        final accepted = AcceptedUpdate.newJob(offer.build, bytes);
-        try {
-          await accepted.save(await _root());
-          _activeAcceptance = accepted;
-        } catch (_) {
-          _show('未能保存更新任务，请在设置中重试');
-          return;
-        }
-        await _continueAcceptedUpdate(accepted);
+        await _acceptDownload(offer.build, bytes);
       });
+
+  Future<void> _acceptDownload(int build, List<int> bytes) async {
+    final accepted = AcceptedUpdate.newJob(build, bytes);
+    try {
+      await accepted.save(await _root());
+      _activeAcceptance = accepted;
+    } catch (_) {
+      _show('未能保存更新任务，请在设置中重试');
+      return;
+    }
+    await _continueAcceptedUpdate(accepted);
+  }
 
   Future<void> retryAcceptedUpdate() => _runUpdateWork(() async {
     final accepted = _activeAcceptance;
@@ -444,9 +448,6 @@ class UpdateService extends ChangeNotifier {
       );
     } else {
       await _downloadWindows(accepted: accepted, restoring: restoring);
-      if (_windowsAutoInstallPending) {
-        await _installWindows(automatic: true);
-      }
     }
   }
 
@@ -503,12 +504,15 @@ class UpdateService extends ChangeNotifier {
     if (isAndroid) {
       await _downloadAndroid();
     } else {
-      await _downloadWindows();
+      final channel = _checkedChannel;
+      if (channel != null) {
+        await _acceptDownload(available!['build'] as int, channel);
+      }
     }
   });
 
   Future<void> _downloadWindows({
-    AcceptedUpdate? accepted,
+    required AcceptedUpdate accepted,
     bool restoring = false,
   }) async {
     progress = 0;
@@ -518,9 +522,7 @@ class UpdateService extends ChangeNotifier {
     var step = '读取更新目录';
     try {
       final updateRoot = root = await _root();
-      final nonce =
-          accepted?.jobId ??
-          '${DateTime.now().microsecondsSinceEpoch}-${Random.secure().nextInt(1 << 30)}';
+      final nonce = accepted.jobId;
       final manifestFile = await updateChild(
         updateRoot,
         'jobs/$nonce/manifest.json',
@@ -537,22 +539,8 @@ class UpdateService extends ChangeNotifier {
       final current = _installation;
       final floor = await _updateFloor(currentBuild + 1);
       step = '校验更新信息';
-      final channel = accepted == null
-          ? await _verifyEnvelope(
-              _checkedChannel ??
-                  await (await updateChild(
-                    updateRoot,
-                    'channel.json',
-                  )).readAsBytes(),
-              channel: true,
-              floor: floor,
-              platform: _platform,
-            )
-          : await _acceptedChannel(accepted, floor);
+      final channel = await _acceptedChannel(accepted, floor);
       final targetBuild = channel['build'] as int;
-      if (accepted == null && targetBuild != available?['build']) {
-        throw const FormatException('更新版本不匹配');
-      }
       available = channel;
 
       final descriptor = channel['manifest'] as Map<String, dynamic>;
@@ -639,10 +627,11 @@ class UpdateService extends ChangeNotifier {
       _stage = staging;
       _job = job;
       _manifestFile = manifestFile;
-      _windowsAutoInstallPending = accepted != null;
-      _show('更新已就绪，重启后完成安装');
+      _restartPromptPending =
+          await _secure.read(key: _laterKey) != '$targetBuild';
+      _show('更新已就绪，可重启安装');
     } catch (error) {
-      final resumable = accepted != null && _interruptedTransfer(error);
+      final resumable = _interruptedTransfer(error);
       // Only remove the exact staging folder created above, never the
       // installation, helper recovery directories, or resumable objects.
       if (!resumable && staging != null && !isUpdateLink(staging.path)) {
@@ -652,7 +641,7 @@ class UpdateService extends ChangeNotifier {
           // The damaged staging directory is not used for a new job.
         }
       }
-      if (accepted != null && root != null && !resumable) {
+      if (root != null && !resumable) {
         await _forgetAcceptance(root);
       }
       available = null;
@@ -669,8 +658,22 @@ class UpdateService extends ChangeNotifier {
     _stage = null;
     _job = null;
     _manifestFile = null;
-    _windowsAutoInstallPending = false;
+    _restartPromptPending = false;
   }
+
+  Future<void> deferWindowsRestart() => _runUpdateWork(() async {
+    if (isAndroid || !ready) return;
+    _restartPromptPending = false;
+    try {
+      await _secure.write(
+        key: _laterKey,
+        value: available!['build'].toString(),
+      );
+      _show('更新已就绪，可在这里重启安装');
+    } catch (_) {
+      _show('本次已推迟重启，下次打开时会再次提醒');
+    }
+  });
 
   /// A startup after package replacement can still see the previous app's
   /// download receipt. Resolve that receipt before considering any APK.
@@ -811,8 +814,6 @@ class UpdateService extends ChangeNotifier {
           WidgetsBinding.instance.lifecycleState == AppLifecycleState.resumed) {
         unawaited(_runUpdateWork(() => _installAndroid(automatic: true)));
       }
-    } else if (_windowsAutoInstallPending && _automaticInstallAllowed) {
-      unawaited(_runUpdateWork(() => _installWindows(automatic: true)));
     }
   }
 
@@ -1268,20 +1269,11 @@ class UpdateService extends ChangeNotifier {
   Future<void> install() =>
       _runUpdateWork(isAndroid ? _installAndroid : _installWindows);
 
-  bool _waitForWindowsPlanner(bool automatic) {
-    if (!automatic || _automaticInstallAllowed) return false;
-    _show('更新已就绪，当前操作完成后自动重启更新');
-    return true;
-  }
-
-  Future<void> _installWindows({bool automatic = false}) async {
+  // The restart dialog stays modal until verification and saving finish.
+  Future<void> _installWindows() async {
     final stage = _stage, job = _job, manifestFile = _manifestFile;
-    if (stage == null ||
-        job == null ||
-        manifestFile == null ||
-        _waitForWindowsPlanner(automatic)) {
-      return;
-    }
+    if (stage == null || job == null || manifestFile == null) return;
+    _restartPromptPending = false;
     _show('正在核对安装文件…');
     var quiesced = false;
     var stageVerified = false;
@@ -1316,22 +1308,13 @@ class UpdateService extends ChangeNotifier {
         }),
         flush: true,
       );
-      // Another dialog may have opened while the stage was verified.
-      if (_waitForWindowsPlanner(automatic)) return;
       step = '保存日程和设置';
-      _sealingWindowsInstall = automatic;
       _show('正在保存并重启…');
       quiesced = beforeInstall != null;
       await beforeInstall?.call();
-      if (_waitForWindowsPlanner(automatic)) {
-        if (quiesced) await afterInstallFailure?.call();
-        return;
-      }
       step = '启动更新安装器';
-      _windowsAutoInstallPending = false;
       await _launchWindowsUpdate(copy, file);
     } catch (_) {
-      _windowsAutoInstallPending = false;
       if (_activeAcceptance != null) {
         await _forgetAcceptance(job.parent.parent);
       }
@@ -1341,8 +1324,6 @@ class UpdateService extends ChangeNotifier {
       }
       _show('更新失败（$step），当前版本未改动');
       if (quiesced) await afterInstallFailure?.call();
-    } finally {
-      _sealingWindowsInstall = false;
     }
   }
 

@@ -3,7 +3,7 @@ cbuffer Frame : register(b0) {
   float2 size; float2 sink;
   float2 axis; float spin; float openness;
   float2 texel; float reduced; float density;
-  float2 intakeInward; float2 padding;
+  float2 intakeInward; float cornerRadius; float padding;
 };
 Texture2D paper : register(t0);
 SamplerState linearClamp : register(s0);
@@ -94,21 +94,23 @@ Sheet SheetVS(uint vertex : SV_VertexID) {
   return surfaceAt(float2(vertex%97,vertex/97)/float2(96,64));
 }
 float4 SheetPS(Sheet i, bool front : SV_IsFrontFace) : SV_Target {
-  if (openness >= 1.) return float4(paper.Sample(linearClamp,i.uv).rgb,1.);
-  if (reduced > .5) {
-    return float4(paper.Sample(linearClamp,i.uv).rgb*openness,openness);
+  float curl = i.optical.x;
+  float radius = lerp(cornerRadius, min(9.*density,min(size.x,size.y)*.04),
+                      (1.-reduced)*smoothstep(0.,.12,curl));
+  float2 q = abs((i.uv-.5)*size)-.5*size+radius;
+  float sdf = min(max(q.x,q.y),0.)+length(max(q,0.))-radius;
+  float inside = -sdf/max(.001,fwidth(sdf));
+  if (reduced > .5 || openness >= 1.) {
+    float alpha = openness * (radius > 0. ? saturate(inside+.5) : 1.);
+    return float4(paper.Sample(linearClamp,i.uv).rgb*alpha,alpha);
   }
-  float curl = i.optical.x, roll = i.optical.y;
+  float roll = i.optical.y;
   float alive = sin(pi*curl);
   float2 uv = i.uv;
   float3 dx = ddx(i.surface), dy = ddy(i.surface);
   float3 n = normalize(cross(dx,dy));
   float grazing = saturate(1.-abs(n.z));
   // Distance to a softened screen-space silhouette, in rendered pixels.
-  float radius = min(9.*density,min(size.x,size.y)*.04)*smoothstep(0.,.12,curl);
-  float2 q = abs((uv-.5)*size)-.5*size+radius;
-  float sdf = min(max(q.x,q.y),0.)+length(max(q,0.))-radius;
-  float inside = -sdf/max(.001,fwidth(sdf));
   float coverage = saturate(inside+.12);
   float rim = exp2(-.64*abs(inside-1.));
   float fold = grazing*grazing;

@@ -277,6 +277,9 @@ void main() {
 
       expect(app.startupOffer, isNull);
       expect(requests, [(feed.manifestPath, null), (feed.objectPath, null)]);
+      expect(sequence, isEmpty);
+      expect(app.shouldPromptForRestart, isTrue);
+      await app.install();
       expect(sequence, ['save & close', 'launcher']);
       expect(
         await File(p.join(root.path, 'jobs', intent.jobId, 'job.json'))
@@ -294,7 +297,7 @@ void main() {
       await app.acceptStartupUpdate(app.startupOffer!);
       expect(sequence, isEmpty);
       expect(app.ready, isTrue);
-      expect(app.message, '更新已就绪，当前操作完成后自动重启更新');
+      expect(app.message, '更新已就绪，可重启安装');
       final accepted = (await AcceptedUpdate.read(root))!;
 
       requests.clear();
@@ -306,6 +309,9 @@ void main() {
       await resumed.checkOnStartup();
       expect(requests, isEmpty);
       expect(resumed.startupOffer, isNull);
+      expect(sequence, isEmpty);
+      expect(resumed.shouldPromptForRestart, isTrue);
+      await resumed.install();
       expect(sequence, ['save & close', 'launcher']);
       expect(
         await File(p.join(root.path, 'jobs', accepted.jobId, 'job.json'))
@@ -340,15 +346,11 @@ void main() {
       hasLength(1),
     );
 
-    final handoff = Completer<void>();
-    app.addListener(() {
-      if (!app.busy && sequence.contains('launcher') && !handoff.isCompleted) {
-        handoff.complete();
-      }
-    });
     editorOpen = false;
     app.resumePendingInstallation();
-    await handoff.future;
+    expect(sequence, isEmpty);
+    expect(app.shouldPromptForRestart, isTrue);
+    await app.install();
     expect(sequence, ['save & close', 'launcher']);
     expect(requests.where((r) => r.$1 == feed.objectPath), hasLength(1));
   });
@@ -360,6 +362,7 @@ void main() {
       await app.checkOnStartup();
       failHealth = true;
       await app.acceptStartupUpdate(app.startupOffer!);
+      await app.install();
 
       expect(app.ready, isTrue);
       expect(app.message, '更新失败（启动更新安装器），当前版本未改动');
@@ -379,6 +382,30 @@ void main() {
         'save & close',
         'launcher',
       ]);
+    },
+  );
+
+  test(
+    'later survives process restart and preserves a manually staged download',
+    () async {
+      final app = client();
+      await app.check();
+      await app.download();
+      expect(app.shouldPromptForRestart, isTrue);
+      await app.deferWindowsRestart();
+      await app.checkOnWindowsReopen();
+      expect(app.shouldPromptForRestart, isFalse);
+      expect(app.ready, isTrue);
+
+      requests.clear();
+      final reopened = client();
+      await reopened.checkOnStartup();
+      expect(reopened.ready, isTrue);
+      expect(reopened.shouldPromptForRestart, isFalse);
+      expect(requests, isEmpty);
+      expect(sequence, isEmpty);
+      await reopened.install();
+      expect(sequence, ['save & close', 'launcher']);
     },
   );
 
@@ -476,6 +503,9 @@ void main() {
       expect(resumed.startupOffer, isNull);
       expect(ranges, ['bytes=2-']);
       expect(requests, [(feed.objectPath, null)]);
+      expect(sequence, isEmpty);
+      expect(resumed.shouldPromptForRestart, isTrue);
+      await resumed.install();
       expect(sequence, ['save & close', 'launcher']);
       expect((await AcceptedUpdate.read(root))?.jobId, acceptance.jobId);
     },

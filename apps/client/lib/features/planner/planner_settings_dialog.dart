@@ -454,7 +454,11 @@ class _SettingsDialogState extends State<_SettingsDialog> {
         Text(status, style: Theme.of(context).textTheme.bodySmall),
       const Divider(height: 24),
     ],
-    UpdateSettingsTile(service: widget.updateService, showTitle: _windows),
+    UpdateSettingsTile(
+      service: widget.updateService,
+      showTitle: _windows,
+      allowRestart: !_saving && _notifications == controller.notificationsEnabled,
+    ),
   ];
 
   Future<void> _testNotification() async {

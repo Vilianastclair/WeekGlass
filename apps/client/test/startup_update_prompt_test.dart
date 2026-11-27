@@ -171,8 +171,10 @@ void main() {
   final title = find.text('发现新版本');
   final update = find.text('立即更新');
   final skip = find.text('跳过此版本');
+  final restart = find.widgetWithText(FilledButton, '重启更新').hitTestable();
+  final restartTitle = find.text('重启并更新？');
 
-  testWidgets('startup and automatic restart wait for the real event editor', (
+  testWidgets('startup and restart prompts wait for the real event editor', (
     tester,
   ) async {
     final manifest = Completer<List<int>>();
@@ -201,7 +203,11 @@ void main() {
     expect(find.text('编辑中的第二条日程'), findsOneWidget);
     expect(title, findsNothing);
 
+    expect(restartTitle, findsNothing);
     await saveEvent(tester);
+    expect(restartTitle, findsOneWidget);
+    expect(handoff, isEmpty);
+    await tester.tap(restart);
     await waitFor(tester, () => handoff.contains('launch') && !service.busy);
     expect(handoff.first, contains('编辑中的第一条日程'));
     expect(handoff.first, contains('编辑中的第二条日程'));
@@ -381,7 +387,7 @@ void main() {
   );
 
   testWidgets(
-    'Settings offers the same startup choice and installs only after it closes',
+    'unsaved notification settings wait for save before showing restart',
     (tester) async {
       final reads = <String>[];
       service = client(
@@ -402,15 +408,78 @@ void main() {
       expect(find.text('下载更新'), findsNothing);
       expect(reads, [WindowsStartupFeed.channelPath]);
 
+      await tester.tap(find.text('日程开始或结束时通知'));
+      await tester.pumpAndSettle();
       await tester.tap(update);
       await waitFor(tester, () => service.ready && !service.busy);
       expect(service.startupOffer, isNull);
       expect(reads, [WindowsStartupFeed.channelPath, feed.manifestPath]);
       expect(handoff, isEmpty);
-      expect(find.text('更新已就绪，当前操作完成后自动重启更新'), findsOneWidget);
-      Navigator.of(tester.element(find.byType(UpdateSettingsTile))).pop();
+      expect(restartTitle, findsNothing);
+      final toggle = tester.widget<CheckboxListTile>(
+        find.byType(CheckboxListTile),
+      );
+      await tester.tap(find.text('保存'));
+      await tester.pumpAndSettle();
+      expect(controller.notificationsEnabled, toggle.value);
+      await tester.tap(find.byTooltip('关闭设置'));
+      await tester.pumpAndSettle();
+      expect(restartTitle, findsOneWidget);
+      await tester.tap(restart);
       await waitFor(tester, () => handoff.contains('launch') && !service.busy);
       expect(title, findsNothing);
+      expect(handoff, ['save: ', 'launch']);
+      await tester.pumpWidget(const SizedBox.shrink());
+    },
+  );
+
+  testWidgets(
+    'manual download finished outside Settings waits for foreground; later stays quiet',
+    (tester) async {
+      final manifest = Completer<List<int>>();
+      service = client(
+        metadata: (path, limit, {cache}) => path == feed.manifestPath
+            ? manifest.future
+            : feed.metadata(path, limit),
+      );
+      await pumpApp(tester);
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('检查更新'));
+      await waitFor(tester, () => service.available != null && !service.busy);
+      await tester.tap(find.text('下载更新'));
+      await tester.pump();
+      Navigator.pop(tester.element(find.byType(UpdateSettingsTile)));
+      await tester.pumpAndSettle();
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.hidden);
+      manifest.complete(feed.manifest);
+      await waitFor(tester, () => service.ready && !service.busy);
+      expect(restartTitle, findsNothing);
+      expect(handoff, isEmpty);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(restartTitle, findsOneWidget);
+      await tester.tap(find.text('稍后'));
+      await waitFor(
+        tester,
+        () => !service.shouldPromptForRestart && !service.busy,
+      );
+      await tester.runAsync(() => service.checkOnWindowsReopen());
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.inactive);
+      tester.binding.handleAppLifecycleStateChanged(AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+      expect(restartTitle, findsNothing);
+      expect(handoff, isEmpty);
+      await tester.tap(find.text('设置'));
+      await tester.pumpAndSettle();
+      expect(restartTitle, findsNothing);
+      await tester.tap(find.text('重启更新'));
+      await tester.pumpAndSettle();
+      expect(restartTitle, findsOneWidget);
+      await tester.tap(restart);
+      await waitFor(tester, () => handoff.contains('launch') && !service.busy);
       expect(handoff, ['save: ', 'launch']);
       await tester.pumpWidget(const SizedBox.shrink());
     },
@@ -445,7 +514,8 @@ void main() {
     await tester.tap(find.text('重试更新'));
     await waitFor(tester, () => service.ready && !service.busy);
     expect(handoff, isEmpty);
-    await tester.tapAt(const Offset(5, 5));
+    expect(restartTitle, findsOneWidget);
+    await tester.tap(restart);
     await waitFor(tester, () => handoff.contains('launch') && !service.busy);
     expect(title, findsNothing);
     expect(handoff, ['save: ', 'launch']);
