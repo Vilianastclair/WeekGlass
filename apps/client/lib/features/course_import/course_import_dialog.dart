@@ -65,10 +65,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
   late int semester = DateTime.now().month >= 8 ? 3 : 12;
   DateTime? firstMonday, savedFirstMonday;
   List<ClassPeriod> clock = [...ClassPeriod.standard];
-  bool connecting = false,
-      reading = false,
-      saving = false,
-      attempted = false;
+  bool connecting = false, reading = false, saving = false, attempted = false;
   bool removeMissing = false, restoreDeleted = false;
   bool excludeHolidays = false;
   bool removeImportedHolidays = false;
@@ -216,7 +213,7 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
       if (firstMonday != null &&
           (firstMonday == savedFirstMonday ||
               firstMonday == school.firstMonday(term))) {
-        await _rememberTeachingCalendar();
+        await widget.controller.rememberTeachingTerm(_importCalendar);
       }
       await _preview();
     } catch (e) {
@@ -304,24 +301,16 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
     StateError() => e.message,
     _ => '操作未完成，请重试。原有日程已保留。',
   };
-  Future<void> _rememberTeachingCalendar() async {
-    if (externalSchool || firstMonday == null || timetable == null) return;
-    final lastWeek = timetable!.meetings
-        .expand((m) => m.weeks)
-        .fold<int>(1, (a, b) => a > b ? a : b);
-    try {
-      await widget.controller.rememberTeachingTerm(
-        TeachingTerm(
-          year: year,
-          semester: semester,
-          firstMonday: firstMonday!,
-          weeks: school.calendarWeeks(term) ?? lastWeek,
-        ),
-      );
-    } catch (_) {
-      /* Display preferences must not block course importing. */
-    }
-  }
+  TeachingTerm get _importCalendar => TeachingTerm(
+    year: year,
+    semester: semester,
+    firstMonday: firstMonday!,
+    weeks:
+        (!externalSchool ? school.calendarWeeks(term) : null) ??
+        timetable!.meetings
+            .expand((m) => m.weeks)
+            .fold<int>(1, (a, b) => a > b ? a : b),
+  );
 
   Future<void> _preview() async {
     final generation = ++previewGeneration;
@@ -511,8 +500,11 @@ class _CourseImportDialogState extends State<CourseImportDialog> {
       if (plan == null) throw StateError(error ?? '缺少课程日期或节次时间。');
       if (sleepConflicts > 0) throw StateError('$sleepConflicts 节课与睡眠时段冲突。');
       final result = plan!;
-      await widget.controller.applyCourseImport(result.changes);
-      await _rememberTeachingCalendar();
+      await widget.controller.applyCourseImport(
+        result.changes,
+        calendar: _importCalendar,
+        source: WhuTimetable.scopeFor(term, accountKey, schoolId: sourceId),
+      );
       try {
         await preferences.setString(
           settingsKey,
