@@ -38,6 +38,9 @@ def init_schema():
             account_id uuid PRIMARY KEY, dataset_id uuid NOT NULL, sync_epoch uuid NOT NULL,
             commit_seq bigint NOT NULL DEFAULT 0, retention_floor bigint NOT NULL DEFAULT 0,
             grant_until timestamptz, created_at timestamptz NOT NULL DEFAULT now());
+          CREATE TABLE IF NOT EXISTS teaching_term_sets (
+            account_id uuid PRIMARY KEY REFERENCES accounts(account_id) ON DELETE CASCADE,
+            epoch uuid NOT NULL, revision uuid NOT NULL, entries jsonb NOT NULL);
           CREATE TABLE IF NOT EXISTS event_heads (
             account_id uuid NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
             event_id text NOT NULL, revision bigint NOT NULL, record jsonb NOT NULL,
