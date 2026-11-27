@@ -19,6 +19,7 @@ mkdir -m 700 "$PGHOST"
 api=
 cleanup() {
   if [[ -n "$api" ]]; then kill "$api" 2>/dev/null || :; wait "$api" 2>/dev/null || :; fi
+  if [[ -f "$stage/api.log" ]]; then grep "^fixture:" "$stage/api.log" || :; fi
   if [[ -f "$stage/db/postmaster.pid" ]]; then "$pg/pg_ctl" -D "$stage/db" -m fast -w stop >/dev/null; fi
   rm -rf -- "$stage"
 }

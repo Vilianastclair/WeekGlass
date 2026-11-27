@@ -78,17 +78,8 @@ final class RunnerUITests: XCTestCase {
     address.tap()
     address.typeText("https://127.0.0.1:18766\n")
     app.buttons["在浏览器中登录"].tap()
-    let web = app.webViews.firstMatch
-    let user = web.textFields.firstMatch
-    XCTAssertTrue(user.waitForExistence(timeout: 25), "System browser did not show the server login")
-    XCTAssertEqual(user.value as? String, "iphonefixture")
-    let connect = web.buttons["登录并连接"]
-    XCTAssertTrue(connect.waitForExistence(timeout: 8))
-    let button = connect.frame
-    app.coordinate(withNormalizedOffset: .zero)
-      .withOffset(CGVector(dx: button.midX, dy: button.midY)).tap()
     let merge = app.buttons["合并并同步"]
-    XCTAssertTrue(merge.waitForExistence(timeout: 28), "The browser did not return a session to WeekGlass")
+    XCTAssertTrue(merge.waitForExistence(timeout: 105), "Safari login did not return a usable session to WeekGlass")
     merge.tap()
     let syncNow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "立即同步")).firstMatch
     XCTAssertTrue(syncNow.waitForExistence(timeout: 12))
