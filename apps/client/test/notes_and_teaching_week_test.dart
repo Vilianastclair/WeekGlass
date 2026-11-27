@@ -158,7 +158,7 @@ void main() {
     await c.initialize();
     c.setAnchorDate(DateTime(2026, 11, 4));
     expect(c.whuConnected, isTrue);
-    expect(c.teachingWeekLabel, '第 1 学期 · 第 9 周');
+    expect(c.teachingWeekLabel, '第 1 学期 第 9 周');
     expect(c.events.first.notes, current.notes);
     await c.setTeachingWeekVisible(false);
     expect(c.teachingWeekLabel, isNull);
@@ -170,7 +170,7 @@ void main() {
     next.setAnchorDate(DateTime(2026, 11, 4));
     expect(next.showTeachingWeek, isFalse);
     await next.setTeachingWeekVisible(true);
-    expect(next.teachingWeekLabel, '第 1 学期 · 第 9 周');
+    expect(next.teachingWeekLabel, '第 1 学期 第 9 周');
     await next.setWhuConnected(false);
     expect(next.teachingWeekLabel, isNull);
     c.dispose();
@@ -262,7 +262,7 @@ void main() {
       expect(find.byKey(const ValueKey('teaching-week-label')), findsOneWidget);
       c.navigatePeriod(1);
       await tester.pumpAndSettle();
-      expect(c.teachingWeekLabel, '第 1 学期 · 第 10 周');
+      expect(c.teachingWeekLabel, '第 1 学期 第 10 周');
       openPlannerSettings(tester.element(find.byType(Scaffold)), c);
       await tester.pumpAndSettle();
       await tester.tap(find.text('日历与外观'));
