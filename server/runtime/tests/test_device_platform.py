@@ -9,7 +9,7 @@ from weekglass_server.protocol import DEVICE_PLATFORM_LABELS
 
 
 @pytest.mark.parametrize('platform,label', [
-    ('windows', 'Windows'), ('android', 'Android'), ('macos', 'macOS'),
+    ('windows', 'Windows'), ('android', 'Android'), ('macos', 'macOS'), ('ios', 'iPhone'),
 ])
 def test_device_metadata_uses_the_public_platform_contract(monkeypatch, platform, label):
     app = FastAPI()

@@ -3059,7 +3059,8 @@
             "enum": [
               "windows",
               "android",
-              "macos"
+              "macos",
+              "ios"
             ]
           },
           "app_version": {

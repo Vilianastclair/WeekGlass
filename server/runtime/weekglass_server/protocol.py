@@ -11,7 +11,7 @@ from .settings import settings
 
 SPEC = json.loads((Path(__file__).resolve().parents[2] / 'contracts/sync-v1.openapi.json').read_text(encoding='utf-8'))
 LIMITS = {name: value['const'] for name, value in SPEC['components']['schemas']['Limits']['properties'].items()}
-DEVICE_PLATFORM_LABELS = {'windows': 'Windows', 'android': 'Android', 'macos': 'macOS'}
+DEVICE_PLATFORM_LABELS = {'windows': 'Windows', 'android': 'Android', 'macos': 'macOS', 'ios': 'iPhone'}
 
 
 def now():
