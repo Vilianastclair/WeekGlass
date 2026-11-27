@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 import asyncio
 import hashlib
 import time
@@ -46,7 +46,7 @@ def server_info(request: Request):
             'server_time': stamp(), 'api_base_url': origin + '/v1',
             'authorization_endpoint': origin + '/v1/auth/authorize',
             'token_endpoint': origin + '/v1/auth/token',
-            'capabilities': ['atomic_batches', 'delta_pull', 'snapshot', 'export', 'account_management', 'recovery_key', 'sleep_schedule'] +
+            'capabilities': ['atomic_batches', 'delta_pull', 'snapshot', 'export', 'account_management', 'recovery_key', 'sleep_schedule', 'teaching_terms'] +
                             (['registration'] if settings.registration_enabled else []) +
                             flags, 'limits': LIMITS}
 
@@ -231,7 +231,7 @@ def read_snapshot(snapshot_id: UUID, page_token: str = Query(min_length=16, max_
 @router.get('/sync/changes')
 async def changes(request: Request, cursor: str = Query(min_length=16, max_length=1024), limit_batches: int = Query(1, ge=1, le=10),
             wait_seconds: int = Query(0, ge=0, le=25), sleep_revision: str | None = Query(None, pattern=SLEEP_REVISION_PATTERN),
-            identity=Depends(get_identity)):
+            term_revision: str | None = Query(None, pattern=SLEEP_REVISION_PATTERN), identity=Depends(get_identity)):
     deadline = time.monotonic() + wait_seconds
     def read_page():
         with connect() as conn:
@@ -246,19 +246,66 @@ async def changes(request: Request, cursor: str = Query(min_length=16, max_lengt
             more = bool(rows and rows[0]['seq'] < account['commit_seq'])
             sleep = account_sleep_schedule(account) if sleep_revision is not None else None
             send_sleep = sleep_revision is not None and sleep_revision != (sleep['revision'] if sleep else 'none')
-        return rows, more, send_sleep, sleep
+            terms = read_terms(conn, account, term_revision) if term_revision is not None else None
+        return rows, more, send_sleep, sleep, terms
     while True:
         if await request.is_disconnected():
             return Response(status_code=204)
-        rows, more, send_sleep, sleep = await run_in_threadpool(read_page)
-        if rows or send_sleep or time.monotonic() >= deadline:
+        rows, more, send_sleep, sleep, terms = await run_in_threadpool(read_page)
+        if rows or send_sleep or terms is not None or time.monotonic() >= deadline:
             included = [r['batch'] for r in rows]
             page = {'changes': included, 'next_cursor': included[-1]['cursor'] if included else cursor,
                     'has_more': more, 'server_time': stamp()}
+            if terms is not None:
+                page['teaching_terms'] = terms
             if send_sleep:
                 page['sleep_schedule'] = sleep
             return page
         await asyncio.sleep(min(0.5, max(0, deadline - time.monotonic())))
+
+
+def read_terms(conn, account, known='unknown'):
+    row = conn.execute('SELECT revision,CASE WHEN revision::text <> %s THEN entries END AS entries '
+                       'FROM teaching_term_sets WHERE account_id=%s AND epoch=%s',
+                       (known, account['account_id'], account['sync_epoch'])).fetchone()
+    if not row:
+        return None if known == 'none' else {'revision': 'none', 'entries': {}}
+    return None if row['entries'] is None else {'revision': str(row['revision']), 'entries': row['entries']}
+
+
+@router.put('/sync/teaching-terms')
+async def write_teaching_term(request: Request, identity=Depends(get_identity)):
+    data = await body(request, 'TeachingTermWrite')
+    key, calendar = data['key'], data['calendar']
+    monday = date.fromisoformat(calendar['first_monday'])
+    year = int(key.split(':')[2].split('-')[0])
+    if monday.weekday() or not year <= monday.year <= year + 1:
+        problem(422, 'invalid_teaching_calendar')
+
+    def write():
+        with connect() as conn:
+            account = account_for(conn, identity, lock=True)
+            if data['dataset_id'] != str(account['dataset_id']) or data['sync_epoch'] != str(account['sync_epoch']):
+                problem(410, 'epoch_mismatch')
+            require_sync(conn, account)
+            current = read_terms(conn, account)
+            head = current['entries'].get(key)
+            if head and head['revision'] == data['write_id'] and head['calendar'] != calendar:
+                problem(409, 'idempotency_key_reused')
+            if head and head['calendar'] == calendar:
+                return current
+            if (head['revision'] if head else None) != data['base_revision']:
+                problem(409, 'teaching_term_conflict', teaching_terms=current)
+            if not head and len(current['entries']) >= 256:
+                problem(507, 'teaching_term_quota_exceeded')
+            current['entries'][key] = {'revision': data['write_id'], 'calendar': calendar}
+            current['revision'] = str(uuid4())
+            conn.execute('INSERT INTO teaching_term_sets(account_id,epoch,revision,entries) VALUES (%s,%s,%s,%s) '
+                         'ON CONFLICT(account_id) DO UPDATE SET epoch=EXCLUDED.epoch,revision=EXCLUDED.revision,entries=EXCLUDED.entries',
+                         (account['account_id'], account['sync_epoch'], current['revision'], Jsonb(current['entries'])))
+            return current
+
+    return await run_in_threadpool(write)
 
 
 def account_sleep_schedule(account):

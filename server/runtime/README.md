@@ -97,3 +97,7 @@ The HTTPS smoke tools are for instances you operate. From `server/runtime`, inst
 - `python smoke_account_http.py --help` covers the synthetic registration and account lifecycle checks. An authorized SSH alias also enables a disposable sync entitlement and cleanup.
 - `python smoke_csrf_http.py --help` checks isolation across two HTTPS ports on the same host. It requires an authorized SSH alias for synthetic account cleanup. Run it separately from the lifecycle check so both stay within server rate limits.
 - `python smoke_http.py --help` checks update metadata and sync for a dedicated synthetic account. Pass the build number you intend to test and keep its credential files outside the checkout.
+
+## 教学周同步
+
+课程仍按日程批次同步。新客户端在增量请求中附上 `term_revision`，只在校历变化时收到 `teaching_terms`。校历按学校导入来源、原有匿名账号标识和学期独立保存，仅包含第一教学周的周一和周数。重新导入按该来源的版本更新；并发写入不同校历时保留先提交的版本，后一次可基于它重新导入。删除课表不创建日程，云端校历只在客户端仍有对应课程时展示。旧客户端维持原有日程接口。服务启动自动创建单独的数据表，沿用账号、数据集、权益和撤销检查。

@@ -297,3 +297,27 @@ def test_sleep_schedule_scope_entitlement_and_epoch_are_enforced(client, monkeyp
     new_cursor = client.post('/v1/sync/snapshots').json()['boundary_cursor']
     page = checked(client.get('/v1/sync/changes', params={'cursor': new_cursor, 'sleep_revision': 'unknown'}), 'ChangePage')
     assert 'sleep_schedule' in page and page['sleep_schedule'] is None
+
+
+def test_confirmed_teaching_terms_share_only_on_opted_in_pages(client):
+    cursor = client.post('/v1/sync/snapshots').json()['boundary_cursor']
+    def page(revision):
+        return checked(client.get('/v1/sync/changes', params={'cursor': cursor, 'term_revision': revision}), 'ChangePage')
+    assert page('unknown')['teaching_terms'] == {'revision': 'none', 'entries': {}}
+    key = 'whu:' + 'a' * 24 + ':2026-3'
+    data = dict(dataset_id=str(client.account['dataset_id']), sync_epoch=str(client.account['sync_epoch']),
+                key=key, base_revision=None, write_id=str(uuid4()), calendar=dict(first_monday='2026-09-14', weeks=17))
+    put = lambda d: client.put('/v1/sync/teaching-terms', json=d)
+    first = checked(put(data), 'TeachingTermSet')
+    assert checked(put(data), 'TeachingTermSet') == first
+    assert page('none')['teaching_terms'] == first
+    assert 'teaching_terms' not in page(first['revision'])
+    assert 'teaching_terms' not in client.get('/v1/sync/changes', params={'cursor':cursor}).json()
+    stale = {**data, 'calendar':dict(first_monday='2026-09-07', weeks=19), 'write_id': str(uuid4())}
+    assert checked(put(stale), 'Problem', 409)['teaching_terms'] == first
+    after = checked(put({**stale, 'base_revision':data['write_id']}), 'TeachingTermSet')
+    assert after['entries'][key]['calendar'] == stale['calendar']
+    assert page(first['revision'])['next_cursor'] == cursor
+    assert put({**data, 'calendar':dict(first_monday='2026-09-08', weeks=19)}).status_code == 422
+    assert put({**data, 'sync_epoch':str(uuid4())}).status_code == 410
+    assert not client.get('/v1/exports/calendar').json()['records']
