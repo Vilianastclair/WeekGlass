@@ -27,7 +27,7 @@ from starlette.concurrency import run_in_threadpool
 from . import email_delivery
 from .db import connect
 from .settings import settings, request_origin
-from .protocol import body as validated_body
+from .protocol import DEVICE_PLATFORM_LABELS, body as validated_body
 from .auth_pages import page, FORM_SCRIPT_SOURCE, HANDOFF_SCRIPT_SOURCE
 from .migrations import migrate_auth
 from .web_theme import THEME_SCRIPT_SOURCE
@@ -728,7 +728,9 @@ async def update_device(device_id: str, request: Request, identity=Depends(get_i
     body = await validated_body(request, 'DeviceInput')
     if not isinstance(body, dict) or set(body) != {'device_id','display_name','platform','app_version'}:
         fail(400, 'invalid_request', '设备信息不完整。')
-    if body['device_id'] != device_id or not isinstance(body['display_name'], str) or not 1 <= len(body['display_name']) <= 80 or body['platform'] not in ('windows','android') or not isinstance(body['app_version'], str) or len(body['app_version']) > 40:
+    if (body['device_id'] != device_id or not isinstance(body['display_name'], str)
+            or not 1 <= len(body['display_name']) <= 80 or body['platform'] not in DEVICE_PLATFORM_LABELS
+            or not isinstance(body['app_version'], str) or len(body['app_version']) > 40):
         fail(400, 'invalid_request', '设备信息无效。')
     return await run_in_threadpool(_update_device, device_id, body, identity)
 

@@ -8,6 +8,7 @@ from fastapi.responses import HTMLResponse
 from . import billing, waffo_runtime
 from .account import visible_username
 from .auth_styles import AUTH_BRAND, CLOUD_SOURCE_URL
+from .protocol import DEVICE_PLATFORM_LABELS
 from .web_theme import THEME_SCRIPT_SOURCE, THEME_STYLE_SOURCE, theme_head, theme_toggle
 
 _MARK = AUTH_BRAND.split('src="', 1)[1].split('"', 1)[0]
@@ -276,7 +277,7 @@ def _device_rows(devices, path, csrf, *, admin=False, may_disconnect=True):
         controls = (f'<details class="device-action"><summary>断开</summary>'
                     + _form(path, csrf, '确认断开', data=data, fields=_password()) + '</details>') if may_disconnect else ''
         rows.append(f'''<div class="device-row"><div><strong>{e(dev['display_name'])}</strong>
-          <p>{'Android' if dev['platform'] == 'android' else 'Windows'}　上次连接 {date(dev['last_seen_at'], time=True)}</p></div>
+          <p>{DEVICE_PLATFORM_LABELS.get(dev['platform'], '其他设备')}　上次连接 {date(dev['last_seen_at'], time=True)}</p></div>
           {controls}</div>''')
     return ''.join(rows) or '<p class="empty-line">还没有已连接的设备。</p>'
 

@@ -4,7 +4,7 @@ from urllib.parse import urlencode
 from . import billing
 from .console_pages import (_CN as CN, _ORDERS, _STATES, _feedback, _form, _heading, _password, _shell,
                             _status, amount, date, e)
-from .protocol import now, stamp
+from .protocol import DEVICE_PLATFORM_LABELS, now, stamp
 
 ACTIONS = {
     'suspend': '暂停账号', 'resume': '恢复登录', 'revoke_devices': '退出所有会话', 'revoke_device': '断开应用设备',
@@ -246,7 +246,7 @@ def _devices(target, csrf, devices):
         connected = not dev['revoked_at']
         status = _status('已连接', 'success') if connected else _status('已断开')
         title = e(dev['display_name'])
-        meta = ('Android' if dev['platform'] == 'android' else 'Windows') + (
+        meta = DEVICE_PLATFORM_LABELS.get(dev['platform'], '其他设备') + (
             f' {e(dev["app_version"])}' if dev['app_version'] else '')
         when = '上次登记 ' + date(dev['last_seen_at'], time=True)
         if not connected:
