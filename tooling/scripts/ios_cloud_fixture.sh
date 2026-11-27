@@ -4,6 +4,15 @@ set -eu -o pipefail
 root="$(cd "$(dirname "$0")/../.." && pwd -P)"
 stage="$(mktemp -d "${TMPDIR:-/tmp}/wgios.XXXXXXXX")"
 pg="$(brew --prefix postgresql@17)/bin"
+if [[ ! -x "$pg/initdb" ]]; then
+  for bin in /opt/homebrew/opt/postgresql@*/bin; do
+    if [[ -x "$bin/initdb" ]]; then pg="$bin"; break; fi
+  done
+fi
+if [[ ! -x "$pg/initdb" ]]; then
+  HOMEBREW_NO_AUTO_UPDATE=1 brew install postgresql@17
+  pg="$(brew --prefix postgresql@17)/bin"
+fi
 ssl="$(brew --prefix openssl@3)/bin/openssl"
 export PGHOST="$stage/socket" PGPORT=18760
 mkdir -m 700 "$PGHOST"
