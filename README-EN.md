@@ -7,17 +7,17 @@ WeekGlass is a weekly calendar for Windows, macOS, and Android. Keep classes, ap
 - [Download the Windows x64 installer](https://cloud.viliana.cn/download/windows)
 - [Download for macOS (Apple silicon or Intel)](https://cloud.viliana.cn/download/macos)
 - [Download the Android ARM64 APK](https://cloud.viliana.cn/download/WeekGlass-Android-arm64.apk)
-- [Download the iPhone offline planner preview (personal signing required)](https://cloud.viliana.cn/download/ios)
+- [Download the iPhone preview (personal signing required)](https://cloud.viliana.cn/download/ios)
 
 [GitHub releases](https://github.com/Vilianastclair/WeekGlass/releases) | [Website](https://cloud.viliana.cn/) | [简体中文](README.md)
 
-**Windows:** Run the EXE installer. Check for updates under Settings → Software and notifications.
+**Windows:** Run the EXE installer. Check for updates under Settings → Software and notifications. When the download is ready, choose whether to restart.
 
 **macOS:** Open the DMG and drag WeekGlass to Applications. Future updates install from the app. This release is not notarized by Apple. If macOS cannot verify the developer on first launch, use [Apple’s instructions](https://support.apple.com/en-us/102445) to allow WeekGlass.
 
 **Android:** Open the APK to install. Get updates under Settings → Software Update. After verification, WeekGlass opens the system installer in the foreground so you can confirm installation.
 
-**iPhone preview:** Sign and install the IPA with your Apple Account on a computer. Free signatures last seven days. The preview uses local storage and does not include cloud sync.
+**iPhone preview:** Sign and install the IPA with your Apple Account on a computer. Free signatures last seven days. It can sync the timetable and its teaching weeks with your other devices.
 
 ## Plan your week
 
@@ -35,7 +35,7 @@ Visit [your cloud account](https://cloud.viliana.cn/account) to manage orders, d
 
 ## Build from source
 
-Check out the source tag for the release you want to build: [Windows 0.22.10](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.10), [macOS 0.22.12](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.12), or [Android 0.22.11](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.11).
+Check out the source tag for the release you want to build: [Windows 0.22.15](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.15), [macOS 0.22.17](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.17), [Android 0.22.16](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.16), or the [iPhone preview](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.18).
 
 Use Flutter 3.47.9 (Dart 3.13.7). From the repository root:
 

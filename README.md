@@ -7,24 +7,24 @@ WeekGlass 是一款面向 Windows、macOS 和 Android 的周日历。把课表�
 - [下载 Windows x64 安装包](https://cloud.viliana.cn/download/windows)
 - [下载 macOS 版（Apple 芯片或 Intel）](https://cloud.viliana.cn/download/macos)
 - [下载 Android ARM64 APK](https://cloud.viliana.cn/download/WeekGlass-Android-arm64.apk)
-- [下载 iPhone 本地周历预览版（需自行签名）](https://cloud.viliana.cn/download/ios)
+- [下载 iPhone 预览版（需自行签名）](https://cloud.viliana.cn/download/ios)
 
 [GitHub 发行页](https://github.com/Vilianastclair/WeekGlass/releases) | [官网](https://cloud.viliana.cn/) | [English](README-EN.md)
 
-**Windows**：运行 EXE 安装，在「设置 → 软件与通知」检查更新。
+**Windows**：运行 EXE 安装，在「设置 → 软件与通知」检查更新。新版下载就绪后会询问是否重启。
 
 **macOS**：打开 DMG，将 WeekGlass 拖入「应用程序」，后续可在应用内升级。此版未经 Apple 公证；如果首次打开时系统提示无法验证开发者，可按 [Apple 的说明](https://support.apple.com/zh-cn/102445)单独允许 WeekGlass。
 
 **Android**：打开 APK 安装，在「设置 → 软件更新」升级。下载并校验后，WeekGlass 会在前台打开系统安装器，按提示确认即可。
 
-**iPhone 预览版**：在电脑上用自己的 Apple 账号签名安装，免费签名有效期为 7 天。仅支持本地周历，尚未接入云同步。
+**iPhone 预览版**：在电脑上用自己的 Apple 账号签名安装，免费签名有效期为 7 天。可与电脑和 Android 同步课表及教学周。
 
 ## 排好你的一周
 
 - **拖出一段时间**：在日历上直接创建日程，点开先看备注。每周重复的安排可以一起建、一起改。
 - **手机上双指缩放时间轴**：捏合看全天，张开看细节，自动记住本机的显示比例。
 - **按作息查看日程**：调整起床和睡眠时间不会改写已有日程；日历只显示清醒时段内的部分。连接支持作息同步的云服务后，两端可共用这组时间。
-- **导入课表和日历**：在「学校课表」里选择学校，登录教务并打开个人课表，读取后即可导入。武汉大学保留专用入口；其他学校可读取正方、强智、URP 等教务系统的个人课表。学校分本科和研究生入口时，选自己实际使用的一个。也可导入 ICS、CSV、JSON，导出黑白周表 PDF。
+- **导入课表和日历**：在「学校课表」里选择学校，登录教务并打开个人课表，读取后即可导入。武汉大学保留专用入口；其他学校可读取正方、强智、URP 等教务系统的个人课表。学校分本科和研究生入口时，选自己实际使用的一个。另一台设备同步已导入的课表后，可直接看到教学周，无需登录教务。也可导入 ICS、CSV、JSON，导出黑白周表 PDF。
 - **日程默认留在本机**：要跨设备同步，可以选官方付费云服务，也可以[用自己的服务器免费同步](server/README.md)。
 
 ## 使用官方云
@@ -35,7 +35,7 @@ WeekGlass 是一款面向 Windows、macOS 和 Android 的周日历。把课表�
 
 ## 从源码构建
 
-正式版源码：[Windows 0.22.10](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.10)、[macOS 0.22.12](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.12)、[Android 0.22.11](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.11)。请先切换到对应标签再构建。
+正式版源码：[Windows 0.22.15](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.15)、[macOS 0.22.17](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.17)、[Android 0.22.16](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.16)。iPhone 预览版见[对应源码](https://github.com/Vilianastclair/WeekGlass/tree/v0.22.18)。请先切换到对应标签再构建。
 
 使用 Flutter 3.47.9（Dart 3.13.7）。在仓库根目录运行：
 
