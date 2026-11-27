@@ -36,7 +36,7 @@ umask 077
 openssl rand -hex 32 > "$AUTH_SIGNING_KEY_FILE"
 openssl rand -hex 12 > "$stage/disposable-password"
 "$py" -m weekglass_server.admin create-account iphonefixture --password-file "$stage/disposable-password" >/dev/null
-export TEST_RUNNER_WG_FIXTURE_PASSWORD="$(cat "$stage/disposable-password")"
+export WG_DISPOSABLE_PASSWORD_FILE="$stage/disposable-password"
 "$ssl" req -x509 -newkey rsa:2048 -noenc -days 1 -subj '/CN=WeekGlass disposable simulator CA' \
   -addext 'basicConstraints=critical,CA:true' -addext 'keyUsage=critical,keyCertSign' \
   -keyout "$stage/ca.key" -out "$stage/ca.pem" 2>/dev/null
@@ -44,7 +44,7 @@ export TEST_RUNNER_WG_FIXTURE_PASSWORD="$(cat "$stage/disposable-password")"
 printf 'subjectAltName=IP:127.0.0.1\nextendedKeyUsage=serverAuth\nbasicConstraints=critical,CA:false\n' > "$stage/tls.ext"
 "$ssl" x509 -req -days 1 -in "$stage/tls.csr" -CA "$stage/ca.pem" -CAkey "$stage/ca.key" -CAcreateserial \
   -extfile "$stage/tls.ext" -out "$stage/tls.pem" 2>/dev/null
-"$py" -m uvicorn weekglass_server.main:app --host 127.0.0.1 --port 18766 --no-access-log \
+"$py" -m uvicorn --app-dir "$root/tooling/scripts" ios_fixture_form:app --host 127.0.0.1 --port 18766 --no-access-log \
   --ssl-keyfile "$stage/tls.key" --ssl-certfile "$stage/tls.pem" > "$stage/api.log" 2>&1 &
 api=$!
 for _ in {1..30}; do

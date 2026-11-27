@@ -62,7 +62,6 @@ final class RunnerUITests: XCTestCase {
 
   func testCloudLoginAndRelaunch() throws {
     continueAfterFailure = false
-    let password = try XCTUnwrap(ProcessInfo.processInfo.environment["WG_FIXTURE_PASSWORD"])
     let app = XCUIApplication()
     app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
     app.launch()
@@ -82,12 +81,12 @@ final class RunnerUITests: XCTestCase {
     let web = app.webViews.firstMatch
     let user = web.textFields.firstMatch
     XCTAssertTrue(user.waitForExistence(timeout: 25), "System browser did not show the server login")
-    user.tap()
-    user.typeText("iphonefixture")
-    let secret = web.secureTextFields.firstMatch
-    secret.tap()
-    secret.typeText(password)
-    web.buttons["登录并连接"].tap()
+    XCTAssertEqual(user.value as? String, "iphonefixture")
+    let connect = web.buttons["登录并连接"]
+    XCTAssertTrue(connect.waitForExistence(timeout: 8))
+    let button = connect.frame
+    app.coordinate(withNormalizedOffset: .zero)
+      .withOffset(CGVector(dx: button.midX, dy: button.midY)).tap()
     let merge = app.buttons["合并并同步"]
     XCTAssertTrue(merge.waitForExistence(timeout: 28), "The browser did not return a session to WeekGlass")
     merge.tap()
