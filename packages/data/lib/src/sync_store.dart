@@ -4,6 +4,7 @@ import 'package:sqflite_common/sqlite_api.dart';
 import 'package:uuid/uuid.dart';
 
 import 'sleep_schedule_store.dart';
+import 'teaching_calendar_store.dart';
 
 class SyncRequestException implements Exception {
   SyncRequestException(this.status, this.code, this.payload);
@@ -117,6 +118,12 @@ class SqliteSyncStore {
           (old.single['active'] != 1 || old.single['epoch'] != epoch)) {
         await SqliteSleepScheduleStore.reset(tx, scope);
       }
+      await TeachingCalendarStore.activate(
+        tx,
+        scope,
+        merge: old.isEmpty && uploadLocal,
+        reset: old.isNotEmpty && old.single['epoch'] != epoch,
+      );
       await tx.update('sync_profiles', {'active': 0});
       if (old.isEmpty) {
         await tx.insert('sync_profiles', {
@@ -417,6 +424,12 @@ class SqliteSyncStore {
       if (profile['epoch'] != epoch) {
         await _clearFlight(tx, scope);
         await SqliteSleepScheduleStore.reset(tx, scope);
+        await TeachingCalendarStore.activate(
+          tx,
+          scope,
+          merge: false,
+          reset: true,
+        );
       }
       final ids = records.map((r) => r['id']).toSet();
       // After server restore, do not silently discard data absent from its snapshot.

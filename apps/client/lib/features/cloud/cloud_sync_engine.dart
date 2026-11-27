@@ -59,7 +59,12 @@ class CloudSyncEngine extends ChangeNotifier {
   int _watchGeneration = 0;
   int _watchFailures = 0;
   Duration _watchDelay = Duration.zero;
-  ({String cursor, String? sleepRevision, Map<String, dynamic> page})?
+  ({
+    String cursor,
+    String? sleepRevision,
+    String termRevision,
+    Map<String, dynamic> page,
+  })?
   _prefetched;
   String? _scope;
   bool _connected = false;
@@ -68,6 +73,7 @@ class CloudSyncEngine extends ChangeNotifier {
   bool _recoverReceipts = false;
   bool _syncSleepSchedule = false;
   bool? _sleepScheduleSupported;
+  bool _teachingTermsSupported = false;
   SleepScheduleConflict? _sleepScheduleConflict;
   bool _disposed = false;
   int _generation = 0;
@@ -144,6 +150,7 @@ class CloudSyncEngine extends ChangeNotifier {
     _connected = true;
     _syncSleepSchedule = synchronizeSleepSchedule;
     _sleepScheduleSupported = null;
+    _teachingTermsSupported = false;
     _sleepScheduleConflict = null;
     _uploadPaused = uploadPaused;
     _recoverReceipts = uploadPaused || recoverReceipts;
@@ -281,7 +288,16 @@ class CloudSyncEngine extends ChangeNotifier {
       final timer = Stopwatch()..start();
       final sleepRevision = await _sleepRevision(scope);
       if (!current()) return;
-      final page = await _requestChanges(cursor, sleepRevision, wait: true);
+      final termRevision = _teachingTermsSupported
+          ? await repository.teachingCalendars.revision(scope)
+          : 'unknown';
+      if (!current()) return;
+      final page = await _requestChanges(
+        cursor,
+        sleepRevision,
+        termRevision,
+        wait: true,
+      );
       if (!current()) return;
       if (!_syncFailed && _error != null) {
         _error = null;
@@ -293,12 +309,18 @@ class CloudSyncEngine extends ChangeNotifier {
       final currentSleepPage =
           sleepChanged && sleepRevision == await _sleepRevision(scope);
       if (!current()) return;
-      if (changes.isNotEmpty ||
+      final currentTermPage =
+          page.containsKey('teaching_terms') &&
+          termRevision == await repository.teachingCalendars.revision(scope);
+      if (!current()) return;
+      if (currentTermPage ||
+          changes.isNotEmpty ||
           page['next_cursor'] != cursor ||
           currentSleepPage) {
         _prefetched = (
           cursor: cursor,
           sleepRevision: sleepRevision,
+          termRevision: termRevision,
           page: page,
         );
         await sync();
@@ -310,7 +332,8 @@ class CloudSyncEngine extends ChangeNotifier {
         if (!current()) return;
         if (_syncFailed ||
             latest['cursor'] == cursor &&
-                appliedSleepRevision == sleepRevision) {
+                appliedSleepRevision == sleepRevision &&
+                !currentTermPage) {
           // A blocked upload or unchanged cursor must not download the same
           // immediately available batch in an unbounded hot loop.
           _backoff();
@@ -391,7 +414,11 @@ class CloudSyncEngine extends ChangeNotifier {
   }
 
   Future<int> _pendingFor(String scope) async {
-    final count = await _store.pendingCount(scope);
+    final count =
+        await _store.pendingCount(scope) +
+        (_teachingTermsSupported
+            ? await repository.teachingCalendars.pendingCount(scope)
+            : 0);
     if (_sleepScheduleSupported != true) return count;
     final sleep = await repository.sleepScheduleStore.status(scope);
     return count + (sleep.pending ? 1 : 0);
@@ -407,11 +434,13 @@ class CloudSyncEngine extends ChangeNotifier {
 
   Future<Map<String, dynamic>> _requestChanges(
     String cursor,
-    String? sleepRevision, {
+    String? sleepRevision,
+    String termRevision, {
     bool wait = false,
   }) => request(
     'GET',
     '/v1/sync/changes?cursor=${Uri.encodeQueryComponent(cursor)}&limit_batches=1'
+        '&term_revision=${Uri.encodeQueryComponent(termRevision)}'
         '${wait ? '&wait_seconds=25' : ''}'
         '${sleepRevision == null ? '' : '&sleep_revision=${Uri.encodeQueryComponent(sleepRevision)}'}',
     null,
@@ -470,15 +499,20 @@ class CloudSyncEngine extends ChangeNotifier {
           final prefetched = _prefetched;
           _prefetched = null;
           sleepRevision = await _sleepRevision(scope);
+          final termRevision = _teachingTermsSupported
+              ? await repository.teachingCalendars.revision(scope)
+              : 'unknown';
           if (!_current(generation)) return;
           page =
               prefetched != null &&
                   prefetched.cursor == profile['cursor'] &&
+                  prefetched.termRevision == termRevision &&
                   prefetched.sleepRevision == sleepRevision
               ? prefetched.page
               : await _requestChanges(
                   profile['cursor'] as String,
                   sleepRevision,
+                  termRevision,
                 );
         } on SyncRequestException catch (e) {
           if (e.status != 410) rethrow;
@@ -521,6 +555,12 @@ class CloudSyncEngine extends ChangeNotifier {
             _sleepScheduleSupported ??= false;
           }
         }
+        if (page['teaching_terms'] case final Map<String, dynamic> terms) {
+          _teachingTermsSupported = true;
+          calendarChanged =
+              await repository.teachingCalendars.apply(scope, terms) ||
+              calendarChanged;
+        }
         if (page['has_more'] == true) continue;
         if (!canUpload()) break;
         if (flight != null &&
@@ -533,6 +573,31 @@ class CloudSyncEngine extends ChangeNotifier {
         final fresh = flight == null;
         final batch = flight ?? await _store.freeze(scope);
         if (batch == null) {
+          if (_teachingTermsSupported && canUpload()) {
+            final write = await repository.teachingCalendars.prepare(scope);
+            if (write != null && canUpload()) {
+              Map<String, dynamic>? terms;
+              try {
+                terms = await request('PUT', '/v1/sync/teaching-terms', write);
+              } on SyncRequestException catch (e) {
+                if (!_current(generation)) return;
+                if (e.status == 409 && e.code == 'teaching_term_conflict') {
+                  terms = e.payload['teaching_terms'] as Map<String, dynamic>;
+                } else if (e.status == 404) {
+                  _teachingTermsSupported = false;
+                } else {
+                  rethrow;
+                }
+              }
+              if (!_current(generation)) return;
+              if (terms != null) {
+                calendarChanged =
+                    await repository.teachingCalendars.apply(scope, terms) ||
+                    calendarChanged;
+                continue;
+              }
+            }
+          }
           if (canUpload() && _sleepScheduleSupported == true) {
             final sleepWrite = await repository.sleepScheduleStore.prepare(
               scope,

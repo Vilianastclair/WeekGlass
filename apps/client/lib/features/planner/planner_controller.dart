@@ -55,6 +55,7 @@ class PlannerController extends ChangeNotifier {
     final events = List<CalendarEvent>.of(await repository.getAllEvents());
     if (_writing) return reloadAfterSync();
     _events = events..sort(_compareEvents);
+    await _refreshCourseCalendars();
     _undoStack.clear();
     notifyListeners();
   }
@@ -111,14 +112,53 @@ class PlannerController extends ChangeNotifier {
   }
 
   final Map<String, TeachingTerm> _teachingTerms = {};
+  final Map<String, TeachingTerm> _courseCalendars = {};
+  Iterable<TeachingTerm> get _activeCourseCalendars {
+    if (_courseCalendars.isEmpty) return const [];
+    final keys = _events
+        .map((e) => TeachingCalendarStore.sourceKey(e.importSource))
+        .whereType<String>()
+        .toSet();
+    return keys.map((key) => _courseCalendars[key]).whereType<TeachingTerm>();
+  }
+
+  bool get hasTeachingCalendar =>
+      _whuConnected || _activeCourseCalendars.isNotEmpty;
+
+  static Map<String, dynamic> _calendarWire(TeachingTerm term) => {
+    'first_monday': term.firstMonday.toIso8601String().substring(0, 10),
+    'weeks': term.weeks,
+  };
+  Future<void> _refreshCourseCalendars() async {
+    if (repository case final SqliteEventRepository repo) {
+      final entries = await repo.teachingCalendars.read();
+      _courseCalendars.clear();
+      for (final e in entries.entries) {
+        final parts = e.key.split(':').last.split('-');
+        final term = TeachingTerm(
+          year: int.parse(parts[0]),
+          semester: int.parse(parts[1]),
+          firstMonday: DateTime.parse(e.value['first_monday'] as String),
+          weeks: e.value['weeks'] as int,
+        );
+        if (term.valid) _courseCalendars[e.key] = term;
+      }
+    }
+  }
+
   bool get whuConnected => _whuConnected;
   bool get showTeachingWeek => _showTeachingWeek;
   TeachingTerm? get visibleTeachingTerm {
-    if (!_whuConnected || !_showTeachingWeek) return null;
+    if (!_showTeachingWeek) return null;
+    final courseTerms = _activeCourseCalendars.toList();
     final matching =
-        _teachingTerms.values
-            .where((term) => term.weekAt(_anchorDate) != null)
-            .toList()
+        [
+            ...courseTerms,
+            if (_whuConnected)
+              ..._teachingTerms.values.where(
+                (v) => !courseTerms.any((t) => t.key == v.key),
+              ),
+          ].where((term) => term.weekAt(_anchorDate) != null).toList()
           ..sort((a, b) => b.firstMonday.compareTo(a.firstMonday));
     return matching.isEmpty ? null : matching.first;
   }
@@ -127,7 +167,7 @@ class PlannerController extends ChangeNotifier {
     final term = visibleTeachingTerm;
     return term == null
         ? null
-        : '第 ${term.number} 学期 · 第 ${term.weekAt(_anchorDate)} 周';
+        : '第 ${term.number} 学期 第 ${term.weekAt(_anchorDate)} 周';
   }
 
   Future<void> setTeachingWeekVisible(bool value) async {
@@ -159,8 +199,8 @@ class PlannerController extends ChangeNotifier {
     final imported = _events.where(
       (e) => e.importSource?.startsWith('whu:') ?? false,
     );
-    _whuConnected =
-        await _preferences.getBool('whu_connected') ?? imported.isNotEmpty;
+    final localConnection = await _preferences.getBool('whu_connected');
+    _whuConnected = localConnection ?? false;
     _showTeachingWeek =
         await _preferences.getBool('show_teaching_week') ?? true;
     try {
@@ -179,7 +219,7 @@ class PlannerController extends ChangeNotifier {
     // Recover calendars already confirmed and imported in 0.11, without login.
     final keys = imported
         .map((e) => e.importSource!.split(':'))
-        .where((parts) => parts.length > 2)
+        .where((parts) => parts.length >= 8)
         .map((parts) => parts[2])
         .toSet();
     for (final key in keys) {
@@ -193,7 +233,10 @@ class PlannerController extends ChangeNotifier {
         );
         final whuTerm = WhuTerm(parts[0], parts[1]);
         final dates = imported
-            .where((e) => e.importSource!.split(':')[2] == key)
+            .where((e) {
+              final p = e.importSource!.split(':');
+              return p.length >= 8 && p[2] == key;
+            })
             .map((e) => int.tryParse(e.importSource!.split(':')[6]) ?? 1);
         final lastWeek = dates.fold<int>(1, (a, b) => a > b ? a : b);
         final term = TeachingTerm(
@@ -206,6 +249,111 @@ class PlannerController extends ChangeNotifier {
       } catch (_) {
         /* Only confirmed, valid calendars are recovered. */
       }
+    }
+    if (localConnection == null &&
+        imported.isNotEmpty &&
+        _teachingTerms.isNotEmpty)
+      _whuConnected = true;
+    if (repository case final SqliteEventRepository repo) {
+      final existing = await repo.teachingCalendars.read();
+      final groups = <String, List<CalendarEvent>>{};
+      for (final e in _events) {
+        final key = TeachingCalendarStore.sourceKey(e.importSource);
+        if (key != null && !existing.containsKey(key))
+          (groups[key] ??= []).add(e);
+      }
+      final prefKeys = groups.isEmpty
+          ? <String>{}
+          : await _preferences.getKeys();
+      for (final group in groups.entries) {
+        final parts = group.key.split(':'),
+            school = parts.first,
+            termKey = parts.last;
+        var term = school == 'whu' ? _teachingTerms[termKey] : null;
+        if (term == null) {
+          // Only stored import dates are accepted. Multiple portal origins
+          // share a generic source ID; use the encoded weekday/week and an
+          // unedited occurrence to identify the exact saved calendar.
+          final candidates = prefKeys.where(
+            (k) =>
+                k == '${school}_schedule_$termKey' ||
+                (school == 'school_web' &&
+                    k.startsWith('${school}_') &&
+                    k.endsWith('_schedule_$termKey')),
+          );
+          final dates = <DateTime>{};
+          for (final key in candidates) {
+            try {
+              final pref =
+                  jsonDecode((await _preferences.getString(key))!) as Map;
+              final date = DateTime.parse(pref['firstMonday'] as String);
+              if (date.weekday == DateTime.monday)
+                dates.add(DateTime(date.year, date.month, date.day));
+            } on Object {
+              continue;
+            }
+          }
+          final inferred = <DateTime>{};
+          final weeks = <int>[];
+          for (final event in group.value) {
+            final f = event.importSource!.split(':');
+            if (f.length == 8) {
+              final week = int.tryParse(f[6]), day = int.tryParse(f[4]);
+              if (week == null ||
+                  week < 1 ||
+                  week > 53 ||
+                  day == null ||
+                  day < 1 ||
+                  day > 7)
+                continue;
+              weeks.add(week);
+              if (event.importFingerprint == eventImportFingerprint(event)) {
+                final d = event.startLocal;
+                inferred.add(
+                  DateTime(d.year, d.month, d.day - (week - 1) * 7 - day + 1),
+                );
+              }
+            }
+          }
+          if (school == 'school_web') dates.retainAll(inferred);
+          if (dates.length != 1) continue;
+          final monday = dates.single;
+          final y = termKey.split('-').map(int.parse).toList();
+          // File imports encode the actual source day instead of a week index.
+          for (final event in group.value) {
+            final f = event.importSource!.split(':');
+            if (f.length != 7) continue;
+            final m = RegExp(r'^(\d{4})-(\d{1,2})-(\d{1,2})$').firstMatch(f[4]);
+            if (m == null) continue;
+            final diff =
+                DateTime.utc(
+                      int.parse(m[1]!),
+                      int.parse(m[2]!),
+                      int.parse(m[3]!),
+                    )
+                    .difference(
+                      DateTime.utc(monday.year, monday.month, monday.day),
+                    )
+                    .inDays;
+            if (diff >= 0 && diff < 53 * 7) weeks.add(diff ~/ 7 + 1);
+          }
+          if (weeks.isEmpty) continue;
+          term = TeachingTerm(
+            year: y[0],
+            semester: y[1],
+            firstMonday: monday,
+            weeks: weeks.reduce((a, b) => a > b ? a : b),
+          );
+        }
+        if (term.valid)
+          await repo.saveCourseBatch(
+            [],
+            source: group.key,
+            calendar: _calendarWire(term),
+            migrate: true,
+          );
+      }
+      await _refreshCourseCalendars();
     }
   }
 
@@ -697,21 +845,41 @@ class PlannerController extends ChangeNotifier {
     return events.length;
   }
 
-  Future<void> applyCourseImport(List<CalendarEvent> changes) async {
+  Future<void> applyCourseImport(
+    List<CalendarEvent> changes, {
+    TeachingTerm? calendar,
+    String? source,
+  }) async {
     if (changes.any(
       (event) => !SchoolAdapter.acceptsImportSource(event.importSource),
     )) {
       throw ArgumentError('课表来源无效，请重新读取。');
     }
-    await _saveEvents(changes, replacingIds: changes.map((e) => e.id).toSet());
+    final key = source == null ? null : TeachingCalendarStore.sourceKey(source);
+    if (calendar != null &&
+        (!calendar.valid ||
+            key == null ||
+            !key.endsWith(':${calendar.key}') ||
+            changes.any(
+              (e) => TeachingCalendarStore.sourceKey(e.importSource) != key,
+            )))
+      throw ArgumentError('课表校历与课程来源不符');
+    await _saveEvents(
+      changes,
+      replacingIds: changes.map((e) => e.id).toSet(),
+      calendar: calendar,
+      courseKey: key,
+    );
   }
 
   Future<void> _saveEvents(
     List<CalendarEvent> events, {
     Set<String> replacingIds = const {},
+    TeachingTerm? calendar,
+    String? courseKey,
   }) async {
     if (_writing) throw StateError('正在保存，请稍后再试。');
-    if (events.isEmpty) return;
+    if (events.isEmpty && calendar == null) return;
     if (events.any((event) {
       if (event.deletedAtUtc != null || _sleep.allows(event)) return false;
       final previous = _findEvent(event.id);
@@ -736,7 +904,20 @@ class PlannerController extends ChangeNotifier {
         _UndoEntry(eventId: event.id, before: _findEvent(event.id)),
     ];
     try {
-      await repository.saveBatch(events);
+      if (calendar != null && courseKey != null) {
+        if (repository case final SqliteEventRepository repo) {
+          await repo.saveCourseBatch(
+            events,
+            source: courseKey,
+            calendar: _calendarWire(calendar),
+          );
+        } else if (events.isNotEmpty) {
+          await repository.saveBatch(events);
+        }
+        _courseCalendars[courseKey] = calendar;
+      } else {
+        await repository.saveBatch(events);
+      }
       final merged = {for (final event in _events) event.id: event};
       for (final event in events) {
         if (event.deletedAtUtc != null) {
@@ -746,7 +927,7 @@ class PlannerController extends ChangeNotifier {
         }
       }
       _events = merged.values.toList()..sort(_compareEvents);
-      _undoStack.add(before);
+      if (before.isNotEmpty) _undoStack.add(before);
     } finally {
       _writing = false;
       notifyListeners();
