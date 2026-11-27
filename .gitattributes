@@ -5,3 +5,4 @@
 *.webp binary
 *.ttf binary
 *.ico binary
+apps/client/test/fixtures/ios_calendar_files/visits.csv text eol=lf
