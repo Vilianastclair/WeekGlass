@@ -46,7 +46,7 @@ class AppServices {
     return AppServices(
       eventRepository: repository,
       timeZoneId: timeZoneId,
-      cloud: Platform.isIOS ? null : CloudConnection(repository: repository),
+      cloud: CloudConnection(repository: repository),
     );
   }
 

@@ -62,9 +62,13 @@ def main():
         print(f"{device}  {runtime}\n{result}", flush=True)
         run("xcrun", "simctl", "boot", sim)
         run("xcrun", "simctl", "bootstatus", sim, "-b")
+        selection = "-only-testing:RunnerUITests/RunnerUITests/testWeekKeepsChangesAcrossRelaunches"
+        if sys.argv[1:] == ["--cloud"]:
+            run("xcrun", "simctl", "keychain", sim, "add-root-cert", os.environ["WG_SIM_CA"])
+            selection = "-only-testing:RunnerUITests/RunnerUITests/testCloudLoginAndRelaunch"
         run("xcodebuild", "-workspace", "ios/Runner.xcworkspace", "-scheme", "Runner",
             "-configuration", "Debug", "-destination", f"platform=iOS Simulator,id={sim}",
-            "-parallel-testing-enabled", "NO", "-only-testing:RunnerUITests",
+            "-parallel-testing-enabled", "NO", selection,
             "-derivedDataPath", str(base / "DerivedData"), "-resultBundlePath", str(result),
             "test")
     finally:

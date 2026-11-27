@@ -60,6 +60,47 @@ final class RunnerUITests: XCTestCase {
     app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", label)).firstMatch
   }
 
+  func testCloudLoginAndRelaunch() throws {
+    continueAfterFailure = false
+    let password = try XCTUnwrap(ProcessInfo.processInfo.environment["WG_FIXTURE_PASSWORD"])
+    let app = XCUIApplication()
+    app.launchArguments = ["-AppleLanguages", "(en)", "-AppleLocale", "en_US"]
+    app.launch()
+    func openCloud() {
+      checkWeek(app)
+      app.buttons["设置"].tap()
+      let entry = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "云服务")).firstMatch
+      XCTAssertTrue(entry.waitForExistence(timeout: 12))
+      entry.tap()
+    }
+    openCloud()
+    control("自己的服务器", in: app).tap()
+    let address = app.textFields.firstMatch
+    address.tap()
+    address.typeText("https://127.0.0.1:18766\n")
+    app.buttons["在浏览器中登录"].tap()
+    let web = app.webViews.firstMatch
+    let user = web.textFields.firstMatch
+    XCTAssertTrue(user.waitForExistence(timeout: 25), "System browser did not show the server login")
+    user.tap()
+    user.typeText("iphonefixture")
+    let secret = web.secureTextFields.firstMatch
+    secret.tap()
+    secret.typeText(password)
+    web.buttons["登录并连接"].tap()
+    let merge = app.buttons["合并并同步"]
+    XCTAssertTrue(merge.waitForExistence(timeout: 28), "The browser did not return a session to WeekGlass")
+    merge.tap()
+    let syncNow = app.buttons.matching(NSPredicate(format: "label CONTAINS %@", "立即同步")).firstMatch
+    XCTAssertTrue(syncNow.waitForExistence(timeout: 12))
+    app.terminate()
+    app.launch()
+    openCloud()
+    XCTAssertTrue(syncNow.waitForExistence(timeout: 15), "Cold start must restore the linked account and merge approval")
+    XCTAssertFalse(app.buttons["在浏览器中登录"].exists)
+    attachScreen("重开后保留的同步连接", of: app)
+  }
+
   private func openFileAction(_ label: String, in app: XCUIApplication) {
     app.buttons["更多快捷操作"].tap()
     let action = control(label, in: app)

@@ -186,6 +186,7 @@ class CloudAuthService {
     this.callbackTimeout = const Duration(minutes: 5),
   }) : _vault = vault ?? SecureCloudTokenVault(),
        _transportOverride = transport,
+       _useSafariSheet = Platform.isIOS && browserLauncher == null,
        _launch =
            browserLauncher ??
            ((uri) => launchUrl(uri, mode: LaunchMode.externalApplication));
@@ -194,6 +195,7 @@ class CloudAuthService {
   final CloudHttpTransport? _transportOverride;
   final Duration callbackTimeout;
   final Future<bool> Function(Uri) _launch;
+  final bool _useSafariSheet;
   bool Function()? syncTransportAllowed;
   Map<String, dynamic>? _session;
   Future<String>? _refreshing;
@@ -314,6 +316,8 @@ class CloudAuthService {
     HttpServer? listener;
     final callbackResponses = <Future<void>>[];
     final receipt = Completer<bool>();
+    var presentedSafari = false;
+    var continuesToPlans = false;
     try {
       onPhaseChanged?.call(CloudLoginPhase.checkingServer);
       final base = validateCloudOrigin(address);
@@ -388,6 +392,11 @@ class CloudAuthService {
         );
         if (claimedCode == null) {
           claimedCode = code;
+          continuesToPlans =
+              (base.origin == officialCloudOrigin ||
+                  base.origin == legacyOfficialCloudOrigin) &&
+              q['signup']?.length == 1 &&
+              q['signup']!.single == '1';
           result.complete(code);
         }
       });
@@ -406,15 +415,23 @@ class CloudAuthService {
           );
       onPhaseChanged?.call(CloudLoginPhase.waitingForBrowser);
       login.checkCancellation();
-      final launch = Future.sync(() => _launch(authorization)).then(
-        (opened) {
-          if (!opened) throw CloudLoginException('无法打开浏览器，请检查默认浏览器设置。');
-          return result.future;
-        },
-        onError: (Object _) {
-          throw CloudLoginException('无法打开浏览器，请检查默认浏览器设置。');
-        },
-      );
+      // Keep the app's loopback callback alive while the system browser handles
+      // credentials. Subscription and account links still use the external browser.
+      presentedSafari = _useSafariSheet;
+      final launch =
+          Future.sync(
+            () => presentedSafari
+                ? launchUrl(authorization, mode: LaunchMode.inAppBrowserView)
+                : _launch(authorization),
+          ).then(
+            (opened) {
+              if (!opened) throw CloudLoginException('无法打开浏览器，请检查默认浏览器设置。');
+              return result.future;
+            },
+            onError: (Object _) {
+              throw CloudLoginException('无法打开浏览器，请检查默认浏览器设置。');
+            },
+          );
       final code = await login.wait(
         Future.any<String>([result.future, launch]),
         timeout: callbackTimeout,
@@ -462,6 +479,13 @@ class CloudAuthService {
       // Allow the claimed request to deliver its receipt without holding the
       // UI hostage if the browser closes or never reads its response.
       unawaited(_closeCallback(listener, callbackResponses));
+      if (presentedSafari && !(login.committed && continuesToPlans)) {
+        try {
+          await closeInAppWebView();
+        } catch (_) {
+          // The user may already have dismissed Safari.
+        }
+      }
       _login = null;
       login.finished.complete();
     }
@@ -569,10 +593,16 @@ class CloudAuthService {
         'PATCH',
         {
           'device_id': device,
-          'display_name': Platform.isWindows
+          'display_name': Platform.isIOS
+              ? 'WeekGlass iPhone'
+              : Platform.isWindows
               ? 'WeekGlass Windows'
               : 'WeekGlass Android',
-          'platform': Platform.isWindows ? 'windows' : 'android',
+          'platform': Platform.isIOS
+              ? 'ios'
+              : Platform.isWindows
+              ? 'windows'
+              : 'android',
           'app_version':
               '${UpdateService.currentVersion}+${UpdateService.currentBuild}',
         },

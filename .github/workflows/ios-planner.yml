@@ -2,7 +2,7 @@ name: iPhone planner verification
 
 on:
   push:
-    branches: [ci/ios-planner]
+    branches: [ci/ios-planner, ci/ios-cloud]
 
 permissions:
   contents: read
@@ -41,7 +41,11 @@ jobs:
             xcodebuild -version
             xcrun simctl list runtimes
             flutter --version
-            python3 -u tooling/scripts/test_ios_planner.py
+            if [[ "$GITHUB_REF_NAME" == ci/ios-cloud ]]; then
+              bash tooling/scripts/ios_cloud_fixture.sh
+            else
+              python3 -u tooling/scripts/test_ios_planner.py
+            fi
           } 2>&1 | tee evidence/iphone.log
       - name: Export the test evidence
         if: always()

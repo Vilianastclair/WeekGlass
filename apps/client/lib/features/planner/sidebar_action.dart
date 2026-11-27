@@ -19,7 +19,7 @@ enum SidebarAction {
   bool availableOn(TargetPlatform platform) =>
       platform != TargetPlatform.iOS ||
       isCalendarFileAction ||
-      const {create, undo, appearance, view}.contains(this);
+      const {create, undo, appearance, cloud, view}.contains(this);
 
   static const defaults = {create, undo, courses, cloud, view};
   static const iPhoneDefaults = {
