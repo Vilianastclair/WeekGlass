@@ -141,7 +141,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
               ),
             );
           }
-          if (controller.whuConnected) {
+          if (controller.hasTeachingCalendar) {
             await controller.setTeachingWeekVisible(_showTeachingWeek);
           }
         case _SettingsPage.shortcuts:
@@ -371,7 +371,7 @@ class _SettingsDialogState extends State<_SettingsDialog> {
         style: Theme.of(context).textTheme.bodySmall,
       ),
     ],
-    if (controller.whuConnected) ...[
+    if (controller.hasTeachingCalendar) ...[
       const Divider(height: 24),
       CheckboxListTile(
         key: const ValueKey('show-teaching-week'),

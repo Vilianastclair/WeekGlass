@@ -6,6 +6,7 @@ import 'package:weekglass_domain/weekglass_domain.dart';
 import 'event_repository.dart';
 import 'sleep_schedule_store.dart';
 import 'sync_store.dart';
+import 'teaching_calendar_store.dart';
 
 class SqliteEventRepository
     implements EventRepository, ImportedEventRepository {
@@ -24,6 +25,8 @@ class SqliteEventRepository
   late final SqliteSyncStore syncStore = SqliteSyncStore(() => _database);
   late final sleepScheduleStore = SqliteSleepScheduleStore(() => _database);
 
+  late final teachingCalendars = TeachingCalendarStore(() => _database);
+
   Future<Database> get _database => _databaseFuture ??= _openDatabase();
 
   Future<Database> _openDatabase() {
@@ -32,7 +35,10 @@ class SqliteEventRepository
       options: OpenDatabaseOptions(
         version: 4,
         // Additive tables: an older app can still open the calendar at v4.
-        onOpen: SqliteSleepScheduleStore.createSchema,
+        onOpen: (db) async {
+          await SqliteSleepScheduleStore.createSchema(db);
+          await TeachingCalendarStore.createSchema(db);
+        },
         onUpgrade: (database, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await database.execute(
@@ -145,9 +151,24 @@ class SqliteEventRepository
   Future<void> delete(String id) => deleteBatch([id]);
 
   @override
-  Future<void> saveBatch(List<CalendarEvent> events) async {
+  Future<void> saveBatch(List<CalendarEvent> events) => saveCourseBatch(events);
+
+  Future<void> saveCourseBatch(
+    List<CalendarEvent> events, {
+    String? source,
+    Map<String, dynamic>? calendar,
+    bool migrate = false,
+  }) async {
     final database = await _database;
     await database.transaction((transaction) async {
+      if (source != null && calendar != null) {
+        await TeachingCalendarStore.save(
+          transaction,
+          source,
+          calendar,
+          migrate: migrate,
+        );
+      }
       final batch = transaction.batch();
       for (final event in events) {
         batch.insert(
